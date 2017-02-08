@@ -18,6 +18,15 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\encoding_tables.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\ext\netlib\codecs\encode_quoted_utils.hpp" />
+    <ClInclude Include="include\ext\netlib\codecs\encoding_tables.hpp" />
+    <ClInclude Include="include\ext\netlib\codecs\url_encoding.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_stream.hpp" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A0CF8DB4-824A-4C7B-98D5-77E83548AC1E}</ProjectGuid>
   </PropertyGroup>
