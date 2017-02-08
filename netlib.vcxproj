@@ -19,12 +19,15 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\abstract_connection_controller.cpp" />
     <ClCompile Include="src\encoding_tables.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\ext\netlib\abstract_connection_controller.hpp" />
     <ClInclude Include="include\ext\netlib\codecs\encode_quoted_utils.hpp" />
     <ClInclude Include="include\ext\netlib\codecs\encoding_tables.hpp" />
     <ClInclude Include="include\ext\netlib\codecs\url_encoding.hpp" />
+    <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
     <ClInclude Include="include\ext\netlib\socket_stream.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
