@@ -51,13 +51,9 @@ namespace netlib
 		res.host   = match[4];
 		res.port   = match[5];
 
-		//res.path   = match[6];
-		//res.query  = match[7];
-		//res.frag   = match[8];
-		
-		decode_url(match[6], res.path);
-		decode_url(match[7], res.query);
-		decode_url(match[8], res.frag);
+		res.path   = match[6];
+		res.query  = match[7];
+		res.frag   = match[8];
 
 		return true;
 	}

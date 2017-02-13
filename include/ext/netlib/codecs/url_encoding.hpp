@@ -3,7 +3,7 @@
 #include <ext/is_iterator.hpp>
 #include <ext/range.hpp>
 
-#include <ext/iostreams/write.hpp>
+#include <ext/netlib/utility.hpp>
 #include <ext/netlib/codecs/encode_quoted_utils.hpp>
 #include <ext/netlib/codecs/encoding_tables.hpp>
 
@@ -47,7 +47,7 @@ namespace netlib
 		{
 			auto step_last = first + std::min<std::ptrdiff_t>(step_size, last - first);
 			auto buf_end = encode_url(first, step_last, buffer);
-			ext::iostreams::write_all(sink, buffer, buf_end - buffer);
+			write_all(sink, buffer, buf_end - buffer);
 			first = step_last;
 		}
 	}
@@ -99,7 +99,7 @@ namespace netlib
 		{
 			auto step_last = first + std::min<std::ptrdiff_t>(step_size, last - first);
 			auto buf_end = decode_url(first, step_last, buffer);
-			ext::iostreams::write_all(sink, buffer, buf_end - buffer);
+			write_all(sink, buffer, buf_end - buffer);
 			first = step_last;
 		}
 	}

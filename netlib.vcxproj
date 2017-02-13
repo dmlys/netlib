@@ -31,6 +31,7 @@
     <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
     <ClInclude Include="include\ext\netlib\parse_url.hpp" />
     <ClInclude Include="include\ext\netlib\socket_stream.hpp" />
+    <ClInclude Include="include\ext\netlib\utility.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A0CF8DB4-824A-4C7B-98D5-77E83548AC1E}</ProjectGuid>
