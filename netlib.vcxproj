@@ -19,8 +19,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="include\ext\netlib\http_parser.c" />
     <ClCompile Include="src\abstract_connection_controller.cpp" />
     <ClCompile Include="src\encoding_tables.cpp" />
+    <ClCompile Include="src\http_response_parser.cpp" />
+    <ClCompile Include="src\http_response_stream.cpp" />
     <ClCompile Include="src\parse_url.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -29,6 +32,9 @@
     <ClInclude Include="include\ext\netlib\codecs\encoding_tables.hpp" />
     <ClInclude Include="include\ext\netlib\codecs\url_encoding.hpp" />
     <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
+    <ClInclude Include="include\ext\netlib\http_parser.h" />
+    <ClInclude Include="include\ext\netlib\http_response_parser.hpp" />
+    <ClInclude Include="include\ext\netlib\http_response_stream.hpp" />
     <ClInclude Include="include\ext\netlib\parse_url.hpp" />
     <ClInclude Include="include\ext\netlib\socket_stream.hpp" />
     <ClInclude Include="include\ext\netlib\utility.hpp" />
