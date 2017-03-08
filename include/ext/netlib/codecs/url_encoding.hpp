@@ -3,7 +3,6 @@
 #include <ext/is_iterator.hpp>
 #include <ext/range.hpp>
 
-#include <ext/netlib/utility.hpp>
 #include <ext/netlib/codecs/encode_quoted_utils.hpp>
 #include <ext/netlib/codecs/encoding_tables.hpp>
 
