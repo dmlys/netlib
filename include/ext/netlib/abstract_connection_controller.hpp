@@ -30,11 +30,7 @@ namespace netlib
 		typedef boost::mutex                    mutex_type;
 		typedef boost::unique_lock<mutex_type>  unique_lock;
 
-		typedef boost::signals2::signal< connected_slot::signature_type        > connected_sig;
-		typedef boost::signals2::signal< disconnected_slot::signature_type     > disconnected_sig;
-		typedef boost::signals2::signal< connection_error_slot::signature_type > connection_error_sig;
-		typedef boost::signals2::signal< connection_lost_slot::signature_type  > connection_lost_sig;
-
+		typedef boost::signals2::signal<event_slot::signature_type> event_sig;
 		/// mutex guarding state-machine, can also be used by derived class
 		mutex_type m_mutex;
 
@@ -44,10 +40,7 @@ namespace netlib
 	
 	protected:
 		/// signals
-		connected_sig m_connected_signal;
-		disconnected_sig m_disconnected_signal;
-		connection_error_sig m_connection_error_signal;
-		connection_lost_sig m_connection_lost_signal;
+		event_sig m_event_signal;
 		
 	protected:
 		/// BadTransactionRequest handler (see connection_controller description), throws std::logic_error
@@ -96,17 +89,11 @@ namespace netlib
 		/// Returns future<void> - result of disconnection
 		ext::shared_future<void> disconnect() override final;
 
-		boost::signals2::connection on_connected(const connected_slot & slot) override
-		{ return m_connected_signal.connect(slot); }
-		boost::signals2::connection on_disconnected(const disconnected_slot & slot) override
-		{ return m_disconnected_signal.connect(slot); }
-		boost::signals2::connection on_connection_lost(const connection_lost_slot & slot) override
-		{ return m_connection_lost_signal.connect(slot); }
-		boost::signals2::connection on_connection_error(const connection_error_slot & slot) override
-		{ return m_connection_error_signal.connect(slot); }
+		boost::signals2::connection on_event(const event_slot & slot) override
+		{ return m_event_signal.connect(slot); }
 
 	public:
 		abstract_connection_controller();
-		~abstract_connection_controller();
+		~abstract_connection_controller() noexcept;
 	};
 }}

@@ -57,11 +57,6 @@ namespace netlib
 	class connection_controller
 	{
 	public:
-		typedef boost::signals2::slot<void()> connected_slot;
-		typedef boost::signals2::slot<void()> disconnected_slot;
-		typedef boost::signals2::slot<void()> connection_lost_slot;
-		typedef boost::signals2::slot<void()> connection_error_slot;
-
 		enum state_type
 		{
 			online,
@@ -69,6 +64,16 @@ namespace netlib
 			connecting,
 			disconnecting
 		};
+
+		enum event_type
+		{
+			connected,
+			disconnected,
+			connection_lost,
+			connection_error,
+		};
+
+		typedef boost::signals2::slot<void(event_type ev)> event_slot;
 
 	public:
 		/// current state of connection,
@@ -82,11 +87,8 @@ namespace netlib
 		/// Makes disconnect request.
 		/// Returns future<void> - result of disconnection
 		virtual ext::shared_future<void> disconnect() = 0;
-
-		virtual boost::signals2::connection on_connected(const connected_slot & slot) = 0;
-		virtual boost::signals2::connection on_disconnected(const disconnected_slot & slot) = 0;
-		virtual boost::signals2::connection on_connection_lost(const connection_lost_slot & slot) = 0;
-		virtual boost::signals2::connection on_connection_error(const connection_error_slot & slot) = 0;
+		/// event signal, event is identified with event_type
+		virtual boost::signals2::connection on_event(const event_slot & slot) = 0;
 
 		virtual ~connection_controller() = default;
 	};

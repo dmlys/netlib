@@ -81,7 +81,7 @@ namespace netlib
 			lk.unlock();
 
 			connected->set_value(true);
-			m_connected_signal();
+			m_event_signal(connection_controller::connected);
 			return;
 
 			// should not happen
@@ -107,8 +107,8 @@ namespace netlib
 			connected->set_value(false);
 			disconnected->set_value();
 
-			m_disconnected_signal();
-			m_connection_error_signal();
+			m_event_signal(connection_controller::disconnected);
+			m_event_signal(connection_controller::connection_error);
 			return;
 
 		case disconnecting:
@@ -116,8 +116,8 @@ namespace netlib
 			lk.unlock();
 
 			disconnected->set_value();
-			if (connected->is_ready()) connected->set_value(false);
-			m_disconnected_signal();
+			if (not connected->is_ready()) connected->set_value(false);
+			m_event_signal(connection_controller::disconnected);
 			return;
 
 		case online:
@@ -127,9 +127,9 @@ namespace netlib
 			assert(connected->is_ready());
 			disconnected->set_value();
 
-			m_disconnected_signal();
-			m_connection_error_signal();
-			m_connection_lost_signal();
+			m_event_signal(connection_controller::disconnected);
+			m_event_signal(connection_controller::connection_error);
+			m_event_signal(connection_controller::connection_lost);
 			return;
 
 		// case Offline:
@@ -158,7 +158,7 @@ namespace netlib
 
 	abstract_connection_controller::abstract_connection_controller() = default;
 
-	abstract_connection_controller::~abstract_connection_controller()
+	abstract_connection_controller::~abstract_connection_controller() noexcept
 	{
 		if (m_connect_future)    m_connect_future->release_promise();
 		if (m_disconnect_future) m_disconnect_future->release_promise();
