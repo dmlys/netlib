@@ -1,0 +1,234 @@
+#include <ext/netlib/abstract_subscription_controller.hpp>
+
+namespace ext {
+namespace netlib
+{
+	BOOST_NORETURN void abstract_subscription_controller::on_bad_request()
+	{
+		throw std::logic_error("abstract_subscription_controller: bad request");
+	}
+
+	inline void abstract_subscription_controller::on_unexpected(state_type ev)
+	{
+		
+	}
+
+	template <class State>
+	inline static void set_result(bool success, std::exception_ptr eptr, State * state)
+	{
+		if (not state) return;
+
+		if (success)
+			state->set_value(true);
+		else if (eptr == nullptr)
+			state->set_value(false);
+		else
+			state->set_exception(std::move(eptr));
+	}
+
+	template <class State>
+	inline static void abandoned_request(bool counterpart_success, State * state)
+	{
+		if (not counterpart_success && state && state->is_pending())
+		{
+			state->set_value(false);
+			//state->release_promise();
+		}
+	}
+
+	ext::shared_future<void> abstract_subscription_controller::do_close(unique_lock & lk)
+	{
+		assert(lk.owns_lock());
+		switch (m_state)
+		{
+			case opened:
+			case paused:
+			case pausing:
+			case resuming:
+				m_state = closing;
+				do_close_request(lk);
+
+				m_close_future = ext::make_intrusive<ext::shared_state<void>>();
+				m_close_future->mark_uncancellable();
+				return m_close_future;
+
+			case closed:
+			case closing:
+			default:
+				return m_close_future;
+		}
+	}
+
+	ext::shared_future<bool> abstract_subscription_controller::do_pause(unique_lock & lk)
+	{
+		assert(lk.owns_lock());
+		switch (m_state)
+		{
+			case opened:
+				m_state = pausing;
+				do_pause_request(lk);
+				
+				m_pause_future = ext::make_intrusive<ext::shared_state<bool>>();
+				m_pause_future->mark_uncancellable();
+				return m_pause_future;
+
+			case resuming:
+				on_bad_request();
+
+			case closed:
+			case closing:
+			case paused:
+			case pausing:
+			default:
+				return m_pause_future;
+
+		}
+	}
+
+	ext::shared_future<bool> abstract_subscription_controller::do_resume(unique_lock & lk)
+	{
+		assert(lk.owns_lock());
+		switch (m_state)
+		{
+			case paused:
+				m_state = resuming;
+				do_resume_request(lk);
+
+				m_resume_future = ext::make_intrusive<ext::shared_state<bool>>();
+				m_resume_future->mark_uncancellable();
+				return m_resume_future;
+
+			case pausing:
+				on_bad_request();
+
+			case opened:
+			case resuming:
+			case closed:
+			case closing:
+			default:
+				return m_resume_future;
+		}
+	}
+
+	void abstract_subscription_controller::notify_closed(unique_lock & lk)
+	{
+		assert(lk.owns_lock());
+		auto fclosed = m_close_future.get();
+		auto fpaused = m_pause_future.get();
+		auto fresumed = m_resume_future.get();
+
+		switch (m_state)
+		{
+			case closed:
+			case paused:
+			case pausing:
+			case resumed:
+			case resuming:
+				on_unexpected(closed);
+				// fall through
+
+			default:
+				m_state = closed;
+				lk.unlock();
+
+				if (fclosed) fclosed->set_value();
+				abandoned_request(false, fpaused);
+				abandoned_request(false, fresumed);
+				m_event_signal(closed);
+				return;
+		}
+	}
+
+	void abstract_subscription_controller::notify_paused(unique_lock & lk, bool success, std::exception_ptr eptr)
+	{
+		assert(lk.owns_lock());
+		auto fpaused  = m_pause_future.get();
+		auto fresumed = m_resume_future.get();
+		
+		switch (m_state)
+		{
+			case closed:
+			case closing:
+				on_unexpected(paused);
+				return;
+
+			case opened:
+			case paused:
+			case resuming:
+				on_unexpected(paused);
+				// fall through
+
+			case pausing:
+				m_state = paused;
+				lk.unlock();
+
+				set_result(success, std::move(eptr), fpaused);
+				abandoned_request(success, fresumed);				
+				m_event_signal(paused);
+				return;
+		}
+	}
+
+	void abstract_subscription_controller::notify_resumed(unique_lock & lk, bool success, std::exception_ptr eptr)
+	{
+		assert(lk.owns_lock());
+		auto fresumed = m_resume_future.get();
+		auto fpaused  = m_pause_future.get();
+		
+		switch (m_state)
+		{
+			case closed:
+			case closing:
+				on_unexpected(resumed);
+				return;
+
+			case opened:
+			case paused:
+			case pausing:
+				on_unexpected(resumed);
+
+			case resuming:
+				m_state = opened;
+				lk.unlock();
+
+				set_result(success, std::move(eptr), fresumed);
+				abandoned_request(success, fpaused);
+				m_event_signal(resumed);
+				return;
+		}
+	}
+
+	abstract_subscription_controller::state_type abstract_subscription_controller::get_state()
+	{
+		unique_lock lk(m_mutex);
+		return m_state;
+	}
+
+	ext::shared_future<void> abstract_subscription_controller::close()
+	{
+		unique_lock lk(m_mutex);
+		return do_close(lk);
+	}
+
+	ext::shared_future<bool> abstract_subscription_controller::pause()
+	{
+		unique_lock lk(m_mutex);
+		return do_pause(lk);
+	}
+
+	ext::shared_future<bool> abstract_subscription_controller::resume()
+	{
+		unique_lock lk(m_mutex);
+		return do_resume(lk);
+	}
+
+	abstract_subscription_controller::abstract_subscription_controller() = default;
+
+	abstract_subscription_controller::~abstract_subscription_controller() noexcept
+	{
+		if (m_close_future)  m_close_future->release_promise();
+		if (m_pause_future)  m_pause_future->release_promise();
+		if (m_resume_future) m_resume_future->release_promise();
+	}
+
+}}
