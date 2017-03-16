@@ -1,6 +1,7 @@
 #pragma once
+#include <mutex>
+
 #include <boost/config.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/signals2.hpp>
 #include <ext/netlib/subscription_controller.hpp>
 
@@ -9,7 +10,7 @@ namespace netlib
 {
 	/// Abstract subscription_controller implementation: state_machine, futures.
 	/// Actual pause/resume/close is delegated to derived class.
-	/// On creation has pause state.
+	/// On creation has opened state.
 	/// 
 	/// state protocol:
 	///   * controller initializes connect request with do_connect_request,
@@ -28,14 +29,14 @@ namespace netlib
 		ext::intrusive_ptr<ext::shared_state<bool>> m_pause_future, m_resume_future;
 
 	protected:
-		typedef boost::mutex mutex_type;
-		typedef boost::unique_lock<mutex_type> unique_lock;
+		typedef std::mutex mutex_type;
+		typedef std::unique_lock<mutex_type> unique_lock;
 		typedef boost::signals2::signal<event_slot::signature_type> signal_type;
 
 	protected:
 		mutex_type m_mutex;
-		state_type m_state = paused;
-		signal_type m_event_signal;
+		state_type m_state = opened;
+		signal_type m_event_signal;		
 
 	protected:
 		/// BadRequest handler (see subscription_controller description), throws std::logic_error
@@ -46,23 +47,23 @@ namespace netlib
 		/// close request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
 		/// implementation can manipulate lock is it pleases,
-		/// caller has no more need in lock, it will unlock it anyway after call(unless it's already unlocked)
-		virtual void do_close_request(unique_lock & lk) = 0;
+		/// caller has no more need in lock - passed by value.
+		virtual void do_close_request(unique_lock lk) = 0;
 		/// pause request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
 		/// implementation can manipulate lock is it pleases,
-		/// caller has no more need in lock, it will unlock it anyway after call(unless it's already unlocked)
-		virtual void do_pause_request(unique_lock & lk) = 0;
+		/// caller has no more need in lock - passed by value.
+		virtual void do_pause_request(unique_lock lk) = 0;
 		/// resume request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
 		/// implementation can manipulate lock is it pleases,
-		/// caller has no more need in lock, it will unlock it anyway after call(unless it's already unlocked)
-		virtual void do_resume_request(unique_lock & lk) = 0;
+		/// caller has no more need in lock - passed by value.
+		virtual void do_resume_request(unique_lock lk) = 0;
 
 		/// Derived class notifies about successful close request. thread safe.
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		virtual void notify_closed(unique_lock & lk);
+		virtual void notify_closed(unique_lock lk);
 		/// Derived class notifies about execution of pause request. thread safe.
 		/// * if success == true request future is set with true
 		/// * if success == false and eptr != null, request future is set with set_exception(eptr)
@@ -70,7 +71,7 @@ namespace netlib
 		/// 
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		virtual void notify_paused(unique_lock & lk, bool success = true, std::exception_ptr eptr = nullptr);
+		virtual void notify_paused(unique_lock lk, bool success = true, std::exception_ptr eptr = nullptr);
 		/// Derived class notifies about execution of resume request. thread safe.
 		/// * if success == true request future is set with true
 		/// * if success == false and eptr != null, request future is set with set_exception(eptr)
@@ -78,7 +79,7 @@ namespace netlib
 		/// 
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		virtual void notify_resumed(unique_lock & lk, bool success = true, std::exception_ptr eptr = nullptr);
+		virtual void notify_resumed(unique_lock lk, bool success = true, std::exception_ptr eptr = nullptr);
 
 		/// close state-machine event implementation.
 		/// assert(lk.owns_lock() == true)

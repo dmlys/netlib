@@ -13,6 +13,20 @@ namespace netlib
 		throw std::logic_error("abstract_connection_controller: bad transition");
 	}
 
+	template <class State>
+	inline static void set_result(bool success, std::exception_ptr eptr, State & state)
+	{
+		if (not state) return;
+
+		if (success)
+			state->set_value(true);
+		else if (eptr == nullptr)
+			state->set_value(false);
+		else
+			state->set_exception(std::move(eptr));
+	}
+
+
 	ext::shared_future<bool> abstract_connection_controller::do_connect(unique_lock & lk)
 	{
 		assert(lk.owns_lock());
@@ -27,7 +41,7 @@ namespace netlib
 			m_connect_future = ext::make_intrusive<ext::shared_state<bool>>();
 			m_connect_future->mark_uncancellable();
 			
-			do_connect_request(lk);
+			do_connect_request(std::move(lk));
 			return m_connect_future;
 
 		case online:
@@ -55,7 +69,7 @@ namespace netlib
 			m_disconnect_future = ext::make_intrusive<ext::shared_state<void>>();
 			m_connect_future->mark_uncancellable();
 
-			do_disconnect_request(lk);
+			do_disconnect_request(std::move(lk));
 			return m_disconnect_future;
 
 		default:
@@ -63,7 +77,7 @@ namespace netlib
 		}
 	}
 
-	void abstract_connection_controller::notify_connected(unique_lock lk)
+	void abstract_connection_controller::notify_connected(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
 		assert(lk.owns_lock());
 		auto connected = m_connect_future;
@@ -80,7 +94,7 @@ namespace netlib
 			m_state = online;
 			lk.unlock();
 
-			connected->set_value(true);
+			set_result(success, std::move(eptr), connected);
 			m_event_signal(connection_controller::connected);
 			return;
 

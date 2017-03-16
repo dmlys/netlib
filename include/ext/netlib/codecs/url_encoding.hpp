@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <ext/is_iterator.hpp>
+#include <ext/type_traits.hpp>
 #include <ext/range.hpp>
 
 #include <ext/netlib/codecs/encode_quoted_utils.hpp>

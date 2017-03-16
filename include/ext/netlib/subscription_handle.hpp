@@ -13,79 +13,60 @@ namespace netlib
 	class subscription_handle : boost::totally_ordered<subscription_handle>
 	{
 	public:
-		typedef std::weak_ptr<subscription_controller> weak_ptr;
-		typedef std::shared_ptr<subscription_controller> shared_ptr;
+		typedef ext::intrusive_ptr<subscription_controller> subscription_ptr;
 		typedef subscription_controller::event_slot event_slot;
 		typedef subscription_controller::state_type state_type;
 
 	private:
-		weak_ptr m_handle;
+		subscription_ptr m_ptr;
 
 	public:
-		weak_ptr get() const         noexcept  { return m_handle; }
-		shared_ptr lock()            noexcept  { return m_handle.lock(); }
-		void assign(weak_ptr handle) noexcept  { m_handle = std::move(handle); }
-		bool empty() const           noexcept  { return m_handle.expired(); }
-		void reset()                 noexcept  { m_handle.reset(); }
-		operator bool() const        noexcept  { return not empty(); }
+		auto get() const noexcept                  { return m_ptr; }
+		void assign(subscription_ptr ptr) noexcept { m_ptr = std::move(ptr); }
+		bool empty() const                noexcept { return static_cast<bool>(m_ptr); }
+		void reset()                      noexcept { m_ptr.reset(); }
+		operator bool() const             noexcept { return not empty(); }
 
 	public: // operators
 		bool operator  <(const subscription_handle & other) const
 		{
-			return m_handle.owner_before(other.m_handle);
+			return m_ptr < other.m_ptr;
 		}
 
 		bool operator ==(const subscription_handle & other) const
 		{
-			return not m_handle.owner_before(other.m_handle) && not other.m_handle.owner_before(m_handle);
+			return m_ptr == other.m_ptr;
 		}
 
 	public: // interface
 		state_type get_state()
-		{
-			auto ptr = m_handle.lock();
-			return ptr ? ptr->get_state() : subscription_controller::closed;
+		{			
+			return m_ptr ? m_ptr->get_state() : subscription_controller::closed;
 		}
 		
 		void pause()
 		{
-			auto ptr = m_handle.lock();
-			if (ptr) ptr->pause();
+			if (m_ptr) m_ptr->pause();
 		}
 
 		void resume()
 		{
-			auto ptr = m_handle.lock();
-			if (ptr) ptr->resume();
+			if (m_ptr) m_ptr->resume();
 		}
 
 		void close()
-		{
-			auto ptr = m_handle.lock();
-			if (ptr) ptr->close();
-			m_handle.reset();
+		{			
+			if (m_ptr) m_ptr->close();
+			m_ptr.reset();
 		}
 
 		void on_event(const event_slot & slot)
 		{
-			auto ptr = m_handle.lock();
-			if (ptr) ptr->on_event(slot);
+			if (m_ptr) m_ptr->on_event(slot);
 		}
 
 	public:
 		subscription_handle() = default;
-		subscription_handle(std::weak_ptr<subscription_controller> handle) : m_handle(std::move(handle)) {}
-
-		subscription_handle(const subscription_handle &) = default;
-		subscription_handle & operator =(const subscription_handle &) = default;
-
-		subscription_handle(subscription_handle && handle) noexcept
-			: m_handle(std::move(handle.m_handle)) {}
-
-		subscription_handle & operator =(subscription_handle && handle) noexcept
-		{ m_handle = std::move(handle.m_handle); return *this; }
-
-		friend void swap(subscription_handle & h1, subscription_handle & h2) noexcept
-		{ return h1.m_handle.swap(h2.m_handle); }
+		subscription_handle(subscription_ptr ptr) : m_ptr(std::move(ptr)) {}
 	};
 }}

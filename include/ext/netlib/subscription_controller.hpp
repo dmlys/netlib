@@ -1,6 +1,8 @@
 #pragma once
 #include <memory>
+#include <ext/intrusive_ptr.hpp>
 #include <ext/future.hpp>
+
 #include <boost/signals2/slot.hpp>
 #include <boost/signals2/connection.hpp>
 
@@ -20,7 +22,7 @@ namespace netlib
 	/// and signals can be emitted from any thread, including thread method is called from.
 	/// 
 	/// NOTE:
-	///   After successful transition to paused state - it's allowed to provide some left accamulated data.
+	///   After successful transition to paused state - it's allowed to provide some left accumulated data.
 	///   Implementation can provide more strict guarantees.
 	///   After successful Closed - there are should no be any data.
 	/// 
@@ -79,7 +81,7 @@ namespace netlib
 	///    Client should not issue Resume until subscription is paused
 	///                            Pause until subscription is resumed
 	///    Implementation should throw std::logic_error derived exception in such cases.
-	class subscription_controller
+	class subscription_controller : public ext::intrusive_atomic_counter<subscription_controller>
 	{
 	public:
 		enum state_type

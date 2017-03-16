@@ -1,7 +1,8 @@
 #pragma once
+#include <mutex>
+
 #include <boost/config.hpp>
 #include <boost/signals2.hpp>
-#include <boost/thread/mutex.hpp>
 #include <ext/netlib/connection_controller.hpp>
 
 namespace ext {
@@ -27,8 +28,8 @@ namespace netlib
 		ext::intrusive_ptr<ext::shared_state<void>> m_disconnect_future;
 
 	protected:
-		typedef boost::mutex                    mutex_type;
-		typedef boost::unique_lock<mutex_type>  unique_lock;
+		typedef std::mutex                    mutex_type;
+		typedef std::unique_lock<mutex_type>  unique_lock;
 
 		typedef boost::signals2::signal<event_slot::signature_type> event_sig;
 		/// mutex guarding state-machine, can also be used by derived class
@@ -51,18 +52,22 @@ namespace netlib
 		/// connect request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
 		/// implementation can manipulate lock is it pleases,
-		/// caller has no more need in lock, it will unlock it anyway after call(unless it's already unlocked)
-		virtual void do_connect_request(unique_lock & lk) = 0;
+		/// caller has no more need in lock - passed by value.
+		virtual void do_connect_request(unique_lock lk) = 0;
 		/// disconnect request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
 		/// implementation can manipulate lock is it pleases,
-		/// caller has no more need in lock, it will unlock it anyway after call(unless it's already unlocked)
-		virtual void do_disconnect_request(unique_lock & lk) = 0;
+		/// caller has no more need in lock - passed by value.
+		virtual void do_disconnect_request(unique_lock lk) = 0;
 
-		/// Derived class notifies about successful connection request. thread safe.
+		/// Derived class notifies about execution of connect request. thread safe.
+		/// * if success == true request future is set with true
+		/// * if success == false and eptr != null, request future is set with set_exception(eptr)
+		/// * otherwise request future is set with false
+		/// 
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		void notify_connected(unique_lock lk);
+		void notify_connected(unique_lock lk, bool success = true, std::exception_ptr eptr = nullptr);
 		/// Derived class notifies about disconnect/connection loss. thread safe.
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.

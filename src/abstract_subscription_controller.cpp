@@ -14,7 +14,7 @@ namespace netlib
 	}
 
 	template <class State>
-	inline static void set_result(bool success, std::exception_ptr eptr, State * state)
+	inline static void set_result(bool success, std::exception_ptr eptr, State & state)
 	{
 		if (not state) return;
 
@@ -27,7 +27,7 @@ namespace netlib
 	}
 
 	template <class State>
-	inline static void abandoned_request(bool counterpart_success, State * state)
+	inline static void abandoned_request(bool counterpart_success, State & state)
 	{
 		if (not counterpart_success && state && state->is_pending())
 		{
@@ -46,10 +46,10 @@ namespace netlib
 			case pausing:
 			case resuming:
 				m_state = closing;
-				do_close_request(lk);
-
 				m_close_future = ext::make_intrusive<ext::shared_state<void>>();
 				m_close_future->mark_uncancellable();
+				
+				do_close_request(std::move(lk));
 				return m_close_future;
 
 			case closed:
@@ -66,10 +66,10 @@ namespace netlib
 		{
 			case opened:
 				m_state = pausing;
-				do_pause_request(lk);
-				
 				m_pause_future = ext::make_intrusive<ext::shared_state<bool>>();
 				m_pause_future->mark_uncancellable();
+
+				do_pause_request(std::move(lk));
 				return m_pause_future;
 
 			case resuming:
@@ -92,10 +92,10 @@ namespace netlib
 		{
 			case paused:
 				m_state = resuming;
-				do_resume_request(lk);
-
 				m_resume_future = ext::make_intrusive<ext::shared_state<bool>>();
 				m_resume_future->mark_uncancellable();
+
+				do_resume_request(std::move(lk));
 				return m_resume_future;
 
 			case pausing:
@@ -110,12 +110,12 @@ namespace netlib
 		}
 	}
 
-	void abstract_subscription_controller::notify_closed(unique_lock & lk)
+	void abstract_subscription_controller::notify_closed(unique_lock lk)
 	{
 		assert(lk.owns_lock());
-		auto fclosed = m_close_future.get();
-		auto fpaused = m_pause_future.get();
-		auto fresumed = m_resume_future.get();
+		auto fclosed = m_close_future;
+		auto fpaused = m_pause_future;
+		auto fresumed = m_resume_future;
 
 		switch (m_state)
 		{
@@ -139,11 +139,11 @@ namespace netlib
 		}
 	}
 
-	void abstract_subscription_controller::notify_paused(unique_lock & lk, bool success, std::exception_ptr eptr)
+	void abstract_subscription_controller::notify_paused(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
 		assert(lk.owns_lock());
-		auto fpaused  = m_pause_future.get();
-		auto fresumed = m_resume_future.get();
+		auto fpaused  = m_pause_future;
+		auto fresumed = m_resume_future;
 		
 		switch (m_state)
 		{
@@ -163,17 +163,17 @@ namespace netlib
 				lk.unlock();
 
 				set_result(success, std::move(eptr), fpaused);
-				abandoned_request(success, fresumed);				
+				abandoned_request(success, fresumed);
 				m_event_signal(paused);
 				return;
 		}
 	}
 
-	void abstract_subscription_controller::notify_resumed(unique_lock & lk, bool success, std::exception_ptr eptr)
+	void abstract_subscription_controller::notify_resumed(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
 		assert(lk.owns_lock());
-		auto fresumed = m_resume_future.get();
-		auto fpaused  = m_pause_future.get();
+		auto fresumed = m_resume_future;
+		auto fpaused  = m_pause_future;
 		
 		switch (m_state)
 		{
