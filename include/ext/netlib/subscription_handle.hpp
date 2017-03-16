@@ -20,6 +20,9 @@ namespace netlib
 	private:
 		subscription_ptr m_ptr;
 
+	private:
+		BOOST_NORETURN static void throw_closed_handle() { throw std::logic_error("subsciption_handle is closed"); }
+
 	public:
 		auto get() const noexcept                  { return m_ptr; }
 		void assign(subscription_ptr ptr) noexcept { m_ptr = std::move(ptr); }
@@ -44,14 +47,14 @@ namespace netlib
 			return m_ptr ? m_ptr->get_state() : subscription_controller::closed;
 		}
 		
-		void pause()
+		auto pause()
 		{
-			if (m_ptr) m_ptr->pause();
+			return m_ptr ? m_ptr->pause() : ext::make_ready_future(false);
 		}
 
-		void resume()
+		auto resume()
 		{
-			if (m_ptr) m_ptr->resume();
+			return m_ptr ? m_ptr->resume() : ext::make_ready_future(false);
 		}
 
 		void close()
@@ -60,9 +63,9 @@ namespace netlib
 			m_ptr.reset();
 		}
 
-		void on_event(const event_slot & slot)
+		auto on_event(const event_slot & slot)
 		{
-			if (m_ptr) m_ptr->on_event(slot);
+			return m_ptr ? m_ptr->on_event(slot) : boost::signals2::connection();
 		}
 
 	public:

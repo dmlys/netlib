@@ -93,7 +93,7 @@ const char ext::netlib::encoding_tables::mime_parameter_unqouted_array[256] =
 };
 
 // attribute - char := < any(US - ASCII) CHAR except SPACE, CTLs, "*", "'", "%", or tspecials >
-// поскольку мы quoted tspecials разрешены
+// cause quoted tspecials are allowed
 const char ext::netlib::encoding_tables::mime_parameter_qouted_array[256] =
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,   9,  -1,  -1,  -1,  -1,  -1,  -1, // >htab is ok

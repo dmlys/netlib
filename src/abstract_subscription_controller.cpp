@@ -13,6 +13,11 @@ namespace netlib
 		
 	}
 
+	void abstract_subscription_controller::emit_signal(signal_type & sig, state_type state)
+	{
+		sig(state);
+	}
+
 	template <class State>
 	inline static void set_result(bool success, std::exception_ptr eptr, State & state)
 	{
@@ -134,7 +139,7 @@ namespace netlib
 				if (fclosed) fclosed->set_value();
 				abandoned_request(false, fpaused);
 				abandoned_request(false, fresumed);
-				m_event_signal(closed);
+				emit_signal(m_event_signal, closed);
 				return;
 		}
 	}
@@ -164,7 +169,7 @@ namespace netlib
 
 				set_result(success, std::move(eptr), fpaused);
 				abandoned_request(success, fresumed);
-				m_event_signal(paused);
+				emit_signal(m_event_signal, paused);
 				return;
 		}
 	}
@@ -193,7 +198,7 @@ namespace netlib
 
 				set_result(success, std::move(eptr), fresumed);
 				abandoned_request(success, fpaused);
-				m_event_signal(resumed);
+				emit_signal(m_event_signal, resumed);
 				return;
 		}
 	}

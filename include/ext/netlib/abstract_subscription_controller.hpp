@@ -24,25 +24,28 @@ namespace netlib
 	///       To support parallel hierarchies of interfaces and implementation - virtual inheritance must be used.
 	class abstract_subscription_controller : public virtual subscription_controller
 	{
-	private:
-		ext::intrusive_ptr<ext::shared_state<void>> m_close_future;
-		ext::intrusive_ptr<ext::shared_state<bool>> m_pause_future, m_resume_future;
-
 	protected:
 		typedef std::mutex mutex_type;
 		typedef std::unique_lock<mutex_type> unique_lock;
 		typedef boost::signals2::signal<event_slot::signature_type> signal_type;
 
 	protected:
-		mutex_type m_mutex;
 		state_type m_state = opened;
-		signal_type m_event_signal;		
+		mutex_type m_mutex;
+		signal_type m_event_signal;
+
+		ext::intrusive_ptr<ext::shared_state<void>> m_close_future;
+		ext::intrusive_ptr<ext::shared_state<bool>> m_pause_future, m_resume_future;
 
 	protected:
 		/// BadRequest handler (see subscription_controller description), throws std::logic_error
 		/*virtual*/ void BOOST_NORETURN on_bad_request();
 		/// unexpected handler currently does nothing
 		/*virtual*/ void on_unexpected(state_type ev);
+
+		/// Emits signal sig with state, default implementation just calls sig(state).
+		/// Can be overridden to customize signal emission, for example, serialize and signal calls via GUI thread queue
+		virtual void emit_signal(signal_type & sig, state_type state);
 
 		/// close request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
@@ -98,20 +101,20 @@ namespace netlib
 	public:
 		/// current state of connection,
 		/// actually it can be changed immediately after call.
-		state_type get_state() override final;
+		state_type get_state() override;
 		/// Makes close request.
 		/// Returns future<void> - result of connection 
-		ext::shared_future<void> close() override final;
+		ext::shared_future<void> close() override;
 		/// Makes pause request.
 		/// Returns future<bool> - result of connection 
 		/// @Throws std::logic_error, see class decription
-		ext::shared_future<bool> pause() override final;
+		ext::shared_future<bool> pause() override;
 		/// Makes resume request.
 		/// Returns future<bool> - result of connection 
 		/// @Throws std::logic_error, see class decription
-		ext::shared_future<bool> resume() override final;
+		ext::shared_future<bool> resume() override;
 		/// event signal, event is identified with state_type		
-		boost::signals2::connection on_event(const event_slot & slot) override final
+		boost::signals2::connection on_event(const event_slot & slot) override
 		{ return m_event_signal.connect(slot); }
 
 	public:

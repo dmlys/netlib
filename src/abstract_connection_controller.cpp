@@ -26,6 +26,10 @@ namespace netlib
 			state->set_exception(std::move(eptr));
 	}
 
+	void abstract_connection_controller::emit_signal(event_sig & sig, event_type ev)
+	{
+		sig(ev);
+	}
 
 	ext::shared_future<bool> abstract_connection_controller::do_connect(unique_lock & lk)
 	{
@@ -95,7 +99,7 @@ namespace netlib
 			lk.unlock();
 
 			set_result(success, std::move(eptr), connected);
-			m_event_signal(connection_controller::connected);
+			emit_signal(m_event_signal, connection_controller::connected);
 			return;
 
 			// should not happen
@@ -121,8 +125,8 @@ namespace netlib
 			connected->set_value(false);
 			disconnected->set_value();
 
-			m_event_signal(connection_controller::disconnected);
-			m_event_signal(connection_controller::connection_error);
+			emit_signal(m_event_signal, connection_controller::disconnected);
+			emit_signal(m_event_signal, connection_controller::connection_error);
 			return;
 
 		case disconnecting:
@@ -131,7 +135,7 @@ namespace netlib
 
 			disconnected->set_value();
 			if (not connected->is_ready()) connected->set_value(false);
-			m_event_signal(connection_controller::disconnected);
+			emit_signal(m_event_signal, connection_controller::disconnected);
 			return;
 
 		case online:
@@ -141,9 +145,9 @@ namespace netlib
 			assert(connected->is_ready());
 			disconnected->set_value();
 
-			m_event_signal(connection_controller::disconnected);
-			m_event_signal(connection_controller::connection_error);
-			m_event_signal(connection_controller::connection_lost);
+			emit_signal(m_event_signal, connection_controller::disconnected);
+			emit_signal(m_event_signal, connection_controller::connection_error);
+			emit_signal(m_event_signal, connection_controller::connection_lost);
 			return;
 
 		// case Offline:

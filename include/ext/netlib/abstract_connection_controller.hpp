@@ -23,31 +23,29 @@ namespace netlib
 	///       To support parallel hierarchies of interfaces and implementation - virtual inheritance must be used.
 	class abstract_connection_controller : public virtual connection_controller
 	{
-	private:
-		ext::intrusive_ptr<ext::shared_state<bool>> m_connect_future;
-		ext::intrusive_ptr<ext::shared_state<void>> m_disconnect_future;
-
 	protected:
 		typedef std::mutex                    mutex_type;
 		typedef std::unique_lock<mutex_type>  unique_lock;
 
 		typedef boost::signals2::signal<event_slot::signature_type> event_sig;
-		/// mutex guarding state-machine, can also be used by derived class
-		mutex_type m_mutex;
 
-	private:
-		/// state is private, derived class should not have any influence on state
-		state_type m_state = offline;  /// state-machine state
-	
 	protected:
-		/// signals
+		state_type m_state = offline;  /// state-machine state
+		mutex_type m_mutex;            /// mutex guarding state-machine, can also be used by derived class
 		event_sig m_event_signal;
+
+		ext::intrusive_ptr<ext::shared_state<bool>> m_connect_future;
+		ext::intrusive_ptr<ext::shared_state<void>> m_disconnect_future;
 		
 	protected:
 		/// BadTransactionRequest handler (see connection_controller description), throws std::logic_error
 		/*virtual*/ void BOOST_NORETURN on_bad_transaction();
 		/// BadConnectRequest handler (see connection_controller description), throws std::logic_error
 		/*virtual*/ void BOOST_NORETURN on_bad_connect_request();
+
+		/// Emits signal sig with state, default implementation just calls sig(state).
+		/// Can be overridden to customize signal emission, for example, serialize and signal calls via GUI thread queue
+		virtual void emit_signal(event_sig & sig, event_type ev);
 
 		/// connect request implementation, state-machine lock is passed.
 		/// call is done after state is changed.
@@ -85,14 +83,14 @@ namespace netlib
 
 	public:
 		/// current state
-		state_type get_state() override final;
+		state_type get_state() override;
 		/// Make connect request.
 		/// Returns future<bool> - result of connection 
 		/// @Throws std::logic_error see class decription
-		ext::shared_future<bool> connect() override final;
+		ext::shared_future<bool> connect() override;
 		/// Makes disconnect request.
 		/// Returns future<void> - result of disconnection
-		ext::shared_future<void> disconnect() override final;
+		ext::shared_future<void> disconnect() override;
 
 		boost::signals2::connection on_event(const event_slot & slot) override
 		{ return m_event_signal.connect(slot); }
