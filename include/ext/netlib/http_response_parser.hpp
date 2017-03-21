@@ -1,11 +1,12 @@
 #pragma once
-#include <memory>
+#include <cstddef>
+#include <climits> // for CHAR_BIT
 #include <string>
-#include <utility>
-
 #include <boost/config.hpp>
-#include <ext/config.hpp>
-#include "http_parser.h"
+
+// from http_parser.h
+struct http_parser;
+struct http_parser_settings;
 
 namespace ext {
 namespace netlib
@@ -18,19 +19,44 @@ namespace netlib
 	public:
 		enum state_type : unsigned
 		{
+			status_state,
 			header_field, header_value,
-			body, finished,
-			start_state = header_field
+			body_state, finished,
+
+			start_state = status_state
 		};
 
 		state_type m_state;
 		bool m_deflated;
 
-		http_parser m_parser;
-		http_parser_settings m_settings;
+		// Including http_parser.h is somewhat unwanted - it's a C source with no namespace at all.
+		// Instead we declare byte array of same size and reinterpret_cast it were necessary.
+		// Sort of compiler firewall.
+
+		//http_parser m_parser;
+		//http_parser_settings m_settings;
+
+		static constexpr auto HTTP_PARSER_SIZE = 
+			+ 32  // type + flags + .. + index
+			+ 32  // nread
+			+ 64  // content length
+			+ 32  // http_ver
+			+ 32  // status_code .. errno upgrade
+			+ sizeof(void *) * CHAR_BIT; // data
+
+		static constexpr auto HTTP_PARSER_SETTINGS_SIZE =
+			8 * sizeof(void *) * CHAR_BIT; // settings structure have 8 callbacks
+
+		std::uintptr_t m_parser_object[HTTP_PARSER_SIZE / sizeof(std::uintptr_t) / CHAR_BIT];
+		std::uintptr_t m_settings_object[HTTP_PARSER_SETTINGS_SIZE / sizeof(std::uintptr_t) / CHAR_BIT];
 
 		union
 		{
+			struct
+			{
+				std::string * m_status_val;
+			};			
+
 			struct
 			{
 				std::string * m_hdrfield;
@@ -44,40 +70,46 @@ namespace netlib
 			};
 		};
 		
-	private: /// others
+	private: // others
 		BOOST_NORETURN static void throw_parser_error(const http_parser * parser);
 		BOOST_NORETURN static void throw_stream_error();
 
 	private:
-		static http_response_parser & get_this(http_parser * parser) { return *static_cast<http_response_parser *>(parser->data); }
+		static http_response_parser & get_this(http_parser * parser) noexcept;
+
+		      http_parser & get_parser()       noexcept;
+		const http_parser & get_parser() const noexcept;
+
+		      http_parser_settings & get_settings()       noexcept;
+		const http_parser_settings & get_settings() const noexcept;
 
 		// http_parser callbacks
-		static int on_message_complete(http_parser * parser);
+		static int on_status(http_parser * parser, const char * data, size_t len);
+		static int on_status_complete(http_parser * parser, const char * data, size_t len);
 		static int on_header_field(http_parser * parser, const char * data, size_t len);
 		static int on_header_value(http_parser * parser, const char * data, size_t len);
 		static int on_headers_complete(http_parser * parser);
 		static int on_body(http_parser * parser, const char * data, size_t len);
+		static int on_message_complete(http_parser * parser);
 		
 		void init_parser(http_parser * parser, http_parser_settings * settings);
 		void on_parsed_header(const std::string & name, const std::string & value);
-		
-	private:
-		std::size_t execute(const char * input, std::size_t size)
-		{ return http_parser_execute(&m_parser, &m_settings, input, size); }
 
-	public: /// main process methods
+	public: // main process methods
 		/// resets state of a parser and prepares it for parsing a message
 		void reset();
-		bool headers_parsed() const { return m_state >= body; }
-		bool message_parsed() const { return m_state == finished; }
-		bool deflated() const { return m_deflated; }
+		bool status_parsed()  const noexcept { return m_state >  status_state; }
+		bool headers_parsed() const noexcept { return m_state >= body_state; }
+		bool message_parsed() const noexcept { return m_state == finished; }
+		bool deflated()       const noexcept { return m_deflated; }
 
-		bool parse_header(std::istream & is, std::string &, std::string &);
+		bool parse_status(std::istream & is, std::string & str);
+		bool parse_header(std::istream & is, std::string & name, std::string & value);
 		bool parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size);
 		
-		int http_code() const { return m_parser.status_code; }
+		int http_code() const;
 		/// can be useful for error and some other info extracting
-		const http_parser & parser() const { return m_parser; }
+		const http_parser & parser() const { return get_parser(); }
 
 	public:
 		http_response_parser() { reset(); }

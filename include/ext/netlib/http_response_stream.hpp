@@ -33,6 +33,9 @@ namespace netlib
 		int_type underflow_deflated();
 
 	public:
+		int http_code() const { return m_parser.http_code(); }
+
+	public:
 		http_response_streambuf(std::istream & is);
 		http_response_streambuf(http_response_parser && parser, std::istream & is);
 
@@ -44,6 +47,9 @@ namespace netlib
 	class http_response_stream : public std::istream
 	{
 		http_response_streambuf m_streambuf;
+
+	public:
+		int http_code() const { return m_streambuf.http_code(); }
 
 	public:
 		http_response_stream(std::istream & is)
