@@ -19,9 +19,9 @@ namespace netlib
 	}
 
 	template <class State>
-	inline static void set_result(bool success, std::exception_ptr eptr, State & state)
+	inline static void set_result(State & state, bool success, std::exception_ptr eptr)
 	{
-		if (not state) return;
+		if (not state or state->is_ready()) return;
 
 		if (success)
 			state->set_value(true);
@@ -32,9 +32,9 @@ namespace netlib
 	}
 
 	template <class State>
-	inline static void abandoned_request(bool counterpart_success, State & state)
+	inline static void abandoned_request(State & state, bool counterpart_success)
 	{
-		if (not counterpart_success && state && state->is_pending())
+		if (not counterpart_success and state and state->is_pending())
 		{
 			state->set_value(false);
 			//state->release_promise();
@@ -137,8 +137,8 @@ namespace netlib
 				lk.unlock();
 
 				if (fclosed) fclosed->set_value();
-				abandoned_request(false, fpaused);
-				abandoned_request(false, fresumed);
+				abandoned_request(fpaused, false);
+				abandoned_request(fresumed, false);
 				emit_signal(m_event_signal, closed);
 				return;
 		}
@@ -167,8 +167,8 @@ namespace netlib
 				m_state = paused;
 				lk.unlock();
 
-				set_result(success, std::move(eptr), fpaused);
-				abandoned_request(success, fresumed);
+				set_result(fpaused, success, std::move(eptr));
+				abandoned_request(fresumed, success);
 				emit_signal(m_event_signal, paused);
 				return;
 		}
@@ -196,8 +196,8 @@ namespace netlib
 				m_state = opened;
 				lk.unlock();
 
-				set_result(success, std::move(eptr), fresumed);
-				abandoned_request(success, fpaused);
+				set_result(fresumed, success, std::move(eptr));
+				abandoned_request(fpaused, success);
 				emit_signal(m_event_signal, resumed);
 				return;
 		}

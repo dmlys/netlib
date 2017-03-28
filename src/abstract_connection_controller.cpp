@@ -14,9 +14,9 @@ namespace netlib
 	}
 
 	template <class State>
-	inline static void set_result(bool success, std::exception_ptr eptr, State & state)
+	inline static void set_result(State & state, bool success, std::exception_ptr eptr)
 	{
-		if (not state) return;
+		if (not state or state->is_ready()) return;
 
 		if (success)
 			state->set_value(true);
@@ -24,6 +24,13 @@ namespace netlib
 			state->set_value(false);
 		else
 			state->set_exception(std::move(eptr));
+	}
+
+	template <class State>
+	inline static void set_result(State & state)
+	{
+		if (not state or state->is_ready()) return;
+		state->set_value();
 	}
 
 	void abstract_connection_controller::emit_signal(event_sig & sig, event_type ev)
@@ -98,7 +105,7 @@ namespace netlib
 			m_state = online;
 			lk.unlock();
 
-			set_result(success, std::move(eptr), connected);
+			set_result(connected, success, std::move(eptr));
 			emit_signal(m_event_signal, connection_controller::connected);
 			return;
 
@@ -122,8 +129,8 @@ namespace netlib
 			m_state = offline;
 			lk.unlock();
 
-			connected->set_value(false);
-			disconnected->set_value();
+			set_result(connected, false, nullptr);
+			set_result(disconnected);
 
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			emit_signal(m_event_signal, connection_controller::connection_error);
@@ -133,8 +140,8 @@ namespace netlib
 			m_state = offline;
 			lk.unlock();
 
-			disconnected->set_value();
-			if (not connected->is_ready()) connected->set_value(false);
+			set_result(disconnected);
+			set_result(connected, false, nullptr);
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			return;
 
@@ -143,7 +150,7 @@ namespace netlib
 			lk.unlock();
 
 			assert(connected->is_ready());
-			disconnected->set_value();
+			set_result(disconnected);
 
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			emit_signal(m_event_signal, connection_controller::connection_error);
