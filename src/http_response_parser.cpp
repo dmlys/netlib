@@ -364,9 +364,9 @@ namespace netlib
 		const char * buffer;
 		std::size_t len;
 
-#ifdef EXT_ENABLE_CPPZLIB
 		if (parser.deflated())
 		{
+#ifdef EXT_ENABLE_CPPZLIB
 			std::size_t sz = std::max<std::size_t>(1024, response_body.capacity());
 			sz = std::min<std::size_t>(10 * 1024, sz);
 			sz = std::max<std::size_t>(sz, response_body.size());
@@ -414,9 +414,11 @@ namespace netlib
 
 		finished:
 			response_body.resize(inflator.total_out());
+#else
+			throw std::runtime_error("can't inflate compressed stream, http_response_parser built without zlib support");
+#endif
 		}
 		else
-#endif
 		{
 			while (parser.parse_body(is, buffer, len))
 				response_body.append(buffer, len);

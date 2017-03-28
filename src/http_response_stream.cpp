@@ -13,9 +13,9 @@ namespace netlib
 	{
 		char * ptr;
 		std::size_t len;
-		if (not m_parser.parse_body(*m_source, const_cast<const char *&>(ptr), len))
+		if (not m_parser.parse_body(*m_source, const_cast<const char *&>(ptr), len) or len == 0)
 			return traits_type::eof();
-
+		
 		setg(ptr, ptr, ptr + len);
 		return traits_type::to_int_type(*ptr);
 	}
@@ -23,40 +23,59 @@ namespace netlib
 	auto http_response_streambuf::underflow_deflated() -> int_type
 	{
 #ifdef EXT_ENABLE_CPPZLIB
-		if (not m_inflator.avail_in())
+		const char * buffer;
+		std::size_t buflen;
+
+		for (;;)
 		{
-			const char * ptr;
-			std::size_t len;
-			if (not m_parser.parse_body(*m_source, ptr, len))
-				return traits_type::eof();
+			if (not m_inflator.avail_in())
+			{
 
-			m_inflator.set_in(ptr, len);
-		}
+				if (not m_parser.parse_body(*m_source, buffer, buflen))
+					return traits_type::eof();
 
-		char * ptr = m_buffer.get();
-		m_inflator.set_out(ptr, m_buffer_size);
+				m_inflator.set_in(buffer, buflen);
+			}
 
-		int res = ::inflate(m_inflator, Z_NO_FLUSH);
-		switch (res)
-		{
-			case Z_OK:
-			case Z_STREAM_END:
-				break;
+			char * ptr = m_buffer.get();
+			m_inflator.set_out(ptr, m_buffer_size);
+
+			int res = ::inflate(m_inflator, Z_NO_FLUSH);
+			auto next_out = reinterpret_cast<char *>(m_inflator.next_out());
+			switch (res)
+			{
+				case Z_OK:
+					// if no output was generated - we need no consume more input
+					if (ptr == next_out) continue;
+					break;
 					
-			case Z_NEED_DICT:
-			case Z_BUF_ERROR:
-			case Z_ERRNO:
-			case Z_STREAM_ERROR:
-			case Z_DATA_ERROR:
-			case Z_MEM_ERROR:
-			case Z_VERSION_ERROR:
-			default:
-				zlib::throw_zlib_error(res, m_inflator);
-		}
+				case Z_STREAM_END:					
+					// This call is important, it will consume any trailing characters, 
+					// like newline, and complete http parsing(and still return false),
+					// otherwise - you can read not a full http message and whoever parses next - will get trailing data.
+					if (m_parser.parse_body(*m_source, buffer, buflen))
+						throw std::runtime_error("inconsistent deflated stream, trailing data after Z_STREAM_END");
 
-		setg(ptr, ptr, reinterpret_cast<char *>(m_inflator.next_out()));
-		return traits_type::to_int_type(*ptr);
+					// got stream end, no data was uncompressed - just eof
+					if (ptr == next_out) return traits_type::eof();
+					break;
+
+				case Z_NEED_DICT:
+				case Z_BUF_ERROR:
+				case Z_ERRNO:
+				case Z_STREAM_ERROR:
+				case Z_DATA_ERROR:
+				case Z_MEM_ERROR:
+				case Z_VERSION_ERROR:
+				default:
+					zlib::throw_zlib_error(res, m_inflator);
+			}
+
+			setg(ptr, ptr, next_out);
+			return traits_type::to_int_type(*ptr);
+		}
 #else
+		throw std::runtime_error("can't inflate compressed stream, http_response_streambuf built without zlib support");
 		return traits_type::eof();
 #endif
 	}
