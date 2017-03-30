@@ -1,3 +1,8 @@
+// author: Dmitry Lysachenko
+// date: Saturday 19 march 2017
+// license: boost software license
+//          http://www.boost.org/LICENSE_1_0.txt
+
 #include <ext/netlib/socket_rest_supervisor.hpp>
 #include <boost/scope_exit.hpp>
 
@@ -125,26 +130,12 @@ namespace netlib
 	void socket_rest_supervisor::on_conn_error(std::runtime_error & ex)
 	{
 		std::string errmsg;
-		error_code_type ec;
 		errmsg.reserve(1024);
+		error_code_type ec = m_sockstream.last_error();
 
-		if (auto se = dynamic_cast<ext::socket_stream::system_error_type *>(&ex))
-		{
-			ec = se->code();
-			errmsg = "socket_stream error. ";
-			errmsg += ext::FormatError(ec);
-		}
-		else
-		{
-			ec = std::io_errc::stream;
-			errmsg = ex.what();
-			if (m_sockstream.last_error())
-			{
-				ec = m_sockstream.last_error();
-				errmsg += "; socket_stream state - ";
-				errmsg += ext::FormatError(ec);
-			}
-		}
+		errmsg = ex.what();
+		errmsg += "; socket_state - ";
+		errmsg += ext::FormatError(ec);
 
 		EXTLL_ERROR(m_logger, errmsg);
 
@@ -194,7 +185,7 @@ namespace netlib
 		m_service = service;
 	}
 
-	void socket_rest_supervisor::set_timeout(std::chrono::system_clock::duration timeout)
+	void socket_rest_supervisor::set_timeout(std::chrono::steady_clock::duration timeout)
 	{
 		unique_lock lk(m_mutex);
 		m_timeout = timeout;
@@ -219,8 +210,14 @@ namespace netlib
 		unsigned request_slots = m_request_slots.load(std::memory_order_relaxed);
 		std::chrono::steady_clock::time_point next_reschedule;
 		
-		subscription_list requests, replies;
-		subscription_list & waiting = m_subscriptions;
+		item_list requests, replies;
+		item_list & waiting = m_items;
+
+		BOOST_SCOPE_EXIT_ALL(&waiting, &requests, &replies)
+		{
+			waiting.splice(waiting.end(), requests);
+			waiting.splice(waiting.end(), replies);
+		};
 
 		unique_lock lk(m_mutex);
 		for (;;)
@@ -240,10 +237,10 @@ namespace netlib
 				// take one subscription, make request, place it into replies
 				replies.splice(replies.end(), requests, requests.begin());
 				auto & task = replies.back();
-				task.make_request(lk, m_sockstream);
+				bool made = task.make_request(lk, m_sockstream);
 				
-				if (--request_slots) continue;
-				else                 goto reply_avail;
+				if (request_slots -= made) continue;
+				else                       goto reply_avail;
 			}
 			
 			if (replies.empty())
@@ -262,20 +259,14 @@ namespace netlib
 				task.process_response(lk, m_sockstream);
 			}
 		}
-
-		BOOST_SCOPE_EXIT_ALL(&waiting, &requests, &replies)
-		{
-			waiting.splice(waiting.end(), requests);
-			waiting.splice(waiting.end(), replies);
-		};
 	}
 
-	auto socket_rest_supervisor::schedule_subscriptions(unique_lock & lk, subscription_list & waiting, subscription_list & requests)
+	auto socket_rest_supervisor::schedule_subscriptions(unique_lock & lk, item_list & waiting, item_list & requests)
 		-> std::chrono::steady_clock::time_point
 	{
 		assert(lk.owns_lock());
 
-		subscription_list subs, result;
+		item_list subs, result;
 		auto next_reschedule = max_timepoint();
 
 		do {
@@ -337,18 +328,18 @@ namespace netlib
 		}
 	}
 
-	subscription_handle socket_rest_supervisor::add_subscription(subscription_ptr sub)
+	void socket_rest_supervisor::add_item(item * ptr)
 	{
+		assert(ptr);
 		unique_lock lk(m_mutex);
 
-		sub->m_owner = this;
-		sub.addref();
+		ptr->m_owner = this;
+		ptr->addref();
 
-		m_subscriptions.push_back(*sub);
+		m_items.push_back(*ptr);
 	
 		lk.unlock();
 		m_request_event.notify_all();
-		return sub;
 	}
 
 	socket_rest_supervisor::~socket_rest_supervisor() noexcept
@@ -358,27 +349,90 @@ namespace netlib
 		disconnect();
 		m_thread.join();
 
-		m_subscriptions.clear_and_dispose([](auto * ptr)
+		m_items.clear_and_dispose([](auto * ptr)
 		{
 			// add_subscrition calls addref - we have to release
-			ext::intrusive_ptr_release(ptr);
+			ptr->release();
 		});
 	}
 
+	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
+	{
+		auto * state = get_shared_state();
+		if (state and not state->mark_uncancellable())
+		{
+			// if already cancelled - do nothing, and release request
+			unlink(); release(); return false;
+		}
+
+		try
+		{
+			reverse_lock<parent_lock> rlk(srs_lk);
+			request(stream);
+			return true;
+		}
+		catch (std::runtime_error & )
+		{
+			BOOST_SCOPE_EXIT_ALL(this)
+			{
+				unlink(); release();
+			};
+
+			if (not state) throw;
+			state->set_exception(std::current_exception());
+			if (not stream) throw;
+
+			return false;
+		}
+	}
+
+	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
+	{
+		try
+		{
+			reverse_lock<parent_lock> rlk(srs_lk);
+			response(stream);
+
+			if (should_repeat())
+				reset_repeat();
+			else
+			{
+				unlink(); release();
+			}
+		}
+		catch (std::runtime_error & )
+		{
+			BOOST_SCOPE_EXIT_ALL(this)
+			{
+				unlink(); release();
+			};
+
+			auto * state = get_shared_state();
+			if (not state) throw;
+			state->set_exception(std::current_exception());
+			if (not stream) throw;
+		}
+	}
+
+	auto socket_rest_supervisor_request_base::next_invoke() -> std::chrono::steady_clock::time_point
+	{
+		return std::chrono::steady_clock::time_point::min();
+	}
+
+
 	void socket_rest_supervisor_subscription::do_pause_request(unique_lock lk)
 	{
-		m_paused.exchange(true, std::memory_order_relaxed);
+		set_paused();
 		notify_paused(std::move(lk));
 	}
 
 	void socket_rest_supervisor_subscription::do_resume_request(unique_lock lk)
 	{
 		auto owner = m_owner;
-		m_paused.exchange(false, std::memory_order_relaxed);
+		reset_paused();
 		notify_resumed(std::move(lk));
 
-		if (m_owner)
-			m_owner->m_request_event.notify_all();
+		if (m_owner) notify();
 	}
 
 	void socket_rest_supervisor_subscription::do_close_request(unique_lock lk)
@@ -391,71 +445,32 @@ namespace netlib
 		}
 
 		{
-			parent_lock srs_lk(m_owner->m_mutex);
-			if (m_pending.load(std::memory_order_relaxed)) return;
+			parent_lock srs_lk(parent_mutex());
+			if (is_pending()) return;
 
 			notify_closed(std::move(lk));
 			unlink();
 		}
 		
 		// add_subscrition calls addref - on close we have to release
-		ext::intrusive_ptr_release(this);
+		release();
 	}
 
-	void socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
+	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
 	{
 		bool success = false;
-		m_pending.store(true, std::memory_order_relaxed);
-
-		{
-			reverse_lock<parent_lock> rlk(srs_lk);
-			request(stream);
-		}
-
-		check_stream(stream);
-		success = true;
+		set_pending();
 
 		BOOST_SCOPE_EXIT_ALL(&)
 		{
 			unique_lock lk(m_mutex);
 			if (not success and get_state(lk) > closing)
 			{
-				m_pending.store(false, std::memory_order_relaxed);
-				unlink();
+				reset_pending();
 				notify_closed(std::move(lk));
-				ext::intrusive_ptr_release(this);
+				unlink(); release();
 			}
 		};
-	}
-
-	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
-	{
-		{
-			reverse_lock<parent_lock> rlk(srs_lk);
-			response(stream);
-		}
-
-		check_stream(stream);
-
-		BOOST_SCOPE_EXIT_ALL(&)
-		{
-			m_pending.store(false, std::memory_order_relaxed);
-
-			// we got close request, while between request and response
-			unique_lock lk(m_mutex);
-			if (get_state(lk) >= closing)
-			{
-				unlink();
-				notify_closed(std::move(lk));
-				ext::intrusive_ptr_release(this);
-			}
-		};
-	}
-
-	void socket_rest_supervisor_request::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
-	{
-		bool success = false;
-		m_pending.store(true, std::memory_order_relaxed);
 
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
@@ -464,43 +479,29 @@ namespace netlib
 
 		check_stream(stream);
 		success = true;
-
-		BOOST_SCOPE_EXIT_ALL(&)
-		{
-			unique_lock lk(m_mutex);
-			if (not success)
-			{
-				m_pending.store(false, std::memory_order_relaxed);
-				unlink();
-				notify_closed(std::move(lk));
-				ext::intrusive_ptr_release(this);
-			}
-		};
+		return true;
 	}
 
-	void socket_rest_supervisor_request::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
+	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
 	{
+		BOOST_SCOPE_EXIT_ALL(&)
+		{
+			reset_pending();
+
+			// we got close request, while between request and response
+			unique_lock lk(m_mutex);
+			if (get_state(lk) >= closing)
+			{
+				notify_closed(std::move(lk));
+				unlink(); release();
+			}
+		};
+
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
 			response(stream);
 		}
 
 		check_stream(stream);
-
-		BOOST_SCOPE_EXIT_ALL(&)
-		{
-			m_pending.store(false, std::memory_order_relaxed);
-
-			// we got close request, while between request and response
-			unique_lock lk(m_mutex);
-			unlink();
-			notify_closed(std::move(lk));
-			ext::intrusive_ptr_release(this);
-		};
-	}
-
-	auto socket_rest_supervisor_request::next_invoke() -> std::chrono::steady_clock::time_point
-	{
-		return std::chrono::steady_clock::time_point::min();
 	}
 }}
