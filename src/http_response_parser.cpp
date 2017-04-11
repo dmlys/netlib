@@ -353,10 +353,16 @@ namespace netlib
 		return *this;
 	}
 
-	int parse_http_response(std::istream & is, std::string & response_body)
+	void parse_trailing(http_response_parser & parser, std::istream & is)
 	{
-		http_response_parser parser;
+		const char * buf;
+		std::size_t sz;
 
+		while (parser.parse_body(is, buf, sz));
+	}
+
+	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body)
+	{
 		std::string name, value;
 		while (parser.parse_header(is, name, value))
 			continue;
@@ -425,5 +431,11 @@ namespace netlib
 		}
 		
 		return parser.http_code();
+	}
+
+	int parse_http_response(std::istream & is, std::string & response_body)
+	{
+		http_response_parser parser;
+		return parse_http_response(parser, is, response_body);
 	}
 }}

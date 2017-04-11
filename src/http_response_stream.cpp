@@ -30,7 +30,6 @@ namespace netlib
 		{
 			if (not m_inflator.avail_in())
 			{
-
 				if (not m_parser.parse_body(*m_source, buffer, buflen))
 					return traits_type::eof();
 

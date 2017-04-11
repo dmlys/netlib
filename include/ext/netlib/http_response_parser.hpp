@@ -117,6 +117,8 @@ namespace netlib
 		http_response_parser & operator =(const http_response_parser &);
 	};
 
+	void parse_trailing(http_response_parser & parser, std::istream & is);
 
 	int parse_http_response(std::istream & is, std::string & response_body);
+	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body);
 }}
