@@ -30,7 +30,7 @@ namespace netlib
 	class socket_rest_supervisor_subscription;
 	class socket_rest_supervisor_request_base;
 
-	template <class ReturnType>
+	template <class ReturnType, class RequestBase>
 	class socket_rest_supervisor_request;
 	
 	/// Basic abstract item interface for socket_rest_supervisor(see below),
@@ -150,12 +150,13 @@ namespace netlib
 	/// Abstract request with ext::future support socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	/// Derived class implements requests and responses via corresponding methods.
-	template <class ReturnType>
+	template <class ReturnType, class RequestBase = socket_rest_supervisor_request_base>
 	class socket_rest_supervisor_request :
-		public socket_rest_supervisor_request_base,
+		public RequestBase,
 		public ext::shared_state<ReturnType>
 	{
 	private:
+		typedef RequestBase                   request_base_type;
 		typedef ext::shared_state<ReturnType> shared_state_type;
 
 	public:
@@ -171,10 +172,9 @@ namespace netlib
 		unsigned use_count() const noexcept override  { return shared_state_type::use_count(); }
 
 	public:
-		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) = 0;
-		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) = 0;
+		// request and response should be implemented by derived class
+		using request_base_type::request;
+		using request_base_type::response;
 	};
 
 	/// Abstract subscription interface for socket_rest_supervisor(see below),
@@ -275,10 +275,11 @@ namespace netlib
 		typedef socket_rest_supervisor_item           item;
 		friend item;
 		
-		template <class Type> 
-		using request = socket_rest_supervisor_request<Type>;
-
+		typedef socket_rest_supervisor_request_base  request_base;
 		typedef socket_rest_supervisor_subscription  subscription;
+
+		template <class Type, class RequestBase = request_base>
+		using request = socket_rest_supervisor_request<Type, RequestBase>;
 
 	protected:
 		typedef boost::intrusive::base_hook<item::hook_type> item_list_option;
@@ -421,7 +422,7 @@ namespace netlib
 		virtual void add_item(item * ptr);
 
 		template <class Request>
-		auto add_request(ext::intrusive_ptr<Request> ptr) -> typename Request::future_type;
+		typename Request::future_type add_request(ext::intrusive_ptr<Request> ptr);
 		subscription_handle add_subscription(ext::intrusive_ptr<subscription> ptr);
 
 	public:
