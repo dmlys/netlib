@@ -19,10 +19,10 @@ namespace netlib
 
 	inline http_parser & http_response_parser::get_parser() noexcept 
 	{
-		static_assert(sizeof(m_parser_object) == sizeof(http_parser), 
+		static_assert(sizeof(m_parser_object) == sizeof(http_parser),
 			"http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<http_parser *>(m_parser_object); 
+		return *reinterpret_cast<http_parser *>(&m_parser_object);
 	}
 
 	inline const http_parser & http_response_parser::get_parser() const noexcept 
@@ -30,7 +30,7 @@ namespace netlib
 		static_assert(sizeof(m_parser_object) == sizeof(http_parser),
 			"http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<const http_parser *>(m_parser_object); 
+		return *reinterpret_cast<const http_parser *>(&m_parser_object);
 	}
 
 	inline http_parser_settings & http_response_parser::get_settings() noexcept 
@@ -38,7 +38,7 @@ namespace netlib
 		static_assert(sizeof(m_settings_object) == sizeof(http_parser_settings),
 			"http_parser_settings size is different than impl buffer");
 
-		return *reinterpret_cast<http_parser_settings *>(m_settings_object);
+		return *reinterpret_cast<http_parser_settings *>(&m_settings_object);
 	}
 
 	inline const http_parser_settings & http_response_parser::get_settings() const noexcept
@@ -46,7 +46,7 @@ namespace netlib
 		static_assert(sizeof(m_settings_object) == sizeof(http_parser_settings),
 			"http_parser_settings size is different than impl buffer");
 
-		return *reinterpret_cast<const http_parser_settings *>(m_settings_object); 
+		return *reinterpret_cast<const http_parser_settings *>(&m_settings_object);
 	}
 
 	BOOST_NORETURN void http_response_parser::throw_parser_error(const http_parser * parser)
@@ -332,8 +332,8 @@ namespace netlib
 		m_buffer = other.m_buffer;
 		m_buffer_size = other.m_buffer_size;
 		
-		std::memcpy(m_parser_object, other.m_parser_object, sizeof(m_parser_object));
-		std::memcpy(m_settings_object, other.m_settings_object, sizeof(m_parser_object));
+		std::memcpy(&m_parser_object, &other.m_parser_object, sizeof(m_parser_object));
+		std::memcpy(&m_settings_object, &other.m_settings_object, sizeof(m_parser_object));
 		get_parser().data = this;
 
 		//m_parser = other.m_parser;

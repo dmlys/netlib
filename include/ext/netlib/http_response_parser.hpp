@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <climits> // for CHAR_BIT
 #include <string>
+#include <type_traits> // for aligned_storage
 #include <boost/config.hpp>
 
 // from http_parser.h
@@ -47,8 +48,8 @@ namespace netlib
 		static constexpr auto HTTP_PARSER_SETTINGS_SIZE =
 			8 * sizeof(void *) * CHAR_BIT; // settings structure have 8 callbacks
 
-		std::uintptr_t m_parser_object[HTTP_PARSER_SIZE / sizeof(std::uintptr_t) / CHAR_BIT];
-		std::uintptr_t m_settings_object[HTTP_PARSER_SETTINGS_SIZE / sizeof(std::uintptr_t) / CHAR_BIT];
+		std::aligned_storage_t<HTTP_PARSER_SIZE / CHAR_BIT, alignof(std::uint64_t)> m_parser_object;
+		std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> m_settings_object;
 
 		union
 		{

@@ -98,7 +98,7 @@ namespace netlib
 	{
 		EXTLL_INFO(m_logger, "Connecting to " << host << ":" << service);
 
-		if (timeout.count()) m_sockstream.timeout(timeout);
+		if (timeout.count() > 0) m_sockstream.timeout(timeout);
 		m_sockstream.connect(host, service);
 
 		if (not m_sockstream)
