@@ -53,12 +53,12 @@ namespace netlib
 			m_connect_future->mark_uncancellable();
 			
 			do_connect_request(std::move(lk));
-			return m_connect_future;
+			return {m_connect_future};
 
 		case online:
 		case connecting:
 			/// connection is already executing - nothing to be done
-			return m_connect_future;
+			return {m_connect_future};
 
 		default:
 			on_bad_transaction();
@@ -72,7 +72,7 @@ namespace netlib
 		{
 		case offline:
 		case disconnecting:
-			return m_disconnect_future;
+			return {m_disconnect_future};
 
 		case online:
 		case connecting:
@@ -81,7 +81,7 @@ namespace netlib
 			m_connect_future->mark_uncancellable();
 
 			do_disconnect_request(std::move(lk));
-			return m_disconnect_future;
+			return {m_disconnect_future};
 
 		default:
 			on_bad_transaction();

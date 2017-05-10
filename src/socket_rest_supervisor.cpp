@@ -432,7 +432,7 @@ namespace netlib
 		reset_paused();
 		notify_resumed(std::move(lk));
 
-		if (m_owner) notify();
+		if (owner) notify();
 	}
 
 	void socket_rest_supervisor_subscription::do_close_request(unique_lock lk)

@@ -1,0 +1,43 @@
+# This is Library Jamfile for netlib.
+# use it like netlib//netlib
+#
+# Jamroot or site-config/user-config should define /boost projects
+# You can use use-project or boost.use-project, from boost module ;
+
+import os ;
+import feature ;
+import testing ;
+
+local usage-requirements = <include>include ;
+local requirements = $(usage-requirements) ;
+
+project netlib
+	# attributes
+	: usage-requirements $(usage-requirements)
+	: requirements       $(requirements)
+	;
+	
+local src =         [ glob src/*.cpp  ] ;
+local tests_src =   [ glob tests/*cpp ] ;
+
+alias headers 
+	: # sources
+	: # requirements 
+	: # defaults
+	: # usage-requirements
+	;
+
+lib netlib # target name
+	: headers
+	  $(src)  # sources 
+	  /boost//headers
+	  $(SOLUTION_ROOT)//extlib-headers
+	  # static libs itself do not need other static libs,
+	  # but boost.build supports those depends and can automatically add them to dll/exe.
+	  # consider adding required boost libs
+	  
+	: # requirements
+	  <link>static
+	: # defaults
+	: # usage-requirements
+	;

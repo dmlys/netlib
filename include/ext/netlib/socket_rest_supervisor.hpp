@@ -334,7 +334,7 @@ namespace netlib
 
 		// number of requests made before first response if processed,
 		// by default 1, which makes it behave traditionally: send request - wait response.
-		std::atomic_uint m_request_slots = 1;
+		std::atomic_uint m_request_slots = ATOMIC_VAR_INIT(1);
 
 		// thread running subscriptions
 		std::thread m_thread;

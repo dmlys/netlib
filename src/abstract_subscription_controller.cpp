@@ -55,12 +55,12 @@ namespace netlib
 				m_close_future->mark_uncancellable();
 				
 				do_close_request(std::move(lk));
-				return m_close_future;
+				return {m_close_future};
 
 			case closed:
 			case closing:
 			default:
-				return m_close_future;
+				return {m_close_future};
 		}
 	}
 
@@ -75,7 +75,7 @@ namespace netlib
 				m_pause_future->mark_uncancellable();
 
 				do_pause_request(std::move(lk));
-				return m_pause_future;
+				return {m_pause_future};
 
 			case resuming:
 				on_bad_request();
@@ -85,7 +85,7 @@ namespace netlib
 			case paused:
 			case pausing:
 			default:
-				return m_pause_future;
+				return {m_pause_future};
 
 		}
 	}
@@ -101,7 +101,7 @@ namespace netlib
 				m_resume_future->mark_uncancellable();
 
 				do_resume_request(std::move(lk));
-				return m_resume_future;
+				return {m_resume_future};
 
 			case pausing:
 				on_bad_request();
@@ -111,7 +111,7 @@ namespace netlib
 			case closed:
 			case closing:
 			default:
-				return m_resume_future;
+				return {m_resume_future};
 		}
 	}
 

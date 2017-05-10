@@ -100,11 +100,11 @@ namespace netlib
 		m_parser(std::move(other.m_parser)),
 		m_source(std::exchange(other.m_source, nullptr)),
 		m_reader(std::exchange(other.m_reader, nullptr)),
-#ifdef EXT_ENABLE_CPPZLIB
-		m_inflator(std::move(other.m_inflator)),
-#endif
 		m_buffer(std::move(other.m_buffer)),
 		m_buffer_size(std::move(other.m_buffer_size))
+#ifdef EXT_ENABLE_CPPZLIB
+		, m_inflator(std::move(other.m_inflator))
+#endif
 	{
 
 	}

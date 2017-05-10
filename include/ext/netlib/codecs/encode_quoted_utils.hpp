@@ -61,7 +61,7 @@ namespace netlib
 
 		inline char decode_nibble(char ch)
 		{
-			ch = encoding_tables::hex_decoding_array[ch];
+			ch = encoding_tables::hex_decoding_array[static_cast<unsigned char>(ch)];
 			if (ch >= 0) return ch;
 
 			throw non_hex_char();
