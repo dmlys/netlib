@@ -16,7 +16,7 @@ namespace netlib
 	class http_response_streambuf : public ext::streambuf
 	{
 		http_response_parser m_parser;
-		std::istream * m_source;
+		std::streambuf * m_source;
 		int_type (http_response_streambuf::*m_reader)();
 
 		std::unique_ptr<char[]> m_buffer;
@@ -36,7 +36,9 @@ namespace netlib
 		int http_code() const { return m_parser.http_code(); }
 
 	public:
+		http_response_streambuf(std::streambuf & sb);
 		http_response_streambuf(std::istream & is);
+		http_response_streambuf(http_response_parser && parser, std::streambuf & sb);
 		http_response_streambuf(http_response_parser && parser, std::istream & is);
 
 		http_response_streambuf(http_response_streambuf &&) noexcept;
@@ -52,11 +54,17 @@ namespace netlib
 		int http_code() const { return m_streambuf.http_code(); }
 
 	public:
+		http_response_stream(std::streambuf & sb)
+			: std::istream(&m_streambuf), m_streambuf(sb) {}
+
 		http_response_stream(std::istream & is)
-			: std::istream(&m_streambuf), m_streambuf(is) {}
+			: http_response_stream(*is.rdbuf()) {}
+
+		http_response_stream(http_response_parser && parser, std::streambuf & sb)
+			: std::istream(&m_streambuf), m_streambuf(std::move(parser), sb) {}
 
 		http_response_stream(http_response_parser && parser, std::istream & is)
-			: std::istream(&m_streambuf), m_streambuf(std::move(parser), is) {}
+			: http_response_stream(std::move(parser), *is.rdbuf()) {}
 
 		http_response_stream(http_response_stream && other) noexcept;
 		http_response_stream & operator =(http_response_stream && other) noexcept;

@@ -120,16 +120,28 @@ namespace netlib
 		return *this;
 	}
 
+	http_response_streambuf::http_response_streambuf(std::streambuf & sb)
+		: m_source(&sb)
+	{
+		init();
+	}
+
 	http_response_streambuf::http_response_streambuf(std::istream & is)
-		: m_source(&is)
+		: http_response_streambuf(*is.rdbuf())
+	{
+
+	}
+
+	http_response_streambuf::http_response_streambuf(http_response_parser && parser, std::streambuf & sb)
+		: m_parser(std::move(parser)), m_source(&sb)
 	{
 		init();
 	}
 
 	http_response_streambuf::http_response_streambuf(http_response_parser && parser, std::istream & is)
-		: m_parser(std::move(parser)), m_source(&is)
+		: http_response_streambuf(std::move(parser), *is.rdbuf())
 	{
-		init();
+
 	}
 
 	http_response_stream::http_response_stream(http_response_stream && other) noexcept

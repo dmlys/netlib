@@ -2,6 +2,10 @@
 #include <cstddef>
 #include <climits> // for CHAR_BIT
 #include <string>
+
+#include <streambuf>
+#include <istream>
+
 #include <type_traits> // for aligned_storage
 #include <boost/config.hpp>
 
@@ -104,6 +108,10 @@ namespace netlib
 		bool message_parsed() const noexcept { return m_state == finished; }
 		bool deflated()       const noexcept { return m_deflated; }
 
+		bool parse_status(std::streambuf & sb, std::string & str);
+		bool parse_header(std::streambuf & sb, std::string & name, std::string & value);
+		bool parse_body(std::streambuf & sb, const char *& buffer, std::size_t & buff_size);
+
 		bool parse_status(std::istream & is, std::string & str);
 		bool parse_header(std::istream & is, std::string & name, std::string & value);
 		bool parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size);
@@ -118,8 +126,11 @@ namespace netlib
 		http_response_parser & operator =(const http_response_parser &);
 	};
 
+	void parse_trailing(http_response_parser & parser, std::streambuf & sb);
 	void parse_trailing(http_response_parser & parser, std::istream & is);
 
+	int parse_http_response(std::streambuf & sb, std::string & response_body);
 	int parse_http_response(std::istream & is, std::string & response_body);
+	int parse_http_response(http_response_parser & parser, std::streambuf & is, std::string & response_body);
 	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body);
 }}

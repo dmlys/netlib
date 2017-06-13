@@ -7,11 +7,34 @@
 #include <ext/iostreams/streambuf.hpp>
 #include <ext/netlib/http_response_parser.hpp>
 
-#include <ext/netlib/http_parser.h>
+#include "http_parser.h"
 
 namespace ext {
 namespace netlib
 {
+	inline static bool peek(std::streambuf & sb)
+	{
+		typedef std::streambuf::traits_type traits_type;
+		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
+	}
+
+	struct eof_setter
+	{
+		std::istream * is;
+
+		eof_setter(std::istream & is) : is(&is) {}
+		~eof_setter() { if (is) is->setstate(std::ios::eofbit); }
+	};
+
+	template <class Functor, class ... Args>
+	inline static auto wrapped_call(std::istream & is, Functor func, Args && ... args)
+	{
+		eof_setter fs(is);
+		auto res = func(std::forward<Args>(args)...);
+		fs.is = nullptr;
+		return res;
+	}
+
 	inline http_response_parser & http_response_parser::get_this(http_parser * parser) noexcept
 	{
 		return *static_cast<http_response_parser *>(parser->data);
@@ -180,7 +203,7 @@ namespace netlib
 		return 0;
 	}
 
-	bool http_response_parser::parse_status(std::istream & is, std::string & str)
+	bool http_response_parser::parse_status(std::streambuf & sb, std::string & str)
 	{
 		auto * parser   = &get_parser();
 		auto * settings = &get_settings();
@@ -192,15 +215,14 @@ namespace netlib
 
 		for (;;)
 		{
-			is.peek();
-			if (not is) throw_stream_error();
+			if (not peek(sb)) throw_stream_error();
 
-			auto & sb = static_cast<ext::streambuf &>(*is.rdbuf());
-			auto * ptr = sb.gptr();
-			std::size_t data_len = sb.egptr() - ptr;
+			auto & esb = static_cast<ext::streambuf &>(sb);
+			auto * ptr = esb.gptr();
+			std::size_t data_len = esb.egptr() - ptr;
 
 			auto parsed = http_parser_execute(parser, settings, ptr, data_len);
-			sb.gbump(static_cast<int>(parsed));			
+			esb.gbump(static_cast<int>(parsed));
 
 			auto err = HTTP_PARSER_ERRNO(parser);
 			if (err == HPE_PAUSED)
@@ -214,7 +236,7 @@ namespace netlib
 		}
 	}
 
-	bool http_response_parser::parse_header(std::istream & is, std::string & name, std::string & value)
+	bool http_response_parser::parse_header(std::streambuf & sb, std::string & name, std::string & value)
 	{
 		auto * parser   = &get_parser();
 		auto * settings = &get_settings();
@@ -223,7 +245,7 @@ namespace netlib
 
 		if (not status_parsed())
 		{
-			while (parse_status(is, value))
+			while (parse_status(sb, value))
 				continue;
 		}
 
@@ -235,15 +257,14 @@ namespace netlib
 
 		for (;;)
 		{
-			is.peek();
-			if (not is) throw_stream_error();
+			if (not peek(sb)) throw_stream_error();
 
-			auto & sb = static_cast<ext::streambuf &>(*is.rdbuf());
-			auto * ptr = sb.gptr();
-			std::size_t data_len = sb.egptr() - ptr;
+			auto & esb = static_cast<ext::streambuf &>(sb);
+			auto * ptr = esb.gptr();
+			std::size_t data_len = esb.egptr() - ptr;
 
 			auto parsed = http_parser_execute(parser, settings, ptr, data_len);
-			sb.gbump(static_cast<int>(parsed));
+			esb.gbump(static_cast<int>(parsed));
 
 			auto err = HTTP_PARSER_ERRNO(parser);
 			if (err == HPE_PAUSED)
@@ -264,7 +285,7 @@ namespace netlib
 			(value == "gzip" || value == "deflate");
 	}
 
-	bool http_response_parser::parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size)
+	bool http_response_parser::parse_body(std::streambuf & sb, const char *& buffer, std::size_t & buff_size)
 	{
 		auto * parser = &get_parser();
 		auto * settings = &get_settings();
@@ -272,22 +293,21 @@ namespace netlib
 		if (not headers_parsed())
 		{
 			std::string name, value;
-			while (parse_header(is, name, value))
+			while (parse_header(sb, name, value))
 				continue;
 		}
 		
 		m_buffer_size = 0;
 		while (not message_parsed())
 		{
-			is.peek();
-			if (not is) throw_stream_error();
+			if (not peek(sb)) throw_stream_error();
 
-			auto & sb = static_cast<ext::streambuf &>(*is.rdbuf());
-			auto * ptr = sb.gptr();
-			std::size_t data_len = sb.egptr() - ptr;
+			auto & esb = static_cast<ext::streambuf &>(sb);
+			auto * ptr = esb.gptr();
+			std::size_t data_len = esb.egptr() - ptr;
 
 			auto parsed = http_parser_execute(parser, settings, ptr, data_len);
-			sb.gbump(static_cast<int>(parsed));
+			esb.gbump(static_cast<int>(parsed));
 
 			auto err = HTTP_PARSER_ERRNO(parser);
 			if (err == HPE_PAUSED)
@@ -353,18 +373,43 @@ namespace netlib
 		return *this;
 	}
 
-	void parse_trailing(http_response_parser & parser, std::istream & is)
+	bool http_response_parser::parse_status(std::istream & is, std::string & str)
+	{
+		auto func = [this](auto && ... params) { return this->parse_status(params...); };
+		return wrapped_call(is, func, *is.rdbuf(), str);
+	}
+
+	bool http_response_parser::parse_header(std::istream & is, std::string & name, std::string & value)
+	{
+		auto func = [this](auto && ... params) { return this->parse_header(params...); };
+		return wrapped_call(is, func, *is.rdbuf(), name, value);
+	}
+
+	bool http_response_parser::parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size)
+	{
+		auto func = [this](auto && ... params) { return this->parse_body(params...); };
+		return wrapped_call(is, func, *is.rdbuf(), buffer, buff_size);
+	}
+
+	void parse_trailing(http_response_parser & parser, std::streambuf & sb)
 	{
 		const char * buf;
 		std::size_t sz;
 
-		while (parser.parse_body(is, buf, sz));
+		while (parser.parse_body(sb, buf, sz));
 	}
 
-	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body)
+	void parse_trailing(http_response_parser & parser, std::istream & is)
+	{
+		eof_setter fs(is);
+		parse_trailing(parser, *is.rdbuf());
+		fs.is = nullptr;
+	}
+
+	int parse_http_response(http_response_parser & parser, std::streambuf & sb, std::string & response_body)
 	{
 		std::string name, value;
-		while (parser.parse_header(is, name, value))
+		while (parser.parse_header(sb, name, value))
 			continue;
 
 		const char * buffer;
@@ -381,7 +426,7 @@ namespace netlib
 			zlib::inflate_stream inflator {MAX_WBITS + 32};
 			inflator.set_out(ext::data(response_body), response_body.size());
 
-			while (parser.parse_body(is, buffer, len))
+			while (parser.parse_body(sb, buffer, len))
 			{
 				inflator.set_in(buffer, len);
 				do {
@@ -400,7 +445,7 @@ namespace netlib
 
 						case Z_STREAM_END:
 							assert(not inflator.avail_in());
-							if (parser.parse_body(is, buffer, len))
+							if (parser.parse_body(sb, buffer, len))
 								throw std::runtime_error("inconsistent deflated stream, trailing data after Z_STREAM_END");
 
 							goto finished;
@@ -426,16 +471,28 @@ namespace netlib
 		}
 		else
 		{
-			while (parser.parse_body(is, buffer, len))
+			while (parser.parse_body(sb, buffer, len))
 				response_body.append(buffer, len);
 		}
 		
 		return parser.http_code();
 	}
+	
+	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body)
+	{
+		auto func = [](auto && ... params) { return parse_http_response(params...); };
+		return wrapped_call(is, func, parser, *is.rdbuf(), response_body);
+	}
+
+	int parse_http_response(std::streambuf & sb, std::string & response_body)
+	{
+		http_response_parser parser;
+		return parse_http_response(parser, sb, response_body);
+	}
 
 	int parse_http_response(std::istream & is, std::string & response_body)
 	{
-		http_response_parser parser;
-		return parse_http_response(parser, is, response_body);
+		auto func = [](auto && ... params) { return parse_http_response(params...); };
+		return wrapped_call(is, func, *is.rdbuf(), response_body);
 	}
 }}
