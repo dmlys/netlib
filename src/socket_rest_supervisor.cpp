@@ -347,11 +347,14 @@ namespace netlib
 		m_thread_state = stopped;
 		m_request_event.notify_all();
 		disconnect();
-		m_thread.join();
+
+		if (m_thread.joinable())
+			m_thread.join();
 
 		m_items.clear_and_dispose([](auto * ptr)
 		{
 			// add_subscrition calls addref - we have to release
+			ptr->abandon();
 			ptr->release();
 		});
 	}

@@ -82,6 +82,10 @@ namespace netlib
 		virtual unsigned release() noexcept = 0;
 		virtual unsigned use_count() const noexcept = 0;
 
+		/// item is abandoned and forgotten by supervisor,
+		/// typically called on supervisor destruction
+		virtual void abandon() noexcept {}
+
 	public:
 		/// writes request into sock
 		virtual void request(ext::socket_stream & stream) = 0;
@@ -170,6 +174,8 @@ namespace netlib
 		unsigned addref() noexcept override           { return shared_state_type::addref(); }
 		unsigned release() noexcept override          { return shared_state_type::release(); }
 		unsigned use_count() const noexcept override  { return shared_state_type::use_count(); }
+
+		void abandon() noexcept override { return shared_state_type::release_promise(); }
 
 	public:
 		// request and response should be implemented by derived class
