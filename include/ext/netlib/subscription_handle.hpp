@@ -26,9 +26,9 @@ namespace netlib
 	public:
 		auto get() const noexcept                  { return m_ptr; }
 		void assign(subscription_ptr ptr) noexcept { m_ptr = std::move(ptr); }
-		bool empty() const                noexcept { return static_cast<bool>(m_ptr); }
+		bool empty() const                noexcept { return not static_cast<bool>(m_ptr); }
 		void reset()                      noexcept { m_ptr.reset(); }
-		operator bool() const             noexcept { return not empty(); }
+		operator bool() const             noexcept { return static_cast<bool>(m_ptr); }
 
 	public: // operators
 		bool operator  <(const subscription_handle & other) const
