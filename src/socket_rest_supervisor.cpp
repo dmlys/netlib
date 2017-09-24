@@ -245,6 +245,8 @@ namespace netlib
 			
 			if (replies.empty())
 			{
+				// check if we should disconnected
+				if (m_disconnect_request) break;
 				// both replies and requests are empty, wait for next_reschedule and repeat cycle
 				assert(requests.empty());
 				m_request_event.wait_until(lk, next_reschedule);
