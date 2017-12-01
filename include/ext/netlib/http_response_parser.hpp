@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <climits> // for CHAR_BIT
 #include <string>
+#include <utility> // for std::pair
 
 #include <streambuf>
 #include <istream>
@@ -133,4 +134,38 @@ namespace netlib
 	int parse_http_response(std::istream & is, std::string & response_body);
 	int parse_http_response(http_response_parser & parser, std::streambuf & is, std::string & response_body);
 	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body);
+
+	std::pair<int, std::string> parse_http_response(std::streambuf & sb);
+	std::pair<int, std::string> parse_http_response(std::istream & is);
+	std::pair<int, std::string> parse_http_response(http_response_parser & parser, std::streambuf & sb);
+	std::pair<int, std::string> parse_http_response(http_response_parser & parser, std::istream & is);
+
+
+	inline std::pair<int, std::string> parse_http_response(std::streambuf & sb)
+	{
+		std::string answer;
+		int code = parse_http_response(sb, answer);
+		return {code, std::move(answer)};
+	}
+
+	inline std::pair<int, std::string> parse_http_response(std::istream & is)
+	{
+		std::string answer;
+		int code = parse_http_response(is, answer);
+		return {code, std::move(answer)};
+	}
+
+	inline std::pair<int, std::string> parse_http_response(http_response_parser & parser, std::streambuf & sb)
+	{
+		std::string answer;
+		int code = parse_http_response(parser, sb, answer);
+		return {code, std::move(answer)};
+	}
+
+	inline std::pair<int, std::string> parse_http_response(http_response_parser & parser, std::istream & is)
+	{
+		std::string answer;
+		int code = parse_http_response(parser, is, answer);
+		return {code, std::move(answer)};
+	}
 }}

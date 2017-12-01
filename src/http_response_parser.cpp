@@ -18,23 +18,6 @@ namespace netlib
 		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
 	}
 
-	struct eof_setter
-	{
-		std::istream * is;
-
-		eof_setter(std::istream & is) : is(&is) {}
-		~eof_setter() { if (is) is->setstate(std::ios::eofbit); }
-	};
-
-	template <class Functor, class ... Args>
-	inline static auto wrapped_call(std::istream & is, Functor func, Args && ... args)
-	{
-		eof_setter fs(is);
-		auto res = func(std::forward<Args>(args)...);
-		fs.is = nullptr;
-		return res;
-	}
-
 	inline http_response_parser & http_response_parser::get_this(http_parser * parser) noexcept
 	{
 		return *static_cast<http_response_parser *>(parser->data);
@@ -375,20 +358,17 @@ namespace netlib
 
 	bool http_response_parser::parse_status(std::istream & is, std::string & str)
 	{
-		auto func = [this](auto && ... params) { return this->parse_status(params...); };
-		return wrapped_call(is, func, *is.rdbuf(), str);
+		return parse_status(*is.rdbuf(), str);
 	}
 
 	bool http_response_parser::parse_header(std::istream & is, std::string & name, std::string & value)
 	{
-		auto func = [this](auto && ... params) { return this->parse_header(params...); };
-		return wrapped_call(is, func, *is.rdbuf(), name, value);
+		return parse_header(*is.rdbuf(), name, value);
 	}
 
 	bool http_response_parser::parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size)
 	{
-		auto func = [this](auto && ... params) { return this->parse_body(params...); };
-		return wrapped_call(is, func, *is.rdbuf(), buffer, buff_size);
+		return parse_body(*is.rdbuf(), buffer, buff_size);
 	}
 
 	void parse_trailing(http_response_parser & parser, std::streambuf & sb)
@@ -401,9 +381,7 @@ namespace netlib
 
 	void parse_trailing(http_response_parser & parser, std::istream & is)
 	{
-		eof_setter fs(is);
 		parse_trailing(parser, *is.rdbuf());
-		fs.is = nullptr;
 	}
 
 	int parse_http_response(http_response_parser & parser, std::streambuf & sb, std::string & response_body)
@@ -480,8 +458,7 @@ namespace netlib
 	
 	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body)
 	{
-		auto func = [](auto && ... params) { return parse_http_response(params...); };
-		return wrapped_call(is, func, parser, *is.rdbuf(), response_body);
+		return parse_http_response(parser, *is.rdbuf(), response_body);
 	}
 
 	int parse_http_response(std::streambuf & sb, std::string & response_body)
@@ -492,7 +469,6 @@ namespace netlib
 
 	int parse_http_response(std::istream & is, std::string & response_body)
 	{
-		auto func = [](auto && ... params) { return parse_http_response(params...); };
-		return wrapped_call(is, func, *is.rdbuf(), response_body);
+		return parse_http_response(*is.rdbuf(), response_body);
 	}
 }}
