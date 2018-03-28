@@ -25,7 +25,7 @@ namespace netlib
 			~reverse_lock() noexcept { m_lk.lock(); }
 
 			reverse_lock(reverse_lock &&) = delete;
-			reverse_lock && operator =(reverse_lock &&) = delete;
+			reverse_lock & operator =(reverse_lock &&) = delete;
 		};
 	}
 
