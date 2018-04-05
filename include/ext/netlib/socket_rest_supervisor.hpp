@@ -36,7 +36,7 @@ namespace netlib
 	/// Basic abstract item interface for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	///
-	/// Clients should use socket_rest_supervisor_subscription/socket_rest_supervisor_subscription
+	/// Clients should use socket_rest_supervisor_subscription/socket_rest_supervisor_request
 	class socket_rest_supervisor_item :
 		public boost::intrusive::list_base_hook<
 			boost::intrusive::link_mode<boost::intrusive::link_mode_type::auto_unlink>
@@ -44,7 +44,7 @@ namespace netlib
 	{
 	private:
 		typedef socket_rest_supervisor_item      self_type;
-		friend socket_rest_supervisor;
+		friend  socket_rest_supervisor;
 
 	protected:
 		typedef boost::intrusive::list_base_hook<
@@ -66,7 +66,7 @@ namespace netlib
 		void set_parent(socket_rest_supervisor * parent) noexcept { m_owner = parent; }
 		bool is_orphan() const noexcept { return m_owner == nullptr; }
 
-		/// all items can be paused, if so - they are not working(value next_invoke is ignored) until they are unparsed
+		/// all items can be paused, if so - they are not working(value next_invoke is ignored) until they are unpaused
 		bool is_paused() const noexcept { return (m_flags.load(std::memory_order_relaxed) & Paused) != 0; }
 		void set_paused() noexcept      { m_flags.fetch_or(Paused, std::memory_order_relaxed); }
 		void reset_paused() noexcept    { m_flags.fetch_and(~Paused, std::memory_order_relaxed); }
@@ -99,14 +99,14 @@ namespace netlib
 		/// or, in case no new data - return some delay.
 		/// 
 		/// It's okay to return time_point::max after request, and correct time_point after response.
-		/// In case you you next_invoke is changed some where after response - 
+		/// In case your next_invoke value is changed somewhere after response - 
 		/// call notify() this will wake up internal thread.
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point = 0;
 
 	public:
-		/// for socket_rest_supervisor use, calls request method
+		/// for internal socket_rest_supervisor use, calls request method
 		virtual bool make_request(parent_lock & srs_lk, ext::socket_stream & stream) = 0;
-		/// for socket_rest_supervisor use, calls process method
+		/// for internal socket_rest_supervisor use, calls process method
 		virtual void process_response(parent_lock & srs_lk, ext::socket_stream & stream) = 0;
 
 	public:
@@ -255,7 +255,7 @@ namespace netlib
 	/// Manages and controls set of independent of each other subscription/requests for a socket connection.
 	/// Typical example would be HTTP rest repeating requests.
 	/// * Operations on socket should be stateless, in sense: 
-	///   send request, receive response. Their should be not connection state, like envelope in SMTP.
+	///   send request, receive response. They should be not connection state, like envelope in SMTP.
 	///   Of course subscription can abuse connection and send/receive data in single request call - this is not advised.
 	///
 	/// * class controls connection state, emits signals in case of connect/disconnect/connection lost.
@@ -446,7 +446,7 @@ namespace netlib
 		// that waiting in std::chrono::steady_clock::time_point::max() 
 		// does not work due to integer overflow internally.
 		// 
-		// Prevent this by returning twice time_point::max() / 2, value still will be quite a big
+		// Prevent this by returning time_point::max() / 2, value still will be quite a big
 
 		return std::chrono::steady_clock::time_point {
 			std::chrono::steady_clock::duration {std::chrono::steady_clock::duration::max().count() / 2}
