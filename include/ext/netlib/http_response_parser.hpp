@@ -17,7 +17,7 @@ struct http_parser_settings;
 namespace ext {
 namespace netlib
 {
-	/// http_parser based parser.
+	/// ::http_parser based parser.
 	/// additionally supports gzip, zlib, raw deflate Transfer-Encodings
 	/// parses to internal buffer, that can be accessed
 	class http_response_parser
@@ -39,8 +39,8 @@ namespace netlib
 		// Instead we declare byte array of same size and reinterpret_cast it were necessary.
 		// Sort of compiler firewall.
 
-		//http_parser m_parser;
-		//http_parser_settings m_settings;
+		//::http_parser m_parser;
+		//::http_parser_settings m_settings;
 
 		static constexpr auto HTTP_PARSER_SIZE = 
 			+ 32  // type + flags + .. + index
@@ -77,28 +77,28 @@ namespace netlib
 		};
 		
 	private: // others
-		BOOST_NORETURN static void throw_parser_error(const http_parser * parser);
+		BOOST_NORETURN static void throw_parser_error(const ::http_parser * parser);
 		BOOST_NORETURN static void throw_stream_error();
 
 	private:
-		static http_response_parser & get_this(http_parser * parser) noexcept;
+		static http_response_parser & get_this(::http_parser * parser) noexcept;
 
-		      http_parser & get_parser()       noexcept;
-		const http_parser & get_parser() const noexcept;
+		      ::http_parser & get_parser()       noexcept;
+		const ::http_parser & get_parser() const noexcept;
 
-		      http_parser_settings & get_settings()       noexcept;
-		const http_parser_settings & get_settings() const noexcept;
+		      ::http_parser_settings & get_settings()       noexcept;
+		const ::http_parser_settings & get_settings() const noexcept;
 
-		// http_parser callbacks
-		static int on_status(http_parser * parser, const char * data, size_t len);
-		static int on_status_complete(http_parser * parser, const char * data, size_t len);
-		static int on_header_field(http_parser * parser, const char * data, size_t len);
-		static int on_header_value(http_parser * parser, const char * data, size_t len);
-		static int on_headers_complete(http_parser * parser);
-		static int on_body(http_parser * parser, const char * data, size_t len);
-		static int on_message_complete(http_parser * parser);
+		// ::http_parser callbacks
+		static int on_status(::http_parser * parser, const char * data, size_t len);
+		static int on_status_complete(::http_parser * parser, const char * data, size_t len);
+		static int on_header_field(::http_parser * parser, const char * data, size_t len);
+		static int on_header_value(::http_parser * parser, const char * data, size_t len);
+		static int on_headers_complete(::http_parser * parser);
+		static int on_body(::http_parser * parser, const char * data, size_t len);
+		static int on_message_complete(::http_parser * parser);
 		
-		void init_parser(http_parser * parser, http_parser_settings * settings);
+		void init_parser(::http_parser * parser, ::http_parser_settings * settings);
 		void on_parsed_header(const std::string & name, const std::string & value);
 
 	public: // main process methods
@@ -119,7 +119,7 @@ namespace netlib
 		
 		int http_code() const;
 		/// can be useful for error and some other info extracting
-		const http_parser & parser() const { return get_parser(); }
+		const ::http_parser & parser() const { return get_parser(); }
 
 	public:
 		http_response_parser() { reset(); }

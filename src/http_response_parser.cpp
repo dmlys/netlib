@@ -18,48 +18,48 @@ namespace netlib
 		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
 	}
 
-	inline http_response_parser & http_response_parser::get_this(http_parser * parser) noexcept
+	inline http_response_parser & http_response_parser::get_this(::http_parser * parser) noexcept
 	{
 		return *static_cast<http_response_parser *>(parser->data);
 	}
 
-	inline http_parser & http_response_parser::get_parser() noexcept 
+	inline ::http_parser & http_response_parser::get_parser() noexcept 
 	{
-		static_assert(sizeof(m_parser_object) == sizeof(http_parser),
-			"http_parser size is different than impl buffer");
+		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
+			"::http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<http_parser *>(&m_parser_object);
+		return *reinterpret_cast<::http_parser *>(&m_parser_object);
 	}
 
-	inline const http_parser & http_response_parser::get_parser() const noexcept 
+	inline const ::http_parser & http_response_parser::get_parser() const noexcept 
 	{
-		static_assert(sizeof(m_parser_object) == sizeof(http_parser),
-			"http_parser size is different than impl buffer");
+		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
+			"::http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<const http_parser *>(&m_parser_object);
+		return *reinterpret_cast<const ::http_parser *>(&m_parser_object);
 	}
 
-	inline http_parser_settings & http_response_parser::get_settings() noexcept 
+	inline ::http_parser_settings & http_response_parser::get_settings() noexcept 
 	{ 
-		static_assert(sizeof(m_settings_object) == sizeof(http_parser_settings),
-			"http_parser_settings size is different than impl buffer");
+		static_assert(sizeof(m_settings_object) == sizeof(::http_parser_settings),
+			"::http_parser_settings size is different than impl buffer");
 
-		return *reinterpret_cast<http_parser_settings *>(&m_settings_object);
+		return *reinterpret_cast<::http_parser_settings *>(&m_settings_object);
 	}
 
-	inline const http_parser_settings & http_response_parser::get_settings() const noexcept
+	inline const ::http_parser_settings & http_response_parser::get_settings() const noexcept
 	{
-		static_assert(sizeof(m_settings_object) == sizeof(http_parser_settings),
-			"http_parser_settings size is different than impl buffer");
+		static_assert(sizeof(m_settings_object) == sizeof(::http_parser_settings),
+			"::http_parser_settings size is different than impl buffer");
 
-		return *reinterpret_cast<const http_parser_settings *>(&m_settings_object);
+		return *reinterpret_cast<const ::http_parser_settings *>(&m_settings_object);
 	}
 
-	BOOST_NORETURN void http_response_parser::throw_parser_error(const http_parser * parser)
+	BOOST_NORETURN void http_response_parser::throw_parser_error(const ::http_parser * parser)
 	{
 		auto * errmsg = http_errno_description(HTTP_PARSER_ERRNO(parser));
 
-		std::string msg = "http_parser error: ";
+		std::string msg = "::http_parser error: ";
 		msg += errmsg;
 
 		throw std::runtime_error(std::move(msg));
@@ -70,7 +70,7 @@ namespace netlib
 		throw std::ios::failure("http_response_parser: stream read failure");
 	}
 
-	void http_response_parser::init_parser(http_parser * parser, http_parser_settings * settings)
+	void http_response_parser::init_parser(::http_parser * parser, ::http_parser_settings * settings)
 	{
 		http_parser_settings_init(settings);
 
@@ -88,7 +88,7 @@ namespace netlib
 		http_parser_init(parser, HTTP_RESPONSE);
 	}
 
-	int http_response_parser::on_status(http_parser * parser, const char * data, size_t len)
+	int http_response_parser::on_status(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		assert(p.m_state == status_state);
@@ -97,7 +97,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_status_complete(http_parser * parser, const char * data, size_t len)
+	int http_response_parser::on_status_complete(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		auto & settings = p.get_settings();
@@ -115,7 +115,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_header_field(http_parser * parser, const char * data, size_t len)
+	int http_response_parser::on_header_field(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		switch (p.m_state)
@@ -139,7 +139,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_header_value(http_parser * parser, const char * data, size_t len)
+	int http_response_parser::on_header_value(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		switch (p.m_state)
@@ -156,7 +156,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_headers_complete(http_parser * parser)
+	int http_response_parser::on_headers_complete(::http_parser * parser)
 	{
 		auto & p = get_this(parser);
 		p.m_state = body_state;
@@ -165,7 +165,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_body(http_parser * parser, const char * data, size_t len)
+	int http_response_parser::on_body(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 
@@ -176,7 +176,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_message_complete(http_parser * parser)
+	int http_response_parser::on_message_complete(::http_parser * parser)
 	{
 		auto & p = get_this(parser);
 		p.m_state = finished;
