@@ -5,25 +5,28 @@
 #include <ext/cppzlib.hpp>
 #include <ext/range.hpp>
 #include <ext/iostreams/streambuf.hpp>
-#include <ext/netlib/http_response_parser.hpp>
+#include <ext/netlib/http_parser.hpp>
 
 #include "http_parser.h"
 
 namespace ext {
 namespace netlib
 {
+	const unsigned http_parser::request  = HTTP_REQUEST;
+	const unsigned http_parser::response = HTTP_RESPONSE;
+
 	inline static bool peek(std::streambuf & sb)
 	{
 		typedef std::streambuf::traits_type traits_type;
 		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
 	}
 
-	inline http_response_parser & http_response_parser::get_this(::http_parser * parser) noexcept
+	inline http_parser & http_parser::get_this(::http_parser * parser) noexcept
 	{
-		return *static_cast<http_response_parser *>(parser->data);
+		return *static_cast<http_parser *>(parser->data);
 	}
 
-	inline ::http_parser & http_response_parser::get_parser() noexcept 
+	inline ::http_parser & http_parser::get_parser() noexcept 
 	{
 		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
 			"::http_parser size is different than impl buffer");
@@ -31,7 +34,7 @@ namespace netlib
 		return *reinterpret_cast<::http_parser *>(&m_parser_object);
 	}
 
-	inline const ::http_parser & http_response_parser::get_parser() const noexcept 
+	inline const ::http_parser & http_parser::get_parser() const noexcept 
 	{
 		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
 			"::http_parser size is different than impl buffer");
@@ -39,7 +42,7 @@ namespace netlib
 		return *reinterpret_cast<const ::http_parser *>(&m_parser_object);
 	}
 
-	inline ::http_parser_settings & http_response_parser::get_settings() noexcept 
+	inline ::http_parser_settings & http_parser::get_settings() noexcept 
 	{ 
 		static_assert(sizeof(m_settings_object) == sizeof(::http_parser_settings),
 			"::http_parser_settings size is different than impl buffer");
@@ -47,7 +50,7 @@ namespace netlib
 		return *reinterpret_cast<::http_parser_settings *>(&m_settings_object);
 	}
 
-	inline const ::http_parser_settings & http_response_parser::get_settings() const noexcept
+	inline const ::http_parser_settings & http_parser::get_settings() const noexcept
 	{
 		static_assert(sizeof(m_settings_object) == sizeof(::http_parser_settings),
 			"::http_parser_settings size is different than impl buffer");
@@ -55,7 +58,7 @@ namespace netlib
 		return *reinterpret_cast<const ::http_parser_settings *>(&m_settings_object);
 	}
 
-	BOOST_NORETURN void http_response_parser::throw_parser_error(const ::http_parser * parser)
+	BOOST_NORETURN void http_parser::throw_parser_error(const ::http_parser * parser)
 	{
 		auto * errmsg = http_errno_description(HTTP_PARSER_ERRNO(parser));
 
@@ -65,30 +68,33 @@ namespace netlib
 		throw std::runtime_error(std::move(msg));
 	}
 
-	BOOST_NORETURN void http_response_parser::throw_stream_error()
+	BOOST_NORETURN void http_parser::throw_stream_error()
 	{
-		throw std::ios::failure("http_response_parser: stream read failure");
+		throw std::ios::failure("http_parser: stream read failure");
 	}
 
-	void http_response_parser::init_parser(::http_parser * parser, ::http_parser_settings * settings)
+	void http_parser::init_parser(::http_parser * parser, ::http_parser_settings * settings)
 	{
 		http_parser_settings_init(settings);
-
+		
 		settings->on_status           = &on_status;
 		settings->on_header_field     = &on_status_complete;
-
+		
+		settings->on_url              = &on_url;
+		settings->on_header_field     = &on_url_complete;
+		
 		//settings->on_header_field     = &on_header_field;
 		//settings->on_header_value     = &on_header_value;
 		
 		settings->on_headers_complete = &on_headers_complete;
 		settings->on_body             = &on_body;
 		settings->on_message_complete = &on_message_complete;
-
+		
 		parser->data = this;
-		http_parser_init(parser, HTTP_RESPONSE);
+		http_parser_init(parser, static_cast<::http_parser_type>(m_type));
 	}
 
-	int http_response_parser::on_status(::http_parser * parser, const char * data, size_t len)
+	int http_parser::on_status(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		assert(p.m_state == status_state);
@@ -97,7 +103,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_status_complete(::http_parser * parser, const char * data, size_t len)
+	int http_parser::on_status_complete(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		auto & settings = p.get_settings();
@@ -115,7 +121,34 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_header_field(::http_parser * parser, const char * data, size_t len)
+	int http_parser::on_url(::http_parser * parser, const char * data, size_t len)
+	{
+		auto & p = get_this(parser);
+		assert(p.m_state == url_state);
+
+		if (p.m_url_val) p.m_url_val->append(data, len);
+		return 0;
+	}
+
+	int http_parser::on_url_complete(::http_parser * parser, const char * data, size_t len)
+	{
+		auto & p = get_this(parser);
+		auto & settings = p.get_settings();
+
+		p.m_state = header_field;
+		settings.on_header_field = &on_header_field;
+		settings.on_header_value = &on_header_value;
+
+		// save for later header parsing
+		p.m_buffer = data;
+		p.m_buffer_size = len;
+
+		// step out from parsing
+		http_parser_pause(parser, 1);
+		return 0;
+	}
+
+	int http_parser::on_header_field(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		switch (p.m_state)
@@ -139,7 +172,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_header_value(::http_parser * parser, const char * data, size_t len)
+	int http_parser::on_header_value(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 		switch (p.m_state)
@@ -156,7 +189,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_headers_complete(::http_parser * parser)
+	int http_parser::on_headers_complete(::http_parser * parser)
 	{
 		auto & p = get_this(parser);
 		p.m_state = body_state;
@@ -165,7 +198,7 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_body(::http_parser * parser, const char * data, size_t len)
+	int http_parser::on_body(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
 
@@ -176,7 +209,12 @@ namespace netlib
 		return 0;
 	}
 
-	int http_response_parser::on_message_complete(::http_parser * parser)
+	int http_parser::on_message_begin(::http_parser * parser)
+	{
+		return 0;
+	}
+
+	int http_parser::on_message_complete(::http_parser * parser)
 	{
 		auto & p = get_this(parser);
 		p.m_state = finished;
@@ -186,7 +224,7 @@ namespace netlib
 		return 0;
 	}
 
-	bool http_response_parser::parse_status(std::streambuf & sb, std::string & str)
+	bool http_parser::parse_status(std::streambuf & sb, std::string & str)
 	{
 		auto * parser   = &get_parser();
 		auto * settings = &get_settings();
@@ -219,7 +257,14 @@ namespace netlib
 		}
 	}
 
-	bool http_response_parser::parse_header(std::streambuf & sb, std::string & name, std::string & value)
+	bool http_parser::parse_url(std::streambuf & sb, std::string & str)
+	{
+		// actually code identical to parse_status and we can just call it
+		// (m_status_val shares same space via union with m_url_val)
+		return parse_status(sb, str);
+	}
+
+	bool http_parser::parse_header(std::streambuf & sb, std::string & name, std::string & value)
 	{
 		auto * parser   = &get_parser();
 		auto * settings = &get_settings();
@@ -262,13 +307,13 @@ namespace netlib
 		}
 	}
 
-	void http_response_parser::on_parsed_header(const std::string & name, const std::string & value)
+	void http_parser::on_parsed_header(const std::string & name, const std::string & value)
 	{
 		m_deflated |= name == "Content-Encoding" &&
 			(value == "gzip" || value == "deflate");
 	}
 
-	bool http_response_parser::parse_body(std::streambuf & sb, const char *& buffer, std::size_t & buff_size)
+	bool http_parser::parse_body(std::streambuf & sb, const char *& buffer, std::size_t & buff_size)
 	{
 		auto * parser = &get_parser();
 		auto * settings = &get_settings();
@@ -309,27 +354,34 @@ namespace netlib
 		return false;
 	}
 
-	int http_response_parser::http_code() const
+	int http_parser::http_code() const
 	{
 		return get_parser().status_code;
 	}
 
-	void http_response_parser::reset()
+	std::string http_parser::http_method() const
+	{
+		return ::http_method_str(static_cast<::http_method>(get_parser().method));
+	}
+
+	void http_parser::reset(unsigned type)
 	{
 		m_state = start_state;
 
 		m_buffer = nullptr;
 		m_buffer_size = 0;
 		m_deflated = false;
+		m_type = type;
 
 		auto * parser = &get_parser();
 		auto * settings = &get_settings();
 		init_parser(parser, settings);
 	}
 
-	http_response_parser::http_response_parser(const http_response_parser & other)
+	http_parser::http_parser(http_parser && other)
 	{
 		m_state = other.m_state;
+		m_type = other.m_type;
 		m_deflated = other.m_deflated;
 		
 		m_buffer = other.m_buffer;
@@ -343,35 +395,44 @@ namespace netlib
 		//m_settings = other.m_settings;
 
 		//m_parser.data = this;
+
+		other.reset();
 	}
 
-	http_response_parser & http_response_parser::operator =(const http_response_parser & other)
+	http_parser & http_parser::operator =(http_parser && other)
 	{
 		if (this != &other)
 		{
-			this->~http_response_parser();
-			new (this) http_response_parser(other);
+			this->~http_parser();
+			new (this) http_parser(std::move(other));
 		}
 
 		return *this;
 	}
 
-	bool http_response_parser::parse_status(std::istream & is, std::string & str)
+	bool http_parser::parse_status(std::istream & is, std::string & str)
 	{
 		return parse_status(*is.rdbuf(), str);
 	}
 
-	bool http_response_parser::parse_header(std::istream & is, std::string & name, std::string & value)
+	bool http_parser::parse_url(std::istream & is, std::string & str)
+	{
+		// actually code identical to parse_status and we can just call it
+		// (m_status_val shares same space via union with m_url_val)
+		return parse_status(is, str);
+	}
+
+	bool http_parser::parse_header(std::istream & is, std::string & name, std::string & value)
 	{
 		return parse_header(*is.rdbuf(), name, value);
 	}
 
-	bool http_response_parser::parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size)
+	bool http_parser::parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size)
 	{
 		return parse_body(*is.rdbuf(), buffer, buff_size);
 	}
 
-	void parse_trailing(http_response_parser & parser, std::streambuf & sb)
+	void parse_trailing(http_parser & parser, std::streambuf & sb)
 	{
 		const char * buf;
 		std::size_t sz;
@@ -379,30 +440,35 @@ namespace netlib
 		while (parser.parse_body(sb, buf, sz));
 	}
 
-	void parse_trailing(http_response_parser & parser, std::istream & is)
+	void parse_trailing(http_parser & parser, std::istream & is)
 	{
 		parse_trailing(parser, *is.rdbuf());
 	}
 
-	int parse_http_response(http_response_parser & parser, std::streambuf & sb, std::string & response_body)
+
+	void parse_http_body(http_parser & parser, std::streambuf & sb, std::string & body, std::string * pstatus_url /* = nullptr */)
 	{
 		std::string name, value;
-		while (parser.parse_header(sb, name, value))
-			continue;
-
 		const char * buffer;
 		std::size_t len;
+		std::string & status_url = pstatus_url ? *pstatus_url : value;
+
+		while (parser.parse_status(sb, status_url))
+			continue;
+		
+		while (parser.parse_header(sb, name, value))
+			continue;
 
 		if (parser.deflated())
 		{
 #ifdef EXT_ENABLE_CPPZLIB
-			std::size_t sz = std::max<std::size_t>(1024, response_body.capacity());
+			std::size_t sz = std::max<std::size_t>(1024, body.capacity());
 			sz = std::min<std::size_t>(10 * 1024, sz);
-			sz = std::max<std::size_t>(sz, response_body.size());
-			response_body.resize(sz);
+			sz = std::max<std::size_t>(sz, body.size());
+			body.resize(sz);
 
 			zlib::inflate_stream inflator {MAX_WBITS + 32};
-			inflator.set_out(ext::data(response_body), response_body.size());
+			inflator.set_out(ext::data(body), body.size());
 
 			while (parser.parse_body(sb, buffer, len))
 			{
@@ -411,8 +477,8 @@ namespace netlib
 					if (not inflator.avail_out())
 					{
 						auto newsz = sz * 3 / 2;
-						response_body.resize(newsz);
-						inflator.set_out(ext::data(response_body) + sz, newsz - sz);
+						body.resize(newsz);
+						inflator.set_out(ext::data(body) + sz, newsz - sz);
 						sz = newsz;
 					}
 
@@ -442,33 +508,62 @@ namespace netlib
 			}
 
 		finished:
-			response_body.resize(inflator.total_out());
+			body.resize(inflator.total_out());
 #else
-			throw std::runtime_error("can't inflate compressed stream, http_response_parser built without zlib support");
+			throw std::runtime_error("can't inflate compressed stream, http_parser built without zlib support");
 #endif
 		}
 		else
 		{
 			while (parser.parse_body(sb, buffer, len))
-				response_body.append(buffer, len);
+				body.append(buffer, len);
 		}
-		
+	}
+
+
+
+	int parse_http_response(http_parser & parser, std::streambuf & sb, std::string & response_body)
+	{
+		parse_http_body(parser, sb, response_body);
 		return parser.http_code();
 	}
 	
-	int parse_http_response(http_response_parser & parser, std::istream & is, std::string & response_body)
+	int parse_http_response(http_parser & parser, std::istream & is, std::string & response_body)
 	{
 		return parse_http_response(parser, *is.rdbuf(), response_body);
 	}
 
 	int parse_http_response(std::streambuf & sb, std::string & response_body)
 	{
-		http_response_parser parser;
+		http_parser parser(http_parser::response);
 		return parse_http_response(parser, sb, response_body);
 	}
 
 	int parse_http_response(std::istream & is, std::string & response_body)
 	{
 		return parse_http_response(*is.rdbuf(), response_body);
+	}
+
+
+	void parse_http_request(http_parser & parser, std::streambuf & sb, std::string & method, std::string & url, std::string & request_body)
+	{
+		parse_http_body(parser, sb, request_body, &url);
+		method = parser.http_method();
+	}
+
+	void parse_http_request(http_parser & parser, std::istream & is, std::string & method, std::string & url, std::string & request_body)
+	{
+		return parse_http_request(parser, *is.rdbuf(), method, url, request_body);
+	}
+
+	void parse_http_request(std::streambuf & sb, std::string & method, std::string & url, std::string & request_body)
+	{
+		http_parser parser(http_parser::request);
+		parse_http_request(parser, sb, method, url, request_body);
+	}
+
+	void parse_http_request(std::istream & is, std::string & method, std::string & url, std::string & request_body)
+	{
+		return parse_http_request(*is.rdbuf(), method, url, request_body);
 	}
 }}

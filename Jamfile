@@ -41,3 +41,16 @@ lib netlib # target name
 	: # defaults
 	: # usage-requirements
 	;
+
+	
+local boost_libs = system filesystem unit_test_framework ;
+	
+unit-test netlib-tests
+	: $(tests_src) # sources
+	  netlib
+	  $(SOLUTION_ROOT)//extlib
+	  /boost//headers
+	  /boost//$(boost_libs)
+	;
+	
+explicit netlib-tests ;

@@ -1,15 +1,15 @@
-#include <ext/netlib/http_response_stream.hpp>
+#include <ext/netlib/http_stream.hpp>
 
 namespace ext {
 namespace netlib
 {
-	auto http_response_streambuf::underflow() -> int_type
+	auto http_streambuf::underflow() -> int_type
 	{
 		if (not m_reader) return traits_type::eof();
 		return (this->*m_reader)();
 	}
 
-	auto http_response_streambuf::underflow_normal() -> int_type
+	auto http_streambuf::underflow_normal() -> int_type
 	{
 		char * ptr;
 		std::size_t len;
@@ -20,7 +20,7 @@ namespace netlib
 		return traits_type::to_int_type(*ptr);
 	}
 
-	auto http_response_streambuf::underflow_deflated() -> int_type
+	auto http_streambuf::underflow_deflated() -> int_type
 	{
 #ifdef EXT_ENABLE_CPPZLIB
 		const char * buffer;
@@ -74,28 +74,29 @@ namespace netlib
 			return traits_type::to_int_type(*ptr);
 		}
 #else
-		throw std::runtime_error("can't inflate compressed stream, http_response_streambuf built without zlib support");
+		throw std::runtime_error("can't inflate compressed stream, http_streambuf built without zlib support");
 		return traits_type::eof();
 #endif
 	}
 	
-	void http_response_streambuf::init()
+	void http_streambuf::init()
 	{
 		std::string name, val;
+		while (m_parser.parse_status(*m_source, m_url_or_status));
 		while (m_parser.parse_header(*m_source, name, val));
 
 		if (m_parser.deflated())
 		{
 			m_buffer = std::make_unique<char[]>(m_buffer_size);
-			m_reader = &http_response_streambuf::underflow_deflated;
+			m_reader = &http_streambuf::underflow_deflated;
 		}
 		else
 		{
-			m_reader = &http_response_streambuf::underflow_normal;
+			m_reader = &http_streambuf::underflow_normal;
 		}
 	}
 
-	http_response_streambuf::http_response_streambuf(http_response_streambuf && other) noexcept
+	http_streambuf::http_streambuf(http_streambuf && other) noexcept
 		: ext::streambuf(std::move(other)),
 		m_parser(std::move(other.m_parser)),
 		m_source(std::exchange(other.m_source, nullptr)),
@@ -109,37 +110,37 @@ namespace netlib
 
 	}
 
-	http_response_streambuf & http_response_streambuf::operator =(http_response_streambuf && other) noexcept
+	http_streambuf & http_streambuf::operator =(http_streambuf && other) noexcept
 	{
 		if (this != &other)
 		{
-			this->~http_response_streambuf();
-			new (this) http_response_streambuf(std::move(other));
+			this->~http_streambuf();
+			new (this) http_streambuf(std::move(other));
 		}
 
 		return *this;
 	}
 
-	http_response_streambuf::http_response_streambuf(std::streambuf & sb)
+	http_streambuf::http_streambuf(std::streambuf & sb)
 		: m_source(&sb)
 	{
 		init();
 	}
 
-	http_response_streambuf::http_response_streambuf(std::istream & is)
-		: http_response_streambuf(*is.rdbuf())
+	http_streambuf::http_streambuf(std::istream & is)
+		: http_streambuf(*is.rdbuf())
 	{
 
 	}
 
-	http_response_streambuf::http_response_streambuf(http_response_parser && parser, std::streambuf & sb)
+	http_streambuf::http_streambuf(http_parser && parser, std::streambuf & sb)
 		: m_parser(std::move(parser)), m_source(&sb)
 	{
 		init();
 	}
 
-	http_response_streambuf::http_response_streambuf(http_response_parser && parser, std::istream & is)
-		: http_response_streambuf(std::move(parser), *is.rdbuf())
+	http_streambuf::http_streambuf(http_parser && parser, std::istream & is)
+		: http_streambuf(std::move(parser), *is.rdbuf())
 	{
 
 	}
@@ -152,6 +153,25 @@ namespace netlib
 	}
 
 	http_response_stream & http_response_stream::operator =(http_response_stream && other) noexcept
+	{
+		if (this != &other)
+		{
+			this->std::istream::operator= (std::move(other));
+			m_streambuf = std::move(other.m_streambuf);
+			set_rdbuf(&m_streambuf);
+		}
+
+		return *this;
+	}
+
+	http_request_stream::http_request_stream(http_request_stream && other) noexcept
+		: std::istream(std::move(other)),
+		  m_streambuf(std::move(other.m_streambuf))
+	{
+		set_rdbuf(&m_streambuf);
+	}
+
+	http_request_stream & http_request_stream::operator =(http_request_stream && other) noexcept
 	{
 		if (this != &other)
 		{
