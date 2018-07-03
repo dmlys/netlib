@@ -125,7 +125,7 @@ namespace netlib
 		bool message_parsed() const noexcept { return m_state == finished; }
 
 		bool deflated()       const noexcept { return m_deflated; }
-		void fore_defalted()        noexcept { m_deflated = true; }
+		void force_defalted()       noexcept { m_deflated = true; }
 
 		bool parse_status(std::streambuf & sb, std::string & str);
 		bool parse_url(std::streambuf & sb, std::string & str);
@@ -136,8 +136,17 @@ namespace netlib
 		bool parse_url(std::istream & is, std::string & str);
 		bool parse_header(std::istream & is, std::string & name, std::string & value);
 		bool parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size);
-		
-		int http_code() const;
+
+	public:
+		bool should_keep_alive() const noexcept;
+		bool should_close()      const noexcept;
+
+		int http_version_major() const noexcept;
+		int http_version_minor() const noexcept;
+		// major * 10 + minor: 20, 11, 10, 09
+		int http_version() const noexcept;
+
+		int http_code() const noexcept;
 		/// result will be in upper case: POST, GET, etc
 		std::string http_method() const;
 
@@ -156,8 +165,8 @@ namespace netlib
 	};
 
 
-
 	void parse_http_body(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url = nullptr);
+	void parse_http_body(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url = nullptr);
 
 	void parse_trailing(http_parser & parser, std::streambuf & sb);
 	void parse_trailing(http_parser & parser, std::istream & is);

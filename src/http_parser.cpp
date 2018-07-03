@@ -232,7 +232,7 @@ namespace netlib
 		if (status_parsed()) return false;
 
 		str.clear();
-		m_status_val = &str;		
+		m_status_val = &str;
 
 		for (;;)
 		{
@@ -354,7 +354,32 @@ namespace netlib
 		return false;
 	}
 
-	int http_parser::http_code() const
+	bool http_parser::should_keep_alive() const noexcept
+	{
+		return ::http_should_keep_alive(&get_parser()) == 0;
+	}
+
+	bool http_parser::should_close() const noexcept
+	{
+		return ::http_should_keep_alive(&get_parser()) != 0;
+	}
+
+	int http_parser::http_version_major() const noexcept
+	{
+		return get_parser().http_major;
+	}
+
+	int http_parser::http_version_minor() const noexcept
+	{
+		return get_parser().http_minor;
+	}
+
+	int http_parser::http_version() const noexcept
+	{
+		return http_version_major() * 10 + http_version_minor();
+	}
+
+	int http_parser::http_code() const noexcept
 	{
 		return get_parser().status_code;
 	}
@@ -518,6 +543,11 @@ namespace netlib
 			while (parser.parse_body(sb, buffer, len))
 				body.append(buffer, len);
 		}
+	}
+
+	void parse_http_body(http_parser & parser, std::istream & is, std::string & body, std::string * status_or_url)
+	{
+		return parse_http_body(parser, *is.rdbuf(), body, status_or_url);
 	}
 
 
