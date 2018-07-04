@@ -88,7 +88,7 @@ namespace netlib
 		
 	private: // others
 		BOOST_NORETURN static void throw_parser_error(const ::http_parser * parser);
-		BOOST_NORETURN static void throw_stream_error();
+		BOOST_NORETURN static void throw_stream_read_failure();
 
 	private:
 		static http_parser & get_this(::http_parser * parser) noexcept;

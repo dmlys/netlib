@@ -145,33 +145,14 @@ namespace netlib
 
 	}
 
-	http_response_stream::http_response_stream(http_response_stream && other) noexcept
+	http_stream::http_stream(http_stream && other) noexcept
 		: std::istream(std::move(other)),
 		  m_streambuf(std::move(other.m_streambuf))
 	{
 		set_rdbuf(&m_streambuf);
 	}
 
-	http_response_stream & http_response_stream::operator =(http_response_stream && other) noexcept
-	{
-		if (this != &other)
-		{
-			this->std::istream::operator= (std::move(other));
-			m_streambuf = std::move(other.m_streambuf);
-			set_rdbuf(&m_streambuf);
-		}
-
-		return *this;
-	}
-
-	http_request_stream::http_request_stream(http_request_stream && other) noexcept
-		: std::istream(std::move(other)),
-		  m_streambuf(std::move(other.m_streambuf))
-	{
-		set_rdbuf(&m_streambuf);
-	}
-
-	http_request_stream & http_request_stream::operator =(http_request_stream && other) noexcept
+	http_stream & http_stream::operator =(http_stream && other) noexcept
 	{
 		if (this != &other)
 		{

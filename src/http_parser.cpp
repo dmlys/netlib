@@ -68,9 +68,9 @@ namespace netlib
 		throw std::runtime_error(std::move(msg));
 	}
 
-	BOOST_NORETURN void http_parser::throw_stream_error()
+	BOOST_NORETURN void http_parser::throw_stream_read_failure()
 	{
-		throw std::ios::failure("http_parser: stream read failure");
+		throw std::runtime_error("http_parser: stream read failure");
 	}
 
 	void http_parser::init_parser(::http_parser * parser, ::http_parser_settings * settings)
@@ -236,7 +236,7 @@ namespace netlib
 
 		for (;;)
 		{
-			if (not peek(sb)) throw_stream_error();
+			if (not peek(sb)) throw_stream_read_failure();
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();
@@ -285,7 +285,7 @@ namespace netlib
 
 		for (;;)
 		{
-			if (not peek(sb)) throw_stream_error();
+			if (not peek(sb)) throw_stream_read_failure();
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();
@@ -328,7 +328,7 @@ namespace netlib
 		m_buffer_size = 0;
 		while (not message_parsed())
 		{
-			if (not peek(sb)) throw_stream_error();
+			if (not peek(sb)) throw_stream_read_failure();
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();
@@ -356,12 +356,12 @@ namespace netlib
 
 	bool http_parser::should_keep_alive() const noexcept
 	{
-		return ::http_should_keep_alive(&get_parser()) == 0;
+		return ::http_should_keep_alive(&get_parser()) == 1;
 	}
 
 	bool http_parser::should_close() const noexcept
 	{
-		return ::http_should_keep_alive(&get_parser()) != 0;
+		return ::http_should_keep_alive(&get_parser()) == 0;
 	}
 
 	int http_parser::http_version_major() const noexcept
