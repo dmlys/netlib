@@ -2,7 +2,7 @@
 #include <boost/regex.hpp>
 
 #include <ext/netlib/parse_url.hpp>
-#include <ext/netlib/codecs/url_encoding.hpp>
+#include <ext/netlib/mime/url_encoding.hpp>
 
 namespace ext {
 namespace netlib
