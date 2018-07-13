@@ -2,6 +2,7 @@
 #include <ext/base64.hpp>
 #include <ext/is_string.hpp>
 #include <ext/type_traits.hpp> // for is_iterator
+#include <ext/netlib/write_string.hpp>
 #include <ext/netlib/mime/encode_quoted_utils.hpp>
 #include <ext/netlib/mime/encoding_tables.hpp>
 
@@ -21,7 +22,6 @@ namespace ext::netlib::mime
 	bencode_header(Destination & dest, RandomAccessIterator first, RandomAccessIterator last)
 	{
 		using namespace encoding_tables;
-		using namespace encode_utils;
 
 		if (first == last) return;
 		
@@ -48,12 +48,11 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>>
 	bencode_header(Destination & dest, const NameString & name, const ValueString & value)
 	{
-		using encode_utils::write_string;
 		write_string(dest, name);
 		write_string(dest, ": ");
 
 		auto lit = ext::as_literal(value);
-		bencode_header(dest, begin(value), end(value));
+		bencode_header(dest, boost::begin(value), boost::end(value));
 	}
 
 
@@ -78,11 +77,11 @@ namespace ext::netlib::mime
 		using namespace ext::base64;
 		using namespace encoding_tables;
 		using namespace encode_utils;
-			
+
 		if (first == last) return cur_pos;
-		if (line_size <= MinLineSize) throw std::invalid_argument("bencode_header: line_size to small");
+		if (line_size <= MailMinLineSize) throw std::invalid_argument("bencode_header: line_size to small");
 		
-		line_size = std::min(line_size, MaxLineSize);
+		line_size = std::min(line_size, MailMaxLineSize);
 		line_size -= linebreak_size;
 		
 		// can we write at least 1 base64 group on this line
@@ -141,9 +140,8 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_string_v<ValueString>, std::size_t>
 	bencode_header_folded(Destination & dest, std::size_t cur_pos, std::size_t line_size, const ValueString & value)
 	{
-		using std::begin; using std::end;
 		auto inplit = ext::as_literal(value);
-		return bencode_header_folded(dest, cur_pos, line_size, begin(inplit), end(inplit));
+		return bencode_header_folded(dest, cur_pos, line_size, boost::begin(inplit), boost::end(inplit));
 	}
 
 	/// Encodes text [first;last) into destination(sink, iterator or STL container)
@@ -163,8 +161,6 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>, std::size_t>
 	bencode_header_folded(Destination & dest, std::size_t line_size, const NameString & name, const ValueString & value)
 	{
-		using encode_utils::write_string;
-
 		auto namelit = ext::as_literal(name);
 		auto vallit = ext::as_literal(value);
 		auto namewidth = boost::size(namelit);

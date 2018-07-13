@@ -32,13 +32,20 @@
   <ItemGroup>
     <ClInclude Include="include\ext\netlib\abstract_connection_controller.hpp" />
     <ClInclude Include="include\ext\netlib\abstract_subscription_controller.hpp" />
+    <ClInclude Include="include\ext\netlib\mail\headers.hpp" />
+    <ClInclude Include="include\ext\netlib\mail\wellknown_headers.hpp" />
     <ClInclude Include="include\ext\netlib\mime\bencode_header.hpp" />
+    <ClInclude Include="include\ext\netlib\mime\encode_header.hpp" />
     <ClInclude Include="include\ext\netlib\mime\encode_header_parameter.hpp" />
+    <ClInclude Include="include\ext\netlib\mime\encode_mail_body.hpp" />
+    <ClInclude Include="include\ext\netlib\mime\mail_encoding.hpp" />
     <ClInclude Include="include\ext\netlib\mime\qencode_header.hpp" />
     <ClInclude Include="include\ext\netlib\mime\encode_quoted_utils.hpp" />
     <ClInclude Include="include\ext\netlib\mime\encoding_tables.hpp" />
     <ClInclude Include="include\ext\netlib\mime\url_encoding.hpp" />
     <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
+    <ClInclude Include="include\ext\netlib\smtp\smtp_extensions.hpp" />
+    <ClInclude Include="include\ext\netlib\write_string.hpp" />
     <ClInclude Include="src\http_parser.h" />
     <ClInclude Include="include\ext\netlib\http_parser.hpp" />
     <ClInclude Include="include\ext\netlib\http_stream.hpp" />

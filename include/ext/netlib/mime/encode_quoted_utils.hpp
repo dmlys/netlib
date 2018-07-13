@@ -1,15 +1,12 @@
 #pragma once
 #include <cstddef>
 #include <stdexcept>
-#include <tuple> // for std::tie uses
+#include <tuple>               // for std::tie uses
 #include <ext/type_traits.hpp> // for is_iterator
 #include <ext/config.hpp>
 #include <ext/utf8utils.hpp>
 
-// for write_string impl
-#include <ext/range.hpp>
-#include <ext/type_traits.hpp>
-#include <ext/iostreams/utility.hpp>
+#include <ext/netlib/write_string.hpp>
 
 namespace ext::netlib
 {
@@ -93,6 +90,18 @@ namespace ext::netlib
 		inline char unquote_char(Iterator & it)
 		{
 			return decode_nibble(*++it) * 16 + decode_nibble(*++it);
+		}
+
+
+		/// Returns estimate character count needed for encoding [first, last) using mime encode_arr			
+		template <class RandomAccessIterator>
+		std::size_t estimate_count(const char * mime_encode_arr, RandomAccessIterator first, RandomAccessIterator last)
+		{
+			std::size_t count = 0;
+			for (; first != last; ++first)
+				count += mime_encode_arr[static_cast<unsigned char>(*first)] < 0 ? 3 : 1;
+
+			return count;
 		}
 
 		/// encodes input text [first; last) into out
@@ -180,7 +189,10 @@ namespace ext::netlib
 			while (first != last)
 			{
 				uch = ch = *first;
-				auto len = ext::utf8_utils::seqlen(ch);
+				// for valid utf-8 is_seqbeg(ch) and std::min checks are not needed, we will always process text by utf-8 sequences.
+				// but just in case we were passed not valid utf-8, or text in different encoding - at least try to not crash
+				// unsigned len = ext::utf8_utils::seqlen(ch);
+				unsigned len = not ext::utf8_utils::is_seqbeg(ch) ? 1 : static_cast<unsigned>(std::min<std::size_t>(ext::utf8_utils::seqlen(ch), last - first));
 				ch = encode_arr[uch];
 
 				if (len == 1)
@@ -255,115 +267,6 @@ namespace ext::netlib
 
 	namespace mime::encode_utils
 	{
-		/// generic write_string functions, can write into:
-		/// * iterators
-		/// * containers
-		/// * iostreams/boost::iostreams devices
-		/// returns how much have been written
-
-		template <class OutputIterator, class String>
-		std::enable_if_t<ext::is_iterator_v<OutputIterator>, std::size_t>
-		write_string(OutputIterator & out, const String & str)
-		{
-			auto str_lit = ext::as_literal(str);
-			out = std::copy(begin(str_lit), end(str_lit), out);
-			return str_lit.size();
-		}
-
-		template <class OutputConatiner, class String>
-		std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-		write_string(OutputConatiner & out, const String & str)
-		{
-			using std::begin; using std::end;
-			auto str_lit = ext::as_literal(str);
-			ext::append(out, begin(str_lit), end(str_lit));
-			return str_lit.size();
-		}
-
-		template <class Sink, class String>
-		std::enable_if_t<ext::iostreams::is_device_v<Sink>, std::size_t>
-		write_string(Sink & sink, const String & str)
-		{
-			auto str_lit = ext::as_literal(str);
-			ext::iostreams::write_string(sink, str_lit);
-			return str_lit.size();
-		}
-
-
-		template <class OutputIterator, class Iterator>
-		std::enable_if_t<ext::is_iterator_v<OutputIterator>, std::size_t>
-		write_string(OutputIterator & out, Iterator first, Iterator last)
-		{
-			out = std::copy(first, last, out);
-			return last - first;
-		}
-
-		template <class OutputConatiner, class Iterator>
-		std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-		write_string(OutputConatiner & out, Iterator first, Iterator last)
-		{
-			ext::append(out, first, last);
-			return last - first;
-		}
-
-		template <class Sink, class Iterator>
-		std::enable_if_t<ext::iostreams::is_device_v<Sink>, std::size_t>
-		write_string(Sink & sink, Iterator first, Iterator last)
-		{
-			using char_type = typename std::iterator_traits<Iterator>::value_type;
-			constexpr auto buffer_size = tmp_buffer_size;
-			char_type buffer[buffer_size];
-			std::size_t written = 0;
-
-			do
-			{
-				auto step_size = std::min<std::size_t>(last - first, buffer_size);
-				auto stop = first + step_size;
-				std::copy(first, stop, buffer);
-
-				ext::iostreams::write_all(sink, buffer, step_size);
-				written += step_size;
-				first = stop;
-
-			} while (first < last);
-
-			return written;
-		}
-
-		template <class Sink, class CharType>
-		std::enable_if_t<ext::iostreams::is_device_v<Sink>, std::size_t>
-		write_string(Sink & sink, const CharType * first, const CharType * last)
-		{
-			ext::iostreams::write_all(sink, first, last - first);
-			return last - first;
-		}
-		
-		
-		template <class OutputIterator, class CharType>
-		std::enable_if_t<ext::is_iterator_v<OutputIterator>, std::size_t>
-		write_string(OutputIterator & out, const CharType * str, std::size_t len)
-		{
-			out = std::copy(str, str + len, out);
-			return len;
-		}
-
-		template <class OutputConatiner, class CharType>
-		std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-		write_string(OutputConatiner & out, const CharType * str, std::size_t len)
-		{
-			ext::append(out, str, str + len);
-			return len;
-		}
-
-		template <class Sink, class CharType>
-		std::enable_if_t<ext::iostreams::is_device_v<Sink>, std::size_t>
-		write_string(Sink & sink, const CharType * str, std::size_t len)
-		{
-			ext::iostreams::write_all(sink, str, len);
-			return len;
-		}
-
-
 		/// more generic encode_quoted, works on:
 		///  * output iterator
 		///  * STL container

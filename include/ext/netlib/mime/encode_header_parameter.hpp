@@ -15,17 +15,6 @@ namespace ext::netlib::mime
 		/************************************************************************/
 		/*          encode_header_parameter_folded implementation methods       */
 		/************************************************************************/
-		/// Returns estimate character count needed for encoding [first, last) using mime encode_arr			
-		template <class RandomAccessIterator>
-		std::size_t estimate_count(const char * mime_encode_arr, RandomAccessIterator first, RandomAccessIterator last)
-		{
-			std::size_t count = 0;
-			for (; first != last; ++first)
-				count += mime_encode_arr[static_cast<unsigned char>(*first)] < 0 ? 3 : 1;
-
-			return count;
-		}
-
 		/// Formats and writes prefix =*<num>*"  into dest, returns prefix length
 		template <class Destination>
 		std::size_t write_parameter_num_prefix(Destination & dest, unsigned num)
@@ -39,7 +28,7 @@ namespace ext::netlib::mime
 			*++last  = '=';
 
 			std::size_t count = last - first + 1;
-			encode_utils::write_string(dest, first, count);
+			write_string(dest, first, count);
 			return count;
 		}
 
@@ -52,10 +41,9 @@ namespace ext::netlib::mime
 			NameIterator name_first, NameIterator name_last,
 			ValIterator  val_first,  ValIterator  val_last)
 		{
-			using namespace encode_utils;
 			using namespace encoding_tables;
 
-			line_size = std::min(line_size, MaxLineSize);
+			line_size = std::min(line_size, MailMaxLineSize);
 			line_size -= linebreak_size;
 				
 			// this function is internal, and parameters are checked on calling side
@@ -94,7 +82,7 @@ namespace ext::netlib::mime
 			using namespace encode_utils;
 			unsigned num = 0;
 
-			line_size = std::min(line_size, MaxLineSize);
+			line_size = std::min(line_size, MailMaxLineSize);
 			line_size -= linebreak_size;
 
 			constexpr unsigned num_prefix_size = 4; // *0*=
@@ -104,8 +92,6 @@ namespace ext::netlib::mime
 			const auto min_size = name_size + prefix_buffer_size + parameter_encoding_prefix_size + parameter_separator_size;
 			const auto line_required = 10 + name_size + num_prefix_size + parameter_encoding_prefix_size + parameter_separator_size;
 
-			// this function is internal, and parameters are checked on calling side
-			assert(cur_pos + min_size <= line_size);
 
 			if (cur_pos + line_required > line_size)
 			{
@@ -179,6 +165,7 @@ namespace ext::netlib::mime
 	{
 		using namespace detail;
 		using namespace encoding_tables;
+		using encode_utils::estimate_count;
 			
 		const std::size_t name_size = name_last - name_first;
 		if (name_size == 0) throw std::invalid_argument("encode_header_parameter_folded: empty name");
@@ -255,8 +242,7 @@ namespace ext::netlib::mime
 	{
 		using namespace encoding_tables;
 		using namespace encode_utils;
-		using detail::estimate_count;
-			
+		
 		const std::size_t name_size = name_last - name_first;
 		const std::size_t val_size = val_last - val_first;
 		if (name_size == 0) throw std::invalid_argument("encode_header_parameter_folded: empty name");

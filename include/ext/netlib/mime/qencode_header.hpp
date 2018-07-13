@@ -19,8 +19,8 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_iterator_v<RandomAccessIterator>>
 	qencode_header(Destination & dest, RandomAccessIterator first, RandomAccessIterator last)
 	{
-		using namespace encoding_tables;
 		using namespace encode_utils;
+		using namespace encoding_tables;
 
 		if (first == last) return;
 		
@@ -42,12 +42,11 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>>
 	qencode_header(Destination & dest, const NameString & name, const ValueString & value)
 	{
-		using encode_utils::write_string;
 		write_string(dest, name);
 		write_string(dest, ": ");
 
 		auto lit = ext::as_literal(value);
-		qencode_header(dest, begin(lit), end(lit));
+		qencode_header(dest, boost::begin(lit), boost::end(lit));
 	}
 
 
@@ -73,9 +72,9 @@ namespace ext::netlib::mime
 		using namespace encoding_tables;
 
 		if (first == last) return cur_pos;
-		if (line_size <= MinLineSize) throw std::invalid_argument("qencode_header_folded: line_size to small");
+		if (line_size <= MailMinLineSize) throw std::invalid_argument("qencode_header_folded: line_size to small");
 			
-		line_size = std::min(line_size, MaxLineSize);
+		line_size = std::min(line_size, MailMaxLineSize);
 		line_size -= linebreak_size;
 
 		// can we write at least 1 qencoded symbol on this line
@@ -128,9 +127,8 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<ValueString>, std::size_t>
 	qencode_header_folded(Destination & dest, std::size_t cur_pos, std::size_t line_size, const ValueString & val)
 	{
-		using std::begin; using std::end;
 		auto inplit = ext::as_literal(val);
-		return qencode_header_folded(dest, cur_pos, line_size, begin(inplit), end(inplit));
+		return qencode_header_folded(dest, cur_pos, line_size, boost::begin(inplit), boost::end(inplit));
 	}
 
 	/// Encodes text [first;last) into destination(sink, iterator or STL container)
@@ -150,8 +148,6 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>, std::size_t>
 	qencode_header_folded(Destination & dest, std::size_t line_size, const NameString & name, const ValueString & value)
 	{
-		using encode_utils::write_string;
-
 		auto namelit = ext::as_literal(name);
 		auto vallit = ext::as_literal(value);
 		auto namewidth = boost::size(namelit);

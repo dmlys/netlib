@@ -18,9 +18,10 @@ namespace ext::netlib::mime
 		const char percent_char = 37; //'%'
 		extern const char percent_encoding_array[256];
 
-		constexpr std::size_t MinLineSize = 20;
-		constexpr std::size_t MaxLineSize = 1000;       // including \r\n
-		constexpr std::size_t MailDefaultLineSize = 80; // including \r\n
+		constexpr std::size_t MailMinLineSize = 20;
+		constexpr std::size_t MailMaxLineSize = 1000;     // including \r\n
+		constexpr std::size_t MailDefaultLineSize = 80;   // including \r\n
+		constexpr std::size_t MailQPDefaultLineSzie = 76; // excluding \r\n
 
 		constexpr auto qencoded_prefix = "=?utf-8?q?";
 		constexpr auto bencoded_prefix = "=?utf-8?b?";
@@ -45,6 +46,8 @@ namespace ext::netlib::mime
 		const char qencoding_char = 61; // '='
 		/// encoding table for qencoding, according to rfc 2047
 		extern const char qencoding_array[256];
+
+		const char quoted_printable_char = 61; // '='
 		/// encoding table for quoted-printable, according to rfc 2047
 		extern const char quoted_printable_array[256];
 
@@ -56,6 +59,7 @@ namespace ext::netlib::mime
 	}
 
 	using encoding_tables::MailDefaultLineSize;
-	using encoding_tables::MaxLineSize;
-	using encoding_tables::MaxLineSize;
+	using encoding_tables::MailMaxLineSize;
+	using encoding_tables::MailMinLineSize;
+	using encoding_tables::MailQPDefaultLineSzie;
 }
