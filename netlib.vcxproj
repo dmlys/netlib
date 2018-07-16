@@ -20,6 +20,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\http_parser.h.c" />
+    <ClCompile Include="src\smtp\smtp_protocol.cpp" />
+    <ClCompile Include="src\smtp\smtp_session.cpp" />
     <ClCompile Include="src\socket_rest_supervisor.cpp" />
     <ClCompile Include="src\abstract_connection_controller.cpp" />
     <ClCompile Include="src\abstract_subscription_controller.cpp" />
@@ -44,7 +46,10 @@
     <ClInclude Include="include\ext\netlib\mime\encoding_tables.hpp" />
     <ClInclude Include="include\ext\netlib\mime\url_encoding.hpp" />
     <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
+    <ClInclude Include="include\ext\netlib\smtp.hpp" />
     <ClInclude Include="include\ext\netlib\smtp\smtp_extensions.hpp" />
+    <ClInclude Include="include\ext\netlib\smtp\smtp_protocol.hpp" />
+    <ClInclude Include="include\ext\netlib\smtp\smtp_session.hpp" />
     <ClInclude Include="include\ext\netlib\write_string.hpp" />
     <ClInclude Include="src\http_parser.h" />
     <ClInclude Include="include\ext\netlib\http_parser.hpp" />
