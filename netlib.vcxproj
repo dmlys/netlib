@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\http_parser.h.c" />
+    <ClCompile Include="src\mail_simple.cpp" />
     <ClCompile Include="src\smtp\smtp_protocol.cpp" />
     <ClCompile Include="src\smtp\smtp_session.cpp" />
     <ClCompile Include="src\socket_rest_supervisor.cpp" />
@@ -35,6 +36,7 @@
     <ClInclude Include="include\ext\netlib\abstract_connection_controller.hpp" />
     <ClInclude Include="include\ext\netlib\abstract_subscription_controller.hpp" />
     <ClInclude Include="include\ext\netlib\mail\headers.hpp" />
+    <ClInclude Include="include\ext\netlib\mail\simple.hpp" />
     <ClInclude Include="include\ext\netlib\mail\wellknown_headers.hpp" />
     <ClInclude Include="include\ext\netlib\mime\bencode_header.hpp" />
     <ClInclude Include="include\ext\netlib\mime\encode_header.hpp" />
