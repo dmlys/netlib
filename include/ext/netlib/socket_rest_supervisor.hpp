@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // author: Dmitry Lysachenko
 // date: Saturday 19 march 2017
 // license: boost software license
@@ -138,9 +138,9 @@ namespace netlib
 
 	public:
 		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) = 0;
+		virtual void request(ext::socket_stream & stream) override = 0;
 		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) = 0;
+		virtual void response(ext::socket_stream & stream) override = 0;
 		/// one time execution does not needs scheduling
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override final;
 
@@ -229,9 +229,9 @@ namespace netlib
 
 	public:
 		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) = 0;
+		virtual void request(ext::socket_stream & stream) override = 0;
 		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) = 0;
+		virtual void response(ext::socket_stream & stream) override = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -242,7 +242,7 @@ namespace netlib
 		/// It's okay to return time_point::max after request, and correct time_point after response.
 		/// In case you you next_invoke is changed some where after response - 
 		/// call notify() this will wake up internal thread.
-		virtual auto next_invoke() -> std::chrono::steady_clock::time_point = 0;
+		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override = 0;
 
 	public:
 		/// for socket_rest_supervisor use, calls request method
