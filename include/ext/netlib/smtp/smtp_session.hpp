@@ -19,22 +19,22 @@ namespace ext::netlib::smtp
 			std::runtime_error(err_msg) {}
 	};
 
-	/// разбирает smtp ответ в line на code, delim(первый символ после кода: пробел, дефис, ...) и остаток
-	/// поскольку остаток всегда меньше и правее исходной строки - в rest можно передавать line.
-	/// например parse_smtp_resonse(line, code, delim, line);
+	/// СЂР°Р·Р±РёСЂР°РµС‚ smtp РѕС‚РІРµС‚ РІ line РЅР° code, delim(РїРµСЂРІС‹Р№ СЃРёРјРІРѕР» РїРѕСЃР»Рµ РєРѕРґР°: РїСЂРѕР±РµР», РґРµС„РёСЃ, ...) Рё РѕСЃС‚Р°С‚РѕРє
+	/// РїРѕСЃРєРѕР»СЊРєСѓ РѕСЃС‚Р°С‚РѕРє РІСЃРµРіРґР° РјРµРЅСЊС€Рµ Рё РїСЂР°РІРµРµ РёСЃС…РѕРґРЅРѕР№ СЃС‚СЂРѕРєРё - РІ rest РјРѕР¶РЅРѕ РїРµСЂРµРґР°РІР°С‚СЊ line.
+	/// РЅР°РїСЂРёРјРµСЂ parse_smtp_resonse(line, code, delim, line);
 	bool parse_response(std::string_view line, int & code, char & delim, std::string_view & rest);
 	bool parse_response(std::string_view line, int & code, char & delim, std::string & rest);
 
-	/// считывает и разбирает smtp ответ в code, delim(первый символ после кода: пробел, дефис, ...) и остаток
-	/// если не получилось разобрать - устанавливает failbit в is
+	/// СЃС‡РёС‚С‹РІР°РµС‚ Рё СЂР°Р·Р±РёСЂР°РµС‚ smtp РѕС‚РІРµС‚ РІ code, delim(РїРµСЂРІС‹Р№ СЃРёРјРІРѕР» РїРѕСЃР»Рµ РєРѕРґР°: РїСЂРѕР±РµР», РґРµС„РёСЃ, ...) Рё РѕСЃС‚Р°С‚РѕРє
+	/// РµСЃР»Рё РЅРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ СЂР°Р·РѕР±СЂР°С‚СЊ - СѓСЃС‚Р°РЅР°РІР»РёРІР°РµС‚ failbit РІ is
 	std::istream & parse_response(std::istream & is, int & code, char & delim, std::string & rest);
 	
-	/// набор поддерживаемых SMTP сервером расширений
+	/// РЅР°Р±РѕСЂ РїРѕРґРґРµСЂР¶РёРІР°РµРјС‹С… SMTP СЃРµСЂРІРµСЂРѕРј СЂР°СЃС€РёСЂРµРЅРёР№
 	using extensions_set = smtp_extensions_bitset;
 
-	/// вспомогательный класс для общения с сервером по протоколу smtp
-	/// логирует запросы/ответы клиента/сервера в заданный ext::library_logger::logger
-	/// предоставляет базовые методы для получения/парсинга ответов от севера
+	/// РІСЃРїРѕРјРѕРіР°С‚РµР»СЊРЅС‹Р№ РєР»Р°СЃСЃ РґР»СЏ РѕР±С‰РµРЅРёСЏ СЃ СЃРµСЂРІРµСЂРѕРј РїРѕ РїСЂРѕС‚РѕРєРѕР»Сѓ smtp
+	/// Р»РѕРіРёСЂСѓРµС‚ Р·Р°РїСЂРѕСЃС‹/РѕС‚РІРµС‚С‹ РєР»РёРµРЅС‚Р°/СЃРµСЂРІРµСЂР° РІ Р·Р°РґР°РЅРЅС‹Р№ ext::library_logger::logger
+	/// РїСЂРµРґРѕСЃС‚Р°РІР»СЏРµС‚ Р±Р°Р·РѕРІС‹Рµ РјРµС‚РѕРґС‹ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ/РїР°СЂСЃРёРЅРіР° РѕС‚РІРµС‚РѕРІ РѕС‚ СЃРµРІРµСЂР°
 	class smtp_session
 	{
 	private:
@@ -48,7 +48,7 @@ namespace ext::netlib::smtp
 		auto get_logger() const { return m_log; }
 
 	public:
-		/// возвращает строку в формате: 'Expected <wanted_code>, got "<respline>"'
+		/// РІРѕР·РІСЂР°С‰Р°РµС‚ СЃС‚СЂРѕРєСѓ РІ С„РѕСЂРјР°С‚Рµ: 'Expected <wanted_code>, got "<respline>"'
 		static std::string create_errmsg(int code, char delim, std::string_view rest, int wanted_code);
 
 		BOOST_NORETURN void throw_smtp_exception(const std::string & errmsg);
@@ -65,27 +65,27 @@ namespace ext::netlib::smtp
 		void log_recv(std::string_view recv_line);
 
 	public:
-		/// предикат для тримминга
+		/// РїСЂРµРґРёРєР°С‚ РґР»СЏ С‚СЂРёРјРјРёРЅРіР°
 		static bool is_newline(char ch) { return ch == '\r' || ch == '\n'; }
-		/// удаляет \r, \n с конца строки,
-		/// аналогично boost::trim_right(line, is_newline)
+		/// СѓРґР°Р»СЏРµС‚ \r, \n СЃ РєРѕРЅС†Р° СЃС‚СЂРѕРєРё,
+		/// Р°РЅР°Р»РѕРіРёС‡РЅРѕ boost::trim_right(line, is_newline)
 		static std::string_view & choprn(std::string_view & line);
 		static std::string      & choprn(std::string      & line);
 		
-		/// считывает ответ из m_sock, удаляет \r, \n в конце строки
-		/// логирует строку вызовом log_recv
+		/// СЃС‡РёС‚С‹РІР°РµС‚ РѕС‚РІРµС‚ РёР· m_sock, СѓРґР°Р»СЏРµС‚ \r, \n РІ РєРѕРЅС†Рµ СЃС‚СЂРѕРєРё
+		/// Р»РѕРіРёСЂСѓРµС‚ СЃС‚СЂРѕРєСѓ РІС‹Р·РѕРІРѕРј log_recv
 		std::string & readline();
 
-		/// считывает и парсит ответ
-		/// если распарсить не удалось или код не равен wanted_code - бросает smtp_session_exception
-		/// поддерживает multiline ответы, например как в команде ehlo
+		/// СЃС‡РёС‚С‹РІР°РµС‚ Рё РїР°СЂСЃРёС‚ РѕС‚РІРµС‚
+		/// РµСЃР»Рё СЂР°СЃРїР°СЂСЃРёС‚СЊ РЅРµ СѓРґР°Р»РѕСЃСЊ РёР»Рё РєРѕРґ РЅРµ СЂР°РІРµРЅ wanted_code - Р±СЂРѕСЃР°РµС‚ smtp_session_exception
+		/// РїРѕРґРґРµСЂР¶РёРІР°РµС‚ multiline РѕС‚РІРµС‚С‹, РЅР°РїСЂРёРјРµСЂ РєР°Рє РІ РєРѕРјР°РЅРґРµ ehlo
 		void process_answer(int wanted_code);
 
-		/// логирует запрос, отправляет запрос в m_sock.
+		/// Р»РѕРіРёСЂСѓРµС‚ Р·Р°РїСЂРѕСЃ, РѕС‚РїСЂР°РІР»СЏРµС‚ Р·Р°РїСЂРѕСЃ РІ m_sock.
 		void send(std::string_view command);
 
-		/// логирует запрос, отправляет запрос в m_sock,
-		/// считывает ответ и проверяет что код равен wanted_code
+		/// Р»РѕРіРёСЂСѓРµС‚ Р·Р°РїСЂРѕСЃ, РѕС‚РїСЂР°РІР»СЏРµС‚ Р·Р°РїСЂРѕСЃ РІ m_sock,
+		/// СЃС‡РёС‚С‹РІР°РµС‚ РѕС‚РІРµС‚ Рё РїСЂРѕРІРµСЂСЏРµС‚ С‡С‚Рѕ РєРѕРґ СЂР°РІРµРЅ wanted_code
 		void send(std::string_view command, int wanted_code);
 
 	public:

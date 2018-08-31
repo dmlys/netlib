@@ -106,7 +106,7 @@ namespace ext::netlib::mail::simple
 	{
 		std::string boundary = generate_mime_bounary();
 
-		/// шапка multipart/mixed
+		/// С€Р°РїРєР° multipart/mixed
 		write_string(os, "Content-Type: multipart/mixed; boundary=\"");
 		write_string(os, boundary);
 		write_string(os, "\"\r\n");
@@ -117,7 +117,7 @@ namespace ext::netlib::mail::simple
 		write_string(os, boundary);
 		write_string(os, "\r\n");
 
-		/// теперь нужно писать собственно составные части
+		/// С‚РµРїРµСЂСЊ РЅСѓР¶РЅРѕ РїРёСЃР°С‚СЊ СЃРѕР±СЃС‚РІРµРЅРЅРѕ СЃРѕСЃС‚Р°РІРЅС‹Рµ С‡Р°СЃС‚Рё
 		write_single_body(os, msg, extensions);
 		write_string(os, boundary);
 

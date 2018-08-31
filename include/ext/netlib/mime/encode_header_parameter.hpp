@@ -178,7 +178,7 @@ namespace ext::netlib::mime
 		// determine which way to encode header parameter.
 		// on current step do not count cur_pos, we only choosing encoding way,
 		// next steps, if needed - will split on next line and in case of simple header - will write full of it.
-		std::size_t avail = line_size - name_size - linebreak_size - 2; // -2 для '=' и ';'
+		std::size_t avail = line_size - name_size - linebreak_size - 2; // -2 РґР»СЏ '=' Рё ';'
 		std::size_t count = val_last - val_first;
 		
 		// needed more than avail - it's folding anyway,

@@ -23,7 +23,7 @@ namespace ext::netlib
 	/// those print some characters as is, others are quoted as <qchar><hex1><hex2>,
 	/// for example '=20'. Such encodings are qencoding, http percent encoding, etc.
 	/// 
-	/// functions take encoding table, describing what symbols should be quoted который описывают как кодировать символы
+	/// functions take encoding table, describing what symbols should be quoted РєРѕС‚РѕСЂС‹Р№ РѕРїРёСЃС‹РІР°СЋС‚ РєР°Рє РєРѕРґРёСЂРѕРІР°С‚СЊ СЃРёРјРІРѕР»С‹
 	/// if table element is < 0 - symbol should be quoted, otherwise printed by element value.
 	/// 
 	/// all input text is assumed utf-8.
