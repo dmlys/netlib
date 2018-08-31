@@ -1,4 +1,4 @@
-#include <ext/netlib/mail/simple.hpp>
+﻿#include <ext/netlib/mail/simple.hpp>
 #include <ext/netlib/socket_stream.hpp>
 #include <ext/netlib/smtp.hpp>
 
@@ -80,7 +80,7 @@ namespace ext::netlib::mail::simple
 			write_string(os, "Content-Transfer-Encoding: "s + to_string(msg.body_encoding) + "\r\n");
 			write_string(os, "\r\n");
 
-			encode_mail_body(os, msg.body_encoding, msg.body);
+			mime::encode_mail_body(os, msg.body_encoding, msg.body);
 			write_string(os, "\r\n");
 		}
 		else
@@ -134,7 +134,7 @@ namespace ext::netlib::mail::simple
 	static void write_message_body(std::ostream & os, const message & msg, smtp_extensions_bitset extensions)
 	{
 		if (msg.attachments.empty())
-			write_message_body(os, msg, extensions);
+			write_single_body(os, msg, extensions);
 		else
 			write_multipart_body(os, msg, extensions);
 	}
