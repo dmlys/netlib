@@ -30,10 +30,15 @@ namespace ext::netlib::mail::simple
 		}
 
 		std::string client_name = "[" + sock.sock_address() + "]";
+		
+#if EXT_ENABLE_OPENSSL
 		if (sp.smtp_startssl)
 			establish_connection_starttls(ses, client_name);
 		else
 			establish_connection(ses, client_name);
+#else
+		establish_connection(ses, client_name);
+#endif
 
 		if (sp.auth_login)
 			authenticate_simple(ses, sp.auth_user, sp.auth_password);

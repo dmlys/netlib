@@ -7,11 +7,11 @@ StaticLibrary
     Depends { name: "extlib" }
 
     cpp.cxxLanguageVersion : "c++17"
-    cpp.driverFlags : ["-pthread"]
     
+    cpp.defines: additionalDefines
     cpp.cxxFlags: project.additionalCxxFlags
-	//cpp.libraryPaths: project.additionalLibraryPaths
-    cpp.defines: project.additionalDefines
+    //cpp.includePaths: project.additionalIncludePaths
+    cpp.libraryPaths: project.additionalLibraryPaths
 
     cpp.includePaths : { 
         var includes = ["include"]
@@ -33,7 +33,6 @@ StaticLibrary
         Depends { name: "cpp" }
         
         cpp.cxxLanguageVersion : "c++17"
-        cpp.driverFlags : ["-pthread"]
         cpp.includePaths : ["include"]
     }
     

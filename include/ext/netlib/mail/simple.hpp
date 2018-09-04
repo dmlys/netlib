@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -48,7 +48,10 @@ namespace ext::netlib::mail::simple
 
 		std::string smtp_addr = "localhost";
 		std::string smtp_service = "smtp";
+		
+#if EXT_ENABLE_OPENSSL
 		bool smtp_startssl = false;
+#endif
 
 		std::string auth_user;
 		std::string auth_password;
