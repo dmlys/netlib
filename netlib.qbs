@@ -5,6 +5,7 @@ StaticLibrary
 {
     Depends { name: "cpp" }
     Depends { name: "extlib" }
+
     cpp.cxxLanguageVersion : "c++17"
     cpp.driverFlags : ["-pthread"]
     
@@ -30,7 +31,6 @@ StaticLibrary
     Export
     {
         Depends { name: "cpp" }
-        Depends { name: "extlib" }
         
         cpp.cxxLanguageVersion : "c++17"
         cpp.driverFlags : ["-pthread"]
@@ -38,7 +38,7 @@ StaticLibrary
     }
     
     files: [
-        "include/netlib/**",
+        "include/ext/netlib/**",
         "src/**",
     ]
 }
