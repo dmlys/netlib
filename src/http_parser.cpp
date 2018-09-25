@@ -62,7 +62,7 @@ namespace netlib
 	{
 		auto * errmsg = http_errno_description(HTTP_PARSER_ERRNO(parser));
 
-		std::string msg = "::http_parser error: ";
+		std::string msg = "ext::netlib::http_parser error: ";
 		msg += errmsg;
 
 		throw std::runtime_error(std::move(msg));
@@ -70,7 +70,7 @@ namespace netlib
 
 	BOOST_NORETURN void http_parser::throw_stream_read_failure()
 	{
-		throw std::runtime_error("http_parser: stream read failure");
+		throw std::runtime_error("ext::netlib::http_parser: stream read failure");
 	}
 
 	void http_parser::init_parser(::http_parser * parser, ::http_parser_settings * settings)
@@ -535,7 +535,7 @@ namespace netlib
 		finished:
 			body.resize(inflator.total_out());
 #else
-			throw std::runtime_error("can't inflate compressed stream, http_parser built without zlib support");
+			throw std::runtime_error("can't inflate compressed stream, ext::netlib::http_parser built without zlib support");
 #endif
 		}
 		else
