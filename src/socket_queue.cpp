@@ -6,8 +6,8 @@
 #include <ext/config.hpp>
 #include <ext/utility.hpp>
 #include <ext/Errors.hpp>
-#include <ext/iostreams/socket_include.hpp>
 #include <ext/netlib/socket_queue.hpp>
+#include <ext/netlib/socket_include.hpp>
 
 #include <ext/library_logger/logger.hpp>
 #include <ext/library_logger/logging_macros.hpp>
@@ -44,6 +44,7 @@ static int read(socket_handle_type sock, char * buffer, int max_count)
 
 #else  // BOOST_OS_POSIX
 using ioctl_type = int;
+
 #endif // BOOST_OS_WINDOWS
 
 namespace ext::netlib
@@ -60,7 +61,7 @@ namespace ext::netlib
 		int res = ::pipe(pipefd);
 		if (res != 0)
 		{
-			auto errc = std::error_code(errno, std::generic_category());
+			auto errc = std::error_code(errno, std::system_category());
 			throw std::system_error(errc, "ext::netlib::socket_queue: failed to create interrupt pipe pair");
 		}
 
@@ -68,7 +69,7 @@ namespace ext::netlib
 #endif
 	}
 
-	void socket_queue::configure(ext::socket_streambuf & sock)
+	void socket_queue::configure(socket_streambuf & sock)
 	{
 		sock.timeout(m_timeout);
 	}
@@ -189,7 +190,7 @@ namespace ext::netlib
 			if (now - item.submit_time >= timeout)
 			{
 				LOG_INFO("socket {} timed out", sock.handle());
-				sock.last_error() = make_error_code(ext::sock_errc::timeout);
+				sock.last_error() = make_error_code(sock_errc::timeout);
 				break;
 			}
 		}
@@ -249,7 +250,7 @@ namespace ext::netlib
 			// also select allowed return EAGAIN instead of ENOMEM -> repeat either
 			if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) goto again;
 
-			auto errc = std::error_code(err, std::generic_category());
+			auto errc = std::error_code(err, std::system_category());
 			LOG_ERROR("got error while executing select: {}", ext::FormatError(errc));
 
 			throw std::system_error(errc, "ext::netlib::socket_queue::wait_readable: ::select failed");
@@ -300,7 +301,7 @@ namespace ext::netlib
 			// that probably should never happen for getsockopt(..., SO_ERROR, ...)
 			if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) continue;
 
-			auto errc = std::error_code(err, std::generic_category());
+			auto errc = std::error_code(err, std::system_category());
 			sock.last_error() = errc;
 
 			LOG_INFO("socket {} has error", handle, ext::FormatError(errc));
@@ -330,10 +331,10 @@ namespace ext::netlib
 		return ext::unconst(this)->wait_ready(until);
 	}
 
-	auto socket_queue::take() -> std::tuple<wait_status, ext::socket_streambuf>
+	auto socket_queue::take() -> std::tuple<wait_status, socket_streambuf>
 	{
 		auto result_status = wait();
-		ext::socket_streambuf result;
+		socket_streambuf result;
 
 		if (result_status == ready)
 		{
@@ -346,7 +347,7 @@ namespace ext::netlib
 		return std::make_tuple(result_status, std::move(result));
 	}
 
-	void socket_queue::submit(ext::socket_streambuf buf, wait_type wtype)
+	void socket_queue::submit(socket_streambuf buf, wait_type wtype)
 	{
 		LOG_INFO("socket {} submitted", buf.handle());
 		//if (not (wtype & freadable) and not (wtype & fwritable))
@@ -359,7 +360,7 @@ namespace ext::netlib
 		});
 	}
 
-	void socket_queue::submit(ext::socket_stream sock, wait_type wtype)
+	void socket_queue::submit(socket_stream sock, wait_type wtype)
 	{
 		return submit(std::move(*sock.rdbuf()), wtype);
 	}

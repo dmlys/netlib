@@ -15,7 +15,7 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
-#include <ext/iostreams/socket_stream.hpp>
+#include <ext/netlib/socket_stream.hpp>
 #include <ext/library_logger/logger.hpp>
 
 #include <ext/netlib/abstract_connection_controller.hpp>
@@ -61,7 +61,7 @@ namespace netlib
 
 	protected:
 		static constexpr auto max_timepoint();
-		static void check_stream(ext::socket_stream & stream);
+		static void check_stream(socket_stream & stream);
 
 		void set_parent(socket_rest_supervisor * parent) noexcept { m_owner = parent; }
 		bool is_orphan() const noexcept { return m_owner == nullptr; }
@@ -88,9 +88,9 @@ namespace netlib
 
 	public:
 		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) = 0;
+		virtual void request(socket_stream & stream) = 0;
 		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) = 0;
+		virtual void response(socket_stream & stream) = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -105,9 +105,9 @@ namespace netlib
 
 	public:
 		/// for internal socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, ext::socket_stream & stream) = 0;
+		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) = 0;
 		/// for internal socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, ext::socket_stream & stream) = 0;
+		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) = 0;
 
 	public:
 		virtual ~socket_rest_supervisor_item() = default;
@@ -138,17 +138,17 @@ namespace netlib
 
 	public:
 		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) override = 0;
+		virtual void request(socket_stream & stream) override = 0;
 		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) override = 0;
+		virtual void response(socket_stream & stream) override = 0;
 		/// one time execution does not needs scheduling
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override final;
 
 	public:
 		/// for socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, ext::socket_stream & stream) override;
+		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) override;
 		/// for socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, ext::socket_stream & stream) override;
+		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) override;
 	};
 
 	/// Abstract request with ext::future support socket_rest_supervisor(see below),
@@ -229,9 +229,9 @@ namespace netlib
 
 	public:
 		/// writes request into sock
-		virtual void request(ext::socket_stream & stream) override = 0;
+		virtual void request(socket_stream & stream) override = 0;
 		/// reads and processes response from socket
-		virtual void response(ext::socket_stream & stream) override = 0;
+		virtual void response(socket_stream & stream) override = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -246,9 +246,9 @@ namespace netlib
 
 	public:
 		/// for socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, ext::socket_stream & stream) override;
+		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) override;
 		/// for socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, ext::socket_stream & stream) override;
+		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) override;
 	};
 
 
@@ -275,8 +275,8 @@ namespace netlib
 		typedef socket_rest_supervisor          self_type;
 
 	public:
-		typedef ext::socket_stream::error_code_type    error_code_type;
-		typedef ext::socket_stream::system_error_type  system_error_type;
+		typedef socket_stream::error_code_type    error_code_type;
+		typedef socket_stream::system_error_type  system_error_type;
 
 		typedef socket_rest_supervisor_item           item;
 		friend item;
@@ -332,7 +332,7 @@ namespace netlib
 		// One from that list send request and moved to request list.
 		// Those are processing requests and moved back to waiting queue.
 		item_list m_items;
-		ext::socket_stream m_sockstream;
+		socket_stream m_sockstream;
 
 		thread_state m_thread_state = stopped;
 		bool m_connect_request = false;
@@ -458,10 +458,10 @@ namespace netlib
 		return socket_rest_supervisor::max_timepoint();
 	}
 
-	inline void socket_rest_supervisor_item::check_stream(ext::socket_stream & stream)
+	inline void socket_rest_supervisor_item::check_stream(socket_stream & stream)
 	{
 		if (not stream)
-			throw ext::socket_stream::system_error_type(stream.last_error());
+			throw socket_stream::system_error_type(stream.last_error());
 	}
 
 	inline std::string & socket_rest_supervisor_item::host() const noexcept

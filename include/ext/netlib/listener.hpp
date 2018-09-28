@@ -1,8 +1,8 @@
 #pragma once
 #include <memory>
 #include <string>
-#include <ext/iostreams/socket_base.hpp>
-#include <ext/iostreams/socket_stream.hpp>
+#include <ext/netlib/socket_base.hpp>
+#include <ext/netlib/socket_stream.hpp>
 
 namespace ext::netlib
 {

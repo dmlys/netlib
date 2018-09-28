@@ -2,8 +2,8 @@
 #include <memory>
 
 #include <ext/itoa.hpp>
-#include <ext/iostreams/socket_base.hpp>
-#include <ext/iostreams/socket_include.hpp>
+#include <ext/netlib/socket_base.hpp>
+#include <ext/netlib/socket_include.hpp>
 #include <ext/netlib/listener.hpp>
 
 namespace ext::netlib
@@ -39,7 +39,7 @@ namespace ext::netlib
 
 		std::string host;
 		unsigned short port;
-		ext::inet_ntop(addr, host, port);
+		inet_ntop(addr, host, port);
 
 		ext::itoa_buffer<unsigned short> buffer;
 		host += ':';
@@ -67,7 +67,7 @@ namespace ext::netlib
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		ext::inet_ntop(addr, name, port);
+		inet_ntop(addr, name, port);
 	}
 
 	auto listener::sock_name() -> std::pair<std::string, unsigned short>
@@ -125,7 +125,7 @@ namespace ext::netlib
 		if (res < 0) throw_last_socket_error("ext::netlib::listener::listen: ::listen failed");
 	}
 
-	ext::socket_streambuf listener::accept()
+	socket_streambuf listener::accept()
 	{
 		socket_handle_type sock = ::accept(m_listening_socket, nullptr, nullptr);
 		if (sock == -1) throw_last_socket_error("ext::netlib::listener::accept: ::accept failed");

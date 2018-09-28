@@ -22,8 +22,10 @@
     <ClCompile Include="src\http_parser.h.c" />
     <ClCompile Include="src\listener.cpp" />
     <ClCompile Include="src\mail_simple.cpp" />
+    <ClCompile Include="src\openssl.cpp" />
     <ClCompile Include="src\smtp\smtp_protocol.cpp" />
     <ClCompile Include="src\smtp\smtp_session.cpp" />
+    <ClCompile Include="src\socket_base.cpp" />
     <ClCompile Include="src\socket_queue.cpp" />
     <ClCompile Include="src\socket_rest_supervisor.cpp" />
     <ClCompile Include="src\abstract_connection_controller.cpp" />
@@ -32,6 +34,9 @@
     <ClCompile Include="src\http_parser.cpp" />
     <ClCompile Include="src\http_stream.cpp" />
     <ClCompile Include="src\parse_url.cpp" />
+    <ClCompile Include="src\socket_stream.cpp" />
+    <ClCompile Include="src\socket_streambuf_base.cpp" />
+    <ClCompile Include="src\winsock2_streambuf.cpp" />
     <ClCompile Include="tests\http_parser_tests.ppp" />
   </ItemGroup>
   <ItemGroup>
@@ -51,11 +56,18 @@
     <ClInclude Include="include\ext\netlib\mime\encoding_tables.hpp" />
     <ClInclude Include="include\ext\netlib\mime\url_encoding.hpp" />
     <ClInclude Include="include\ext\netlib\connection_controller.hpp" />
+    <ClInclude Include="include\ext\netlib\openssl.hpp" />
     <ClInclude Include="include\ext\netlib\smtp.hpp" />
     <ClInclude Include="include\ext\netlib\smtp\smtp_extensions.hpp" />
     <ClInclude Include="include\ext\netlib\smtp\smtp_protocol.hpp" />
     <ClInclude Include="include\ext\netlib\smtp\smtp_session.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_base.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_fwd.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_include.hpp" />
     <ClInclude Include="include\ext\netlib\socket_queue.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_streambuf.hpp" />
+    <ClInclude Include="include\ext\netlib\socket_streambuf_base.hpp" />
+    <ClInclude Include="include\ext\netlib\winsock2_streambuf.hpp" />
     <ClInclude Include="include\ext\netlib\write_string.hpp" />
     <ClInclude Include="src\http_parser.h" />
     <ClInclude Include="include\ext\netlib\http_parser.hpp" />

@@ -8,7 +8,7 @@
 #include <list>
 
 #include <ext/library_logger/logger.hpp>
-#include <ext/iostreams/socket_stream.hpp>
+#include <ext/netlib/socket_stream.hpp>
 #include <ext/netlib/listener.hpp>
 
 
@@ -95,7 +95,7 @@ namespace ext::netlib
 
 	public:
 		/// waits until some socket becomes ready for read or write(depends on submission flag).
-		wait_status wait() const;		
+		wait_status wait() const;
 		/// waits until some socket becomes ready for read or write(depends on submission flag),
 		/// it block until specified timeout duration has elapsed or result became available(or interrupt happened),
 		/// whichever comes first.

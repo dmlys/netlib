@@ -361,7 +361,7 @@ namespace netlib
 		});
 	}
 
-	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
+	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, socket_stream & stream)
 	{
 		auto * state = get_shared_state();
 		if (state and not state->mark_uncancellable())
@@ -391,7 +391,7 @@ namespace netlib
 		}
 	}
 
-	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
+	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, socket_stream & stream)
 	{
 		try
 		{
@@ -461,7 +461,7 @@ namespace netlib
 		release();
 	}
 
-	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, ext::socket_stream & stream)
+	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, socket_stream & stream)
 	{
 		bool success = false;
 		set_pending();
@@ -487,7 +487,7 @@ namespace netlib
 		return true;
 	}
 
-	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, ext::socket_stream & stream)
+	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, socket_stream & stream)
 	{
 		BOOST_SCOPE_EXIT_ALL(&)
 		{
