@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <climits> // for CHAR_BIT
 #include <string>
+#include <string_view>
 #include <tuple>
 
 #include <streambuf>
@@ -138,6 +139,17 @@ namespace netlib
 		bool parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size);
 
 	public:
+		/// parses http body, similar to parse_body, but already does loop internally and also supports zlib, inflating if needed
+		void parse_http_body(std::streambuf & sb, std::string & body, std::string * status_or_url = nullptr);
+		void parse_http_body(std::istream   & is, std::string & body, std::string * status_or_url = nullptr);
+
+	public:
+		/// parses http data: headers, body; until whole http request/response is fully parsed,
+		/// and streambuf/istream does not contain any trailing data
+		void parse_trailing(std::streambuf & sb);
+		void parse_trailing(std::istream & is);
+
+	public:
 		bool should_keep_alive() const noexcept;
 		bool should_close()      const noexcept;
 
@@ -165,12 +177,6 @@ namespace netlib
 	};
 
 
-	void parse_http_body(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url = nullptr);
-	void parse_http_body(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url = nullptr);
-
-	void parse_trailing(http_parser & parser, std::streambuf & sb);
-	void parse_trailing(http_parser & parser, std::istream & is);
-
 
 	int parse_http_response(std::streambuf & sb, std::string & response_body);
 	int parse_http_response(std::istream   & is, std::string & response_body);
@@ -193,6 +199,22 @@ namespace netlib
 	std::tuple<std::string, std::string, std::string> parse_http_request(std::istream   & is);
 	std::tuple<std::string, std::string, std::string> parse_http_request(http_parser & parser, std::streambuf & is);
 	std::tuple<std::string, std::string, std::string> parse_http_request(http_parser & parser, std::istream   & is);
+
+	/// parses regular HTTP header(MIME headers not supported). Understands HTTP header parameters.
+	/// returns true if header_str has more input, false if header_str depleted.
+	/// parsing examples:
+	///   Content-Type: text/xml  -> [("Content-Type", "text/xml")]
+	///   some string             -> [("", "some string")]
+	///   some string; name=test  -> [("", "some string"), ("name", "test")]
+	///   name: value; par=val    -> [("name", "value"), ("par", "val")]
+	///
+	/// Typical usage:
+	///   while(parse_http_header(header_str, name, val))
+	///   {
+	///       do something with name and val
+	///   }
+	bool parse_http_header(std::string & header_str, std::string & name, std::string & value); // can throw bad_alloc on string assignment
+	bool parse_http_header(std::string_view & header_str, std::string_view & name, std::string_view & value) noexcept;
 
 	/************************************************************************/
 	/*                     inline response impl                             */

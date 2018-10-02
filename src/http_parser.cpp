@@ -457,34 +457,34 @@ namespace netlib
 		return parse_body(*is.rdbuf(), buffer, buff_size);
 	}
 
-	void parse_trailing(http_parser & parser, std::streambuf & sb)
+	void http_parser::parse_trailing(std::streambuf & sb)
 	{
 		const char * buf;
 		std::size_t sz;
 
-		while (parser.parse_body(sb, buf, sz));
+		while (parse_body(sb, buf, sz));
 	}
 
-	void parse_trailing(http_parser & parser, std::istream & is)
+	void http_parser::parse_trailing(std::istream & is)
 	{
-		parse_trailing(parser, *is.rdbuf());
+		parse_trailing(*is.rdbuf());
 	}
 
 
-	void parse_http_body(http_parser & parser, std::streambuf & sb, std::string & body, std::string * pstatus_url /* = nullptr */)
+	void http_parser::parse_http_body(std::streambuf & sb, std::string & body, std::string * pstatus_url /* = nullptr */)
 	{
 		std::string name, value;
 		const char * buffer;
 		std::size_t len;
 		std::string & status_url = pstatus_url ? *pstatus_url : value;
 
-		while (parser.parse_status(sb, status_url))
+		while (parse_status(sb, status_url))
 			continue;
 		
-		while (parser.parse_header(sb, name, value))
+		while (parse_header(sb, name, value))
 			continue;
 
-		if (parser.deflated())
+		if (deflated())
 		{
 #ifdef EXT_ENABLE_CPPZLIB
 			std::size_t sz = std::max<std::size_t>(1024, body.capacity());
@@ -495,7 +495,7 @@ namespace netlib
 			zlib::inflate_stream inflator {MAX_WBITS + 32};
 			inflator.set_out(ext::data(body), body.size());
 
-			while (parser.parse_body(sb, buffer, len))
+			while (parse_body(sb, buffer, len))
 			{
 				inflator.set_in(buffer, len);
 				do {
@@ -514,7 +514,7 @@ namespace netlib
 
 						case Z_STREAM_END:
 							assert(not inflator.avail_in());
-							if (parser.parse_body(sb, buffer, len))
+							if (parse_body(sb, buffer, len))
 								throw std::runtime_error("inconsistent deflated stream, trailing data after Z_STREAM_END");
 
 							goto finished;
@@ -540,21 +540,21 @@ namespace netlib
 		}
 		else
 		{
-			while (parser.parse_body(sb, buffer, len))
+			while (parse_body(sb, buffer, len))
 				body.append(buffer, len);
 		}
 	}
 
-	void parse_http_body(http_parser & parser, std::istream & is, std::string & body, std::string * status_or_url)
+	void http_parser::parse_http_body(std::istream & is, std::string & body, std::string * status_or_url)
 	{
-		return parse_http_body(parser, *is.rdbuf(), body, status_or_url);
+		return parse_http_body(*is.rdbuf(), body, status_or_url);
 	}
 
 
 
 	int parse_http_response(http_parser & parser, std::streambuf & sb, std::string & response_body)
 	{
-		parse_http_body(parser, sb, response_body);
+		parser.parse_http_body(sb, response_body);
 		return parser.http_code();
 	}
 	
@@ -577,7 +577,7 @@ namespace netlib
 
 	void parse_http_request(http_parser & parser, std::streambuf & sb, std::string & method, std::string & url, std::string & request_body)
 	{
-		parse_http_body(parser, sb, request_body, &url);
+		parser.parse_http_body(sb, request_body, &url);
 		method = parser.http_method();
 	}
 
@@ -595,5 +595,119 @@ namespace netlib
 	void parse_http_request(std::istream & is, std::string & method, std::string & url, std::string & request_body)
 	{
 		return parse_http_request(*is.rdbuf(), method, url, request_body);
+	}
+
+
+	/************************************************************************/
+	/*                   parse_http_header impl                             */
+	/************************************************************************/
+	static std::string & trim(std::string & view)
+	{
+		auto first = view.data();
+		auto last  = first + view.size();
+		auto notspace = [](char ch) { return ch != ' '; };
+
+		// trim left
+		first = std::find_if(first, last, notspace);
+		// trim right
+		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
+
+		return view.assign(first, last);
+	}
+
+	static std::string_view & trim(std::string_view & view) noexcept
+	{
+		auto first = view.begin();
+		auto last  = view.end();
+		auto notspace = [](char ch) { return ch != ' '; };
+
+		// trim left
+		first = std::find_if(first, last, notspace);
+		// trim right
+		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
+
+		return view = std::string_view(first, last - first);
+	}
+
+	bool parse_http_header(std::string & header_str, std::string & name, std::string & value)
+	{
+		auto first = header_str.data();
+		auto last  = first + header_str.size();
+		if (first == last) return false;
+
+		const auto sep = ext::as_literal(";=");
+		last = std::find(first, last, ';');
+
+		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
+		if (middle != last)
+		{
+			name.assign(first, middle);
+			value.assign(middle + 1, last);
+		}
+		else
+		{
+			middle = std::find(first, last, ':');
+			if (middle == last)
+			{
+				name = "";
+				value.assign(first, last);
+			}
+			else
+			{
+				name.assign(first, middle);
+				value.assign(middle + 1, last);
+			}
+		}
+
+		first = last;
+		last = header_str.data() + header_str.size();
+		if (first != last) ++first;
+		header_str.assign(first, last);
+
+		trim(name);
+		trim(value);
+
+		return true;
+	}
+
+	bool parse_http_header(std::string_view & header_str, std::string_view & name, std::string_view & value) noexcept
+	{
+		auto first = header_str.begin();
+		auto last  = header_str.end();
+		if (first == last) return false;
+
+		last = std::find(first, last, ';');
+
+		const auto sep = ext::as_literal(":=");
+		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
+		if (middle != last)
+		{
+			name  = std::string_view(first, middle - first);
+			value = std::string_view(middle + 1, last - middle - 1);
+		}
+		else
+		{
+			middle = std::find(first, last, ':');
+			if (middle == last)
+			{
+				name  = "";
+				value = std::string_view(first, middle - first);
+			}
+			else
+			{
+				name  = std::string_view(first, middle - first);
+				value = std::string_view(middle + 1, last - middle - 1);
+			}
+		}
+
+		first = last;
+		last = header_str.end();
+		if (first != last) ++first;
+		header_str = std::string_view(first, last - first);
+
+		trim(name);
+		trim(value);
+
+		return true;
 	}
 }}
