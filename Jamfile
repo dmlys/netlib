@@ -19,7 +19,7 @@ project netlib
 	
 local src =         [ glob src/*.cpp src/*.c : src/*openssl* src/*winsock* src/*bsdsock* ] ;
 local openssl_src = [ glob src/*openssl* ] ;
-local tests_src =   [ glob tests/*cpp ] ;
+local tests_src =   [ glob tests/*.cpp ] ;
 
 if [ os.name ] = NT
 {
@@ -31,14 +31,14 @@ else
 }
 
 # optional feature enabling OPENSSL
-feature.feature extlib-wopenssl : off on : optional ;
+feature.feature netlib-wopenssl : off on : optional ;
 
 alias headers 
 	: # sources
 	: # requirements 
 	: # defaults
 	: # usage-requirements
-	  <extlib-wopenssl>on:<define>EXT_ENABLE_OPENSSL
+	  <netlib-wopenssl>on:<define>EXT_ENABLE_OPENSSL
 	;
 
 lib netlib # target name
@@ -51,22 +51,25 @@ lib netlib # target name
 	  # consider adding required boost libs
 	  
 	: # requirements
-	  [ conditional <extlib-wopenssl>on : <define>EXT_ENABLE_OPENSSL <source>$(openssl_src) ]
+	  [ conditional <netlib-wopenssl>on : <define>EXT_ENABLE_OPENSSL <source>$(openssl_src) ]
 	  <link>static
 	: # defaults
 	: # usage-requirements
-	  <extlib-wopenssl>on:<define>EXT_ENABLE_OPENSSL
+	  <netlib-wopenssl>on:<define>EXT_ENABLE_OPENSSL
 	;
 
 	
 local boost_libs = system filesystem unit_test_framework ;
-	
+path-constant netlib-test-files : tests ;
+
 unit-test netlib-tests
 	: $(tests_src) # sources
 	  netlib
 	  $(SOLUTION_ROOT)//extlib
 	  /boost//headers
 	  /boost//$(boost_libs)
+	  /user-config//z
+	: <testing.arg>"-- $(netlib-test-files)"
 	;
 	
 explicit netlib-tests ;
