@@ -14,9 +14,9 @@ Project
 		cpp.cxxLanguageVersion : "c++17"
 
 		//cpp.defines: additionalDefines
+		//cpp.includePaths: project.additionalIncludePaths
 		cpp.cxxFlags: project.additionalCxxFlags
 		cpp.driverFlags: project.additionalDriverFlags
-		//cpp.includePaths: project.additionalIncludePaths
 		cpp.libraryPaths: project.additionalLibraryPaths
 
 		cpp.defines: {
@@ -35,13 +35,6 @@ Project
 			var includes = ["include"]
 			if (project.additionalIncludePaths)
 				includes = includes.uniqueConcat(project.additionalIncludePaths)
-
-			var envIncludes = Environment.getEnv("QBS_THIRDPARTY_INCLUDES")
-			if (envIncludes)
-			{
-				envIncludes = envIncludes.split(qbs.pathListSeparator)
-				includes = includes.uniqueConcat(envIncludes)
-			}
 
 			return includes
 		}
