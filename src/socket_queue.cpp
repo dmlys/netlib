@@ -1,4 +1,4 @@
-#include <cstring>      // for std::memset and stuff
+﻿#include <cstring>      // for std::memset and stuff
 #include <memory>
 
 #include <fmt/format.h>
@@ -80,12 +80,12 @@ namespace ext::netlib
 		{
 #if BOOST_OS_WINDOWS
 			int res = close(m_interrupt_listen);
-			assert(res == 1);
+			assert(res == 1); EXT_UNUSED(res);
 #else
 			char dummy = 0;
 			int res = ::write(m_interrupt_write, &dummy, 1);
 			//int err = errno;
-			assert(res == 1);
+			assert(res == 1); EXT_UNUSED(res);
 #endif // BOOST_OS_WINDOWS
 		}
 	}

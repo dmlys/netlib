@@ -92,6 +92,7 @@ namespace ext::netlib::mime
 			const auto min_size = name_size + prefix_buffer_size + parameter_encoding_prefix_size + parameter_separator_size;
 			const auto line_required = 10 + name_size + num_prefix_size + parameter_encoding_prefix_size + parameter_separator_size;
 
+			EXT_UNUSED(min_size);
 
 			if (cur_pos + line_required > line_size)
 			{

@@ -1,6 +1,7 @@
 ﻿#include <cstring>      // for std::memset and stuff
 #include <memory>
 
+#include <ext/config.hpp>
 #include <ext/itoa.hpp>
 #include <ext/netlib/socket_base.hpp>
 #include <ext/netlib/socket_include.hpp>
@@ -154,7 +155,7 @@ namespace ext::netlib
 
 		int res = ext::netlib::close(m_listening_socket);
 		m_listening_socket = -1;
-		assert(res == 0);
+		assert(res == 0); EXT_UNUSED(res);
 	}
 
 	listener::listener(listener && l) noexcept
@@ -184,6 +185,6 @@ namespace ext::netlib
 		if (m_listening_socket == -1) return;
 
 		int res = ext::netlib::close(m_listening_socket);
-		assert(res == 0);
+		assert(res == 0); EXT_UNUSED(res);
 	}
 }

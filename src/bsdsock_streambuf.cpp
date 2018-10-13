@@ -315,7 +315,7 @@ namespace ext::netlib
 	
 	void bsdsock_streambuf::interrupt()
 	{
-		int res;
+		int res; EXT_UNUSED(res);
 		StateType prev;
 		handle_type sock;
 
