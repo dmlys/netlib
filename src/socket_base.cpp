@@ -229,12 +229,12 @@ namespace ext::netlib
 		if (family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<sockaddr_in *>(out);
-			res = ::InetPtonW(family, waddr, &addr4->sin_addr);
+			res = ::InetPton(family, waddr, &addr4->sin_addr);
 		}
 		else if (family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<sockaddr_in6 *>(out);
-			res = ::InetPtonW(family, waddr, &addr6->sin6_addr);
+			res = ::InetPton(family, waddr, &addr6->sin6_addr);
 		}
 		else
 		{
@@ -247,7 +247,7 @@ namespace ext::netlib
 
 	bool inet_pton(int family, const std::wstring & waddr, sockaddr * out)
 	{
-		INT res = InetPtonW(family, waddr.c_str(), out);
+		INT res = InetPton(family, waddr.c_str(), out);
 		if (res == -1) throw_last_socket_error("InetPtonW failed");
 		return res > 0;
 	}
