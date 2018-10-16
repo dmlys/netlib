@@ -58,7 +58,7 @@ namespace netlib
 		assert(not m_disconnect_request);
 
 		m_disconnect_request = true;
-		//m_sockstream.interrupt();
+		m_sockstream.interrupt();
 
 		lk.unlock();
 		m_request_event.notify_all();

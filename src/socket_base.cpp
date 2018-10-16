@@ -281,9 +281,8 @@ namespace ext::netlib
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		int res;
 		addrinfo_type * ptr;
-		do res = ::GetAddrInfoW(host, service, &hints, &ptr); while (res == WSATRY_AGAIN);
+		int res = ::GetAddrInfoW(host, service, &hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();
@@ -305,9 +304,8 @@ namespace ext::netlib
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		int res;
 		addrinfo_type * ptr;
-		do res = ::GetAddrInfoW(host, service, &hints, &ptr); while (res == WSATRY_AGAIN);
+		int res = ::GetAddrInfoW(host, service, &hints, &ptr);
 		if (res == 0)
 			return addrinfo_ptr(ptr);
 		else
@@ -539,9 +537,8 @@ namespace ext::netlib
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		int res;
 		addrinfo_type * ptr;
-		do res = ::getaddrinfo(host, service, &hints, &ptr); while (res == EAI_AGAIN);
+		int res = ::getaddrinfo(host, service, &hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();

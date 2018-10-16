@@ -55,8 +55,7 @@ namespace ext::netlib
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		int res;
-		do res = ::GetAddrInfoW(host, service, &hints, result); while (res == WSATRY_AGAIN);
+		int res = ::GetAddrInfoW(host, service, &hints, result);
 		if (res == 0) return true;
 
 		m_lasterror.assign(res, std::system_category());

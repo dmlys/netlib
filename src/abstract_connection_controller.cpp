@@ -181,7 +181,11 @@ namespace netlib
 		return do_disconnect(lk);
 	}
 
-	abstract_connection_controller::abstract_connection_controller() = default;
+	abstract_connection_controller::abstract_connection_controller()
+	{
+		m_disconnect_future = ext::make_intrusive<ext::shared_state<void>>();
+		m_disconnect_future->set_value();
+	}
 
 	abstract_connection_controller::~abstract_connection_controller() noexcept
 	{

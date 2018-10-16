@@ -99,8 +99,7 @@ namespace ext::netlib
 		hint.ai_protocol = IPPROTO_TCP;
 		hint.ai_socktype = SOCK_STREAM;
 
-		int res;
-        do res = ::getaddrinfo(host, service, &hint, &addrres); while (res == EAI_AGAIN);
+		int res = ::getaddrinfo(host, service, &hint, &addrres);
 		if (res != 0) throw_last_socket_error("ext::netlib::listener::bind: ::getaddrinfo failed");
 
 		m_listening_socket = ::socket(addrres->ai_family, addrres->ai_socktype, addrres->ai_protocol);

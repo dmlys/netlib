@@ -32,8 +32,7 @@ namespace ext::netlib
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		int res;
-		do res = ::getaddrinfo(host, service, &hints, result); while (res == EAI_AGAIN);
+		int res = ::getaddrinfo(host, service, &hints, result);
 		if (res == 0) return true;
 
 		if (res == EAI_SYSTEM)
