@@ -139,14 +139,27 @@ namespace ext::netlib
 		throw std::system_error(last_socket_error_code(), errmsg);
 	}
 
-	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
+	void set_port(addrinfo_type * addr, unsigned short port)
 	{
-		FreeAddrInfoW(ptr);
+		static_assert(offsetof(sockaddr_in, sin_port) == offsetof(sockaddr_in6, sin6_port), "sin_port/sin6_port offset differs");
+		for (; addr; addr = addr->ai_next)
+			reinterpret_cast<sockaddr_in *>(addr->ai_addr)->sin_port = htons(port);
 	}
 
-	int close(socket_handle_type sock)
+	auto get_port(addrinfo_type * addr) -> unsigned short
 	{
-		return ::closesocket(sock);
+		// both sockaddr_in6 and sockaddr_in have port member on same offset
+		unsigned short port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+		return ntohs(port);
+	}
+
+	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
+	{
+		long micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
+		if (micro < 0) micro = 0;
+
+		tv.tv_sec = micro / 1000000;
+		tv.tv_usec = micro % 1000000;
 	}
 
 	void inet_ntop(const sockaddr * addr, std::wstring & wstr, unsigned short & port)
@@ -267,6 +280,16 @@ namespace ext::netlib
 		auto waddr = ext::codecvt_convert::from_bytes(cvt, addr);
 
 		return inet_pton(family, waddr.c_str(), out);
+	}
+
+	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
+	{
+		FreeAddrInfoW(ptr);
+	}
+
+	int close(socket_handle_type sock)
+	{
+		return ::closesocket(sock);
 	}
 
 	/************************************************************************/

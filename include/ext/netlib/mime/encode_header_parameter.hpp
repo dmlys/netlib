@@ -277,7 +277,7 @@ namespace ext::netlib::mime
 
 	/// range overload
 	template <class Destination, class NameRandomAccessRange, class ValRandomAccessRange>
-	std::enable_if_t<ext::is_range_v<NameRandomAccessRange> and ext::is_range_v<ValRandomAccessRange>>
+	std::enable_if_t<std::conjunction_v<ext::is_range<NameRandomAccessRange>, ext::is_range<ValRandomAccessRange>>>
 	encode_header_parameter(Destination & dest, const NameRandomAccessRange & name, const ValRandomAccessRange & value)
 	{
 		auto name_lit = ext::as_literal(name);
