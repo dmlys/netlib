@@ -617,8 +617,8 @@ namespace netlib
 
 	static std::string_view & trim(std::string_view & view) noexcept
 	{
-		auto first = view.begin();
-		auto last  = view.end();
+		auto first = view.data();
+		auto last  = first + view.size();
 		auto notspace = [](char ch) { return ch != ' '; };
 
 		// trim left
@@ -672,8 +672,8 @@ namespace netlib
 
 	bool parse_http_header(std::string_view & header_str, std::string_view & name, std::string_view & value) noexcept
 	{
-		auto first = header_str.begin();
-		auto last  = header_str.end();
+		auto first = header_str.data();
+		auto last  = first + header_str.size();
 		if (first == last) return false;
 
 		last = std::find(first, last, ';');
@@ -701,7 +701,7 @@ namespace netlib
 		}
 
 		first = last;
-		last = header_str.end();
+		last = header_str.data() + header_str.size();
 		if (first != last) ++first;
 		header_str = std::string_view(first, last - first);
 
