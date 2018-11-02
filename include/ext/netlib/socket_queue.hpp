@@ -15,6 +15,7 @@
 
 namespace ext::netlib
 {
+	/// NOTE: this is very simple class, it can be used is some trivial/simple applications, in other cases you should use more adequate solution.
 	/// socket_queue class manages and allows waiting on set of sockets and listeners in a queue fashion.
 	/// It have 2 sets: sockets and listeners. Both are waited to be readable/writable with select system call.
 	/// When select finishes waiting:
@@ -22,7 +23,7 @@ namespace ext::netlib
 	/// * check sockets from queue, find first ready one remove it from queue, return to client
 	///   remember next position, next search start from it, that way socket are treated in fair way
 	///
-	/// This class is not thread safe, except interrupt method, which can be called from any thread or signal handler
+	/// This class is not thread safe, except interrupt method, which can be called from any thread or signal handler.
 	class socket_queue
 	{
 		struct helper; friend helper;
@@ -136,7 +137,7 @@ namespace ext::netlib
 
 	public:
 		void set_logger(ext::library_logger::logger * logger) { m_logger = logger; }
-		auto get_logger()                                     { return m_logger;   }
+		auto get_logger() const noexcept                      { return m_logger;   }
 
 	public:
 		socket_queue();
