@@ -1,4 +1,4 @@
-#include <cassert>
+﻿#include <cassert>
 #include <climits> // for INT_MAX
 #include <utility> // for std::exchange
 #include <algorithm>
@@ -18,22 +18,24 @@ namespace ext::netlib
 		}
 
 		// default internal buffer
-		if (buffer_size < 128 || buffer_size / 2 > INT_MAX)
-			buffer_size = m_defbuffer_size;
+		buffer_size = std::clamp<std::size_t>(128, buffer_size, INT_MAX);
 
-		m_buffer = std::make_unique<char_type[]>(buffer_size);
-		m_buffer_size = buffer_size / 2;
-		m_input_buffer = m_buffer.get();
-		m_output_buffer = m_input_buffer + m_buffer_size;
+		if (m_own_input_buffer) delete [] m_input_buffer;
+
+		m_own_input_buffer = true;
+		m_input_buffer = new char_type[buffer_size];
+		m_input_buffer_size = buffer_size / 2;
+		m_output_buffer = m_input_buffer + m_input_buffer_size;
+		m_output_buffer_size = m_input_buffer_size;
 
 		reset_buffers();
 	}
 
 	void socket_streambuf_base::reset_buffers() noexcept
 	{
-		assert(m_input_buffer && m_output_buffer && m_buffer_size);
+		assert(m_input_buffer && m_output_buffer && m_input_buffer_size && m_output_buffer_size);
 
-		setp(m_output_buffer, m_output_buffer + m_buffer_size);
+		setp(m_output_buffer, m_output_buffer + m_output_buffer_size);
 		setg(m_input_buffer, m_input_buffer, m_input_buffer);
 	}
 
@@ -96,7 +98,7 @@ namespace ext::netlib
 		// начитываем из сокета:
 		// если нужно прочитать больше чем половина размера внутреннего буфера -
 		// сразу читаем в пользовательский, иначе заполняем внутренний
-		if (count >= m_buffer_size / 2)
+		if (count >= m_input_buffer_size / 2)
 			return buffer_avail + read_all(ptr, count);
 		else
 		{
@@ -106,7 +108,7 @@ namespace ext::netlib
 			std::size_t read = 0;
 			while (count > read)
 			{
-				auto res = read_some(buf, m_buffer_size - read);
+				auto res = read_some(buf, m_input_buffer_size - read);
 				if (res <= 0) break;
 
 				buf += res;
@@ -126,7 +128,7 @@ namespace ext::netlib
 		if (m_tie_io && sync() == -1)
 			return traits_type::eof();
 
-		auto read = read_some(m_input_buffer, m_buffer_size);
+		auto read = read_some(m_input_buffer, m_input_buffer_size);
 		if (read <= 0) return traits_type::eof();
 
 		setg(m_input_buffer, m_input_buffer, m_input_buffer + read);
@@ -140,7 +142,7 @@ namespace ext::netlib
 		// в нем уже что-то есть - пишем в буфер
 		std::size_t written_though_buffer = 0;
 		std::size_t buffer_avail = epptr() - pptr();
-		bool write_into_buffer = count < m_buffer_size || buffer_avail != m_buffer_size;
+		bool write_into_buffer = count < m_output_buffer_size || buffer_avail != m_output_buffer_size;
 		if (write_into_buffer)
 		{
 			// в буфер может поместится все
@@ -158,20 +160,20 @@ namespace ext::netlib
 			written_though_buffer = buffer_avail;
 
 			// flush buffer, к этому моменту буфер всегда заполнен полностью
-			auto written = write_all(m_output_buffer, m_buffer_size);
-			if (written == m_buffer_size)
-				setp(m_output_buffer, m_output_buffer + m_buffer_size);
+			auto written = write_all(m_output_buffer, m_output_buffer_size);
+			if (written == m_output_buffer_size)
+				setp(m_output_buffer, m_output_buffer + m_output_buffer_size);
 			else
 			{	// написали меньше чем хотели, сдвигаем оставшиеся в начало буфера, выставляем указатели
-				auto last = std::move(m_output_buffer + written, m_output_buffer + m_buffer_size, m_output_buffer);
-				setp(last, m_output_buffer + m_buffer_size);
-				auto prev_data_count = m_buffer_size - buffer_avail;
+				auto last = std::move(m_output_buffer + written, m_output_buffer + m_output_buffer_size, m_output_buffer);
+				setp(last, m_output_buffer + m_output_buffer_size);
+				auto prev_data_count = m_output_buffer_size - buffer_avail;
 				return written > prev_data_count ? written - buffer_avail : 0;
 			}
 		}
 
 		// в буфер не поместимся - пишем прямиком в сокет все что осталось, иначе скидываем в буфер
-		if (count > m_buffer_size)
+		if (count > m_output_buffer_size)
 			return written_though_buffer + write_all(ptr, count);
 		else
 		{
@@ -183,11 +185,11 @@ namespace ext::netlib
 
 	auto socket_streambuf_base::overflow(int_type ch /* = traits_type::eof() */) -> int_type
 	{
-		auto written = write_some(m_output_buffer, m_buffer_size);
+		auto written = write_some(m_output_buffer, m_output_buffer_size);
 		if (written <= 0) return traits_type::eof();
 
-		auto last = std::move(m_output_buffer + written, m_output_buffer + m_buffer_size, m_output_buffer);
-		setp(last, m_output_buffer + m_buffer_size);
+		auto last = std::move(m_output_buffer + written, m_output_buffer + m_output_buffer_size, m_output_buffer);
+		setp(last, m_output_buffer + m_output_buffer_size);
 		if (!traits_type::eq_int_type(ch, traits_type::eof()))
 			sputc(traits_type::to_char_type(ch));
 
@@ -203,7 +205,7 @@ namespace ext::netlib
 		std::size_t written = write_all(first, count);
 		if (count == written)
 		{
-			setp(m_output_buffer, m_output_buffer + m_buffer_size);
+			setp(m_output_buffer, m_output_buffer + m_output_buffer_size);
 			return 0;
 		}
 		else
@@ -215,30 +217,97 @@ namespace ext::netlib
 
 	std::streambuf * socket_streambuf_base::setbuf(char_type * buffer, std::streamsize size)
 	{
-		if (size < 128 || size / 2 > INT_MAX) {
-			init_buffers();
-			return nullptr;
+		if (size < 128)     throw std::logic_error("socket_streambuf_base::setbuf size should >= 128");
+		if (size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf size should <= INT_MAX");
+
+		if (buffer == nullptr)
+		{
+			if (m_own_input_buffer) delete [] m_input_buffer;
+			m_input_buffer = m_output_buffer = nullptr;
+
+		    init_buffers(size);
+		    return this;
 		}
-		else {
-			m_buffer = nullptr;
-			m_buffer_size = static_cast<std::size_t>(size / 2);
-			m_input_buffer = buffer;
-			m_output_buffer = m_input_buffer + m_buffer_size;
-			reset_buffers();
-			return this;
+
+		if (m_own_input_buffer) delete [] m_input_buffer;
+
+		m_own_input_buffer = false;
+		m_input_buffer = buffer;
+		m_input_buffer_size = static_cast<unsigned>(size / 2);
+		m_output_buffer = m_input_buffer + m_input_buffer_size;
+		m_output_buffer_size = m_input_buffer_size;
+
+		reset_buffers();
+		return this;
+	}
+
+	std::streambuf * socket_streambuf_base::setbuf(char_type * buffer, std::streamsize input_size, std::streamsize output_size)
+	{
+		if (input_size < 128)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= 128");
+		if (output_size < 128)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= 128");
+		if (input_size > INT_MAX)  throw std::logic_error("socket_streambuf_base::setbuf input_size should <= INT_MAX");
+		if (output_size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf output_size should <= INT_MAX");
+
+		if (buffer == nullptr)
+		{
+			if (m_own_input_buffer) delete [] m_input_buffer;
+			m_input_buffer = m_output_buffer = nullptr;
+
+		    init_buffers(input_size + output_size);
+		    return this;
 		}
+
+		if (m_own_input_buffer) delete [] m_input_buffer;
+
+		m_own_input_buffer = false;
+		m_input_buffer = buffer;
+		m_input_buffer_size = static_cast<unsigned>(input_size);
+		m_output_buffer = m_input_buffer + m_input_buffer_size;
+		m_output_buffer_size = static_cast<unsigned>(output_size);
+
+		reset_buffers();
+		return this;
+	}
+
+	std::streambuf * socket_streambuf_base::setbuf(char_type * input_buffer, std::streamsize input_size,
+	                                               char_type * output_buffer, std::streamsize output_size)
+	{
+		if (not input_buffer)      throw std::logic_error("socket_streambuf_base::setbuf input_buffer must not be bull");
+		if (not output_buffer)     throw std::logic_error("socket_streambuf_base::setbuf output_buffer must not be bull");
+
+		if (input_size < 128)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= 128");
+		if (output_size < 128)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= 128");
+		if (input_size > INT_MAX)  throw std::logic_error("socket_streambuf_base::setbuf input_size should <= INT_MAX");
+		if (output_size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf output_size should <= INT_MAX");
+
+		if (m_own_input_buffer) delete [] m_input_buffer;
+
+		m_own_input_buffer = false;
+		m_input_buffer = input_buffer;
+		m_input_buffer_size = static_cast<unsigned>(input_size);
+		m_output_buffer = output_buffer;
+		m_output_buffer_size = static_cast<unsigned>(output_size);
+
+		reset_buffers();
+		return this;
 	}
 
 	/************************************************************************/
 	/*              ctors/dtors                                             */
 	/************************************************************************/
+	socket_streambuf_base::~socket_streambuf_base()
+	{
+		if (m_own_input_buffer) delete [] m_input_buffer;
+	}
+
 	socket_streambuf_base::socket_streambuf_base(socket_streambuf_base && op) noexcept
 		: base_type(std::move(op)),
 		  m_input_buffer(std::exchange(op.m_input_buffer, nullptr)),
 		  m_output_buffer(std::exchange(op.m_output_buffer, nullptr)),
-		  m_buffer_size(std::move(op.m_buffer_size)),
+		  m_input_buffer_size(std::move(op.m_input_buffer_size)),
+	      m_output_buffer_size(std::move(op.m_output_buffer_size)),
 		  m_tie_io(std::move(op.m_tie_io)),
-		  m_buffer(std::move(op.m_buffer))
+	      m_own_input_buffer(std::exchange(op.m_own_input_buffer, true))
 	{}
 
 	socket_streambuf_base & socket_streambuf_base::operator =(socket_streambuf_base && op) noexcept
@@ -248,9 +317,10 @@ namespace ext::netlib
 			base_type::operator =(std::move(op));
 			m_input_buffer = std::exchange(op.m_input_buffer, nullptr);
 			m_output_buffer = std::exchange(op.m_output_buffer, nullptr);
-			m_buffer_size = std::move(op.m_buffer_size);
+			m_input_buffer_size = std::move(op.m_input_buffer_size);
+			m_output_buffer_size = std::move(op.m_output_buffer_size);
 			m_tie_io = std::move(op.m_tie_io);
-			m_buffer = std::move(op.m_buffer);
+			m_own_input_buffer = std::exchange(op.m_own_input_buffer, true);
 		}
 
 		return *this;
@@ -262,8 +332,9 @@ namespace ext::netlib
 		base_type::swap(op);
 		swap(m_input_buffer, op.m_input_buffer);
 		swap(m_output_buffer, op.m_output_buffer);
-		swap(m_buffer_size, op.m_buffer_size);
+		swap(m_input_buffer_size, op.m_input_buffer_size);
+		swap(m_output_buffer_size, op.m_output_buffer_size);
 		swap(m_tie_io, op.m_tie_io);
-		swap(m_buffer, op.m_buffer);
+		swap(m_own_input_buffer, op.m_own_input_buffer);
 	}
 }

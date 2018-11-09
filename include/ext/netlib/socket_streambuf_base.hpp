@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <memory>
 #include <utility> // for std::exchange
 #include <streambuf>
@@ -25,13 +25,14 @@ namespace ext::netlib
 	private:
 		char_type * m_input_buffer = nullptr;
 		char_type * m_output_buffer = nullptr;
-		std::size_t m_buffer_size = 0;
+		unsigned    m_input_buffer_size = 0;
+		unsigned    m_output_buffer_size = 0;
 		
 		bool m_tie_io = true;
-		std::unique_ptr<char_type[]> m_buffer;
+		bool m_own_input_buffer = true;
 
 	protected:
-		static const std::size_t m_defbuffer_size = 2 * 4096;
+		static constexpr std::size_t m_defbuffer_size = 2 * 4096;
 
 	private:
 		std::size_t write_all(const char_type * data, std::size_t count);
@@ -42,7 +43,7 @@ namespace ext::netlib
 		/// аллоцирует внутренниие буфферы размером buffer_size,
 		/// буфер делится пополам для input/output областей
 		/// в любом случае вызывает reset_buffers
-		/// buffer_size должен быть не меньше 128, иначе он устанавливается в m_defbuffer_size
+		/// buffer_size is clamped(128, ..., INT_MAX)
 		void init_buffers(std::size_t buffer_size = m_defbuffer_size);
 		/// переинициализирует get/put buffer areas. Буфферы никак не синхронизируеются с сокетом
 		void reset_buffers() noexcept;
@@ -57,11 +58,32 @@ namespace ext::netlib
 		int_type overflow(int_type ch = traits_type::eof()) override;
 		int sync() override;
 	
-		/// устанавливает пользовательский буфер.
-		/// Класс всегда буферезирован,
-		/// если buffer == nullptr or size < 128 - откатывается на дефолтный внутренний буффер
-		/// вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего
-		std::streambuf * setbuf(char_type * buffer, std::streamsize size) override;
+		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
+		/// Если buffer == nullptr - откатывается на дефолтный внутренний буффер.
+		/// Если or size < 128 - бросает std::logic_error
+		/// Таким образаом класс всегда буферезирован.
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться попалам между input и output областей.
+		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize size) override;
+
+		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
+		/// Если buffer == nullptr - откатывается на дефолтный внутренний буффер.
+		/// Если or input_size < 64 or output_size < 64 - бросает std::logic_error
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться между input и output областей в соотвествии с input_size и output_size.
+		/// Подразумевается что общий размер буфера - input_size + output_size
+		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize input_size, std::streamsize output_size);
+
+		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
+		/// Если input_buffer or output_buffer == nullptr or input_size < 64 or output_size < 64 - бросает std::logic_error
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться между input и output областей в соотвествии с input_size и output_size.
+		/// Подразумевается что общий размер буфера - input_size + output_size
+		virtual std::streambuf * setbuf(char_type * input_buffer, std::streamsize input_size,
+		                                char_type * output_buffer, std::streamsize output_size);
 
 	protected:
 		virtual std::size_t read_some(char_type * data, std::size_t count) = 0;
@@ -74,14 +96,10 @@ namespace ext::netlib
 
 	protected:
 		socket_streambuf_base() = default;
-		~socket_streambuf_base() = default;
+		~socket_streambuf_base();
 
 		socket_streambuf_base(const socket_streambuf_base &) = delete;
 		socket_streambuf_base & operator=(const socket_streambuf_base &) = delete;
-
-		// msvc 2013 does not support generated move constructors
-		//socket_streambuf_base(socket_streambuf_base && right) = default;
-		//socket_streambuf_base & operator=(socket_streambuf_base && right) = default;
 		
 		socket_streambuf_base(socket_streambuf_base && right) noexcept;
 		socket_streambuf_base & operator=(socket_streambuf_base && right) noexcept;
