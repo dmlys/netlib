@@ -94,6 +94,7 @@ namespace ext::netlib
 	BOOST_NORETURN void throw_socket_error(int code, const char * errmsg);
 	BOOST_NORETURN void throw_socket_error(int code, const std::string & errmsg);
 	BOOST_NORETURN void throw_last_socket_error(const std::string & errmsg);
+	BOOST_NORETURN void throw_last_socket_error(const char * errmsg);
 
 	void set_port(addrinfo_type * addr, unsigned short port);
 	auto get_port(addrinfo_type * addr) -> unsigned short;

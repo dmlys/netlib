@@ -29,7 +29,7 @@ namespace ext::netlib
 		reset_buffers();
 	}
 
-	void socket_streambuf_base::reset_buffers()
+	void socket_streambuf_base::reset_buffers() noexcept
 	{
 		assert(m_input_buffer && m_output_buffer && m_buffer_size);
 

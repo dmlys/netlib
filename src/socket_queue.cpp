@@ -190,7 +190,7 @@ namespace ext::netlib
 			if (now - item.submit_time >= timeout)
 			{
 				LOG_INFO("socket {} timed out", sock.handle());
-				sock.last_error() = make_error_code(sock_errc::timeout);
+				sock.set_last_error(make_error_code(sock_errc::timeout), "socket_queue");
 				break;
 			}
 		}
@@ -302,7 +302,7 @@ namespace ext::netlib
 			if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) continue;
 
 			auto errc = std::error_code(err, std::system_category());
-			sock.last_error() = errc;
+			sock.set_last_error(errc, "socket_queue");
 
 			LOG_INFO("socket {} has error", handle, ext::FormatError(errc));
 			m_cur = it;

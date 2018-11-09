@@ -139,6 +139,11 @@ namespace ext::netlib
 		throw std::system_error(last_socket_error_code(), errmsg);
 	}
 
+	BOOST_NORETURN void throw_last_socket_error(const char * errmsg)
+	{
+		throw std::system_error(last_socket_error_code(), errmsg);
+	}
+
 	void set_port(addrinfo_type * addr, unsigned short port)
 	{
 		static_assert(offsetof(sockaddr_in, sin_port) == offsetof(sockaddr_in6, sin6_port), "sin_port/sin6_port offset differs");
@@ -433,6 +438,11 @@ namespace ext::netlib
 	}
 
 	BOOST_NORETURN void throw_last_socket_error(const std::string & errmsg)
+	{
+		throw std::system_error(last_socket_error_code(), errmsg);
+	}
+
+	BOOST_NORETURN void throw_last_socket_error(const char * errmsg)
 	{
 		throw std::system_error(last_socket_error_code(), errmsg);
 	}

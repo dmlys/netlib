@@ -28,14 +28,15 @@ namespace ext::netlib
 		bool self_tie() const   { return m_streambuf.self_tie(); }
 		bool self_tie(bool tie) { return m_streambuf.self_tie(tie); }
 
-		duration_type timeout() const                   { return m_streambuf.timeout();  }
-		duration_type timeout(duration_type newtimeout) { return m_streambuf.timeout(newtimeout); }
+		duration_type timeout() const noexcept { return m_streambuf.timeout(); }
+		duration_type timeout(duration_type newtimeout) noexcept { return m_streambuf.timeout(newtimeout); }
 
-		const error_code_type & last_error() const { return m_streambuf.last_error(); }
-		      error_code_type & last_error()       { return m_streambuf.last_error(); }
+		const error_code_type & last_error() const noexcept { return m_streambuf.last_error(); }
+		const char * last_error_context() const noexcept { return m_streambuf.last_error_context(); }
+		void set_last_error(error_code_type errc, const char * context = nullptr) noexcept { return m_streambuf.set_last_error(errc, context); }
 
-		socket_streambuf * rdbuf() { return &m_streambuf; }
-		handle_type handle() { return m_streambuf.handle(); }
+		socket_streambuf * rdbuf() noexcept { return &m_streambuf; }
+		handle_type handle() const noexcept { return m_streambuf.handle(); }
 
 		void getpeername(sockaddr_type * addr, socklen_t * addrlen) { m_streambuf.getpeername(addr, addrlen); }
 		void getsockname(sockaddr_type * addr, socklen_t * addrlen) { m_streambuf.getsockname(addr, addrlen); }
@@ -55,10 +56,10 @@ namespace ext::netlib
 
 
 		/// подключение не валидно, если оно не открыто или была ошибка в процессе работы
-		bool is_valid() const { return m_streambuf.is_valid(); }
+		bool is_valid() const noexcept { return m_streambuf.is_valid(); }
 		/// подключение открыто, если была попытка подключения, даже если не успешная.
 		/// если resolve завершился неудачей - класс не считается открытым
-		bool is_open() const { return m_streambuf.is_open(); }
+		bool is_open() const noexcept { return m_streambuf.is_open(); }
 
 		/// выоляет подключение rdbuf()->connect(host, port);
 		/// в случае ошибки устанавливает failbit | badbit
@@ -112,10 +113,10 @@ namespace ext::netlib
 		/// в случае ошибки устанавливает failbit | badbit
 		void close();
 		/// rdbuf()->interrupt()
-		void interrupt();
+		void interrupt() noexcept;
 		/// закрывает rdbuf()->close
 		/// clear(std::ios::goodbit)
-		void reset();
+		void reset() noexcept;
 
 	public:
 		socket_stream();

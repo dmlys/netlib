@@ -75,7 +75,8 @@ namespace ext::netlib
 		/// все состояния кроме Interrupting / Interrupted последовательно меняется из основного потока работы.
 		/// в состояние Interrupting / Interrupted класс может быть переведен в любой момент
 		/// посредством вызова interrupt из любого другого потока, или signal handler'а
-		enum StateType {
+		enum StateType : unsigned
+		{
 			Closed,        /// default state, закрытое состояние.
 			Connecting,    /// выполняется попытка подключения вызовами non blocking connect + select.
 			Opened,        /// подключение выполнено, нормальное рабочее состояние.
@@ -92,90 +93,95 @@ namespace ext::netlib
 
 	private:
 		handle_type m_sockhandle; // = INVALID_SOCKET;
+		std::atomic<StateType> m_state = {Closed};
 
-#ifdef EXT_ENABLE_OPENSSL
-		SSL * m_sslhandle = nullptr;
-#endif // EXT_ENABLE_OPENSSL
-
-		std::atomic<StateType> m_state { Closed };
-
-		error_code_type m_lasterror;
 		duration_type m_timeout = std::chrono::seconds(10);
+
+		bool m_throw_errors = true;
+		error_code_type m_lasterror;
+		const char * m_lasterror_context = nullptr;
+
+#if EXT_ENABLE_OPENSSL
+		SSL * m_sslhandle = nullptr;
+#endif
 
 	private:
 		/// публикует сокет для которого началось подключение,
 		/// после публикации сокет доступен через m_sockhandle, а состояние изменяется в Connecting.
 		/// Таким образом он может быть прерван вызовом closesocket из interrupt.
 		/// returns true, если публикация была успешно, false если был запрос на прерывание
-		bool publish_connecting(handle_type sock);
+		bool publish_connecting(handle_type sock) noexcept;
 		/// переводит состояние в Opened.
 		/// returns true в случае успеха, false если был запрос на прерывание
-		bool publish_opened(handle_type sock, StateType & expected);
+		bool publish_opened(handle_type sock, StateType & expected) noexcept;
+		/// в зависимости от свойства throw_errors возвращает result как есть
+		/// или бросает system_error_type(lasterror())
+		bool process_result(bool result);
 		
 		/// инициализирует объект заданным socket handle'ом.
 		/// проверяет что сокет валидный и conntected путем вызова ::getpeername.
 		/// в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_init_handle(handle_type sock);
+		bool do_init_handle(handle_type sock) noexcept;
 
 		/// выполняет resolve с помощью getaddrinfo
 		/// в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_resolve(const wchar_t * host, const wchar_t * service, addrinfo_type ** result);
+		bool do_resolve(const wchar_t * host, const wchar_t * service, addrinfo_type ** result) noexcept;
 		/// устанавливает не блокирующий режим работы сокета.
 		/// в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_setnonblocking(handle_type sock);
+		bool do_setnonblocking(handle_type sock) noexcept;
 		/// создает сокет с параметрами из addr.
 		/// в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_createsocket(handle_type & sock, const addrinfo_type * addr);
+		bool do_createsocket(handle_type & sock, const addrinfo_type * addr) noexcept;
 		/// выполняет ::shutdown. в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_sockshutdown(handle_type sock);
+		bool do_sockshutdown(handle_type sock) noexcept;
 		/// выполняет ::closesocket. в случае ошибки - устанавливает m_lasterror и возвращает false
-		bool do_sockclose(handle_type sock);
+		bool do_sockclose(handle_type sock) noexcept;
 
 		/// выполняет подключение сокета sock. В процессе меняет состояние класса, публикует сокет для доступа из interrupt
 		/// после выполнения m_sockhandle == sock. после успешного выполнения m_state == Opened.
 		/// возвращает успех операции, в случае ошибки m_lasterror содержит код ошибки
-		bool do_sockconnect(handle_type sock, const addrinfo_type * addr);
-		bool do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port);
+		bool do_sockconnect(handle_type sock, const addrinfo_type * addr) noexcept;
+		bool do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port) noexcept;
 		
 		/// выполняет shutdown m_sockhandle, если еще не было interrupt
-		bool do_shutdown();
+		bool do_shutdown() noexcept;
 		/// выполняет закрытие сокета, освобождение ssl объекта, переводит класс в закрытое состояние
 		/// в случае ошибки возвращает false, а m_lasterror содержит ошибку
-		bool do_close();
+		bool do_close() noexcept;
 		/// выполняет попытку подключение класса: создание, настройка сокета -> подключение
 		/// в случае ошибки возвращает false, а m_lasterror содержит ошибку
-		bool do_connect(const addrinfo_type * addr);
+		bool do_connect(const addrinfo_type * addr) noexcept;
 
 		/// анализирует ошибку read/wrtie операции.
 		/// res - результат операции recv/write, если 0 - то это eof и проверяется только State >=
 		/// err - код ошибки операции errno/getsockopt(..., SO_ERROR, ...)
 		/// В err_code записывает итоговую ошибку.
 		/// возвращает была ли действительно ошибка, или нужно повторить операцию(реакция на EINTR).
-		bool rw_error(int res, int err, error_code_type & err_code);
+		bool rw_error(int res, int err, error_code_type & err_code) noexcept;
 
 #ifdef EXT_ENABLE_OPENSSL
-		error_code_type ssl_error(SSL * ssl, int error);
+		error_code_type ssl_error(SSL * ssl, int error) noexcept;
 		/// анализирует ошибку ssl read/write операции.
 		/// res[in] - результат операции(возращаяемое значение ::SSL_read, ::SSL_write).
 		/// res[out] - результат ::SSL_get_error(ctx, res);
 		/// В err_code записывает итоговую ошибку.
 		/// возвращает была ли действительно ошибка, или нужно повторить операцию(реакция на EINTR).
-		bool ssl_rw_error(int & res, error_code_type & err_code);
+		bool ssl_rw_error(int & res, error_code_type & err_code) noexcept;
 		/// создает ssl объект, ассоциирует его с дескриптором сокета
 		/// в случае ошибок возвращает false, ssl == nullptr, m_lasterror содержит ошибку
-		bool do_createssl(SSL *& ssl, SSL_CTX * sslctx);
+		bool do_createssl(SSL *& ssl, SSL_CTX * sslctx) noexcept;
 		/// ассоциирует sslctx c ssl, выставляет servername,
 		/// в случае ошибок возвращает false, ssl == nullptr, m_lasterror содержит ошибку
-		bool do_configuressl(SSL *& ssl, const char * servername = nullptr);
+		bool do_configuressl(SSL *& ssl, const char * servername = nullptr) noexcept;
 		/// выполняет ssl подключение(handshake)
 		/// в случае ошибок возвращает false, m_lasterror содержит ошибку
-		bool do_sslconnect(SSL * ssl);
+		bool do_sslconnect(SSL * ssl) noexcept;
 		/// выполняет серверное ssl соединение(SSL_accept/handshake)
 		/// в случае ошибок возвращает false, m_lasterror содержит ошибку
-		bool do_sslaccept(SSL * ssl);
+		bool do_sslaccept(SSL * ssl) noexcept;
 		/// выполняет закрытие ssl сессии, не закрывает обычную сессию сокета(::shutdown не выполняется)
 		/// в случае ошибок возвращает false, m_lasterror содержит ошибку
-		bool do_sslshutdown(SSL * ssl);
+		bool do_sslshutdown(SSL * ssl) noexcept;
 #endif //EXT_ENABLE_OPENSSL
 
 	public:
@@ -184,18 +190,18 @@ namespace ext::netlib
 		/// fstate должно быть комбинацией readable, writable.
 		/// в случае ошибки - возвращает false.
 		/// учитывает WSAEINTR - повторяет ожидание, если только не было вызова interrupt
-		bool wait_state(time_point until, int fstate);
+		bool wait_state(time_point until, int fstate) noexcept;
 
 		/// ожидает пока сокет не станет доступен на чтение с помощью select.
 		/// until - предельная точка ожидания.
 		/// в случае ошибки - возвращает false.
 		/// учитывает WSAEINTR - повторяет ожидание, если только не было вызова interrupt
-		bool wait_readable(time_point until) { return wait_state(until, readable); }
+		bool wait_readable(time_point until) noexcept { return wait_state(until, readable); }
 		/// ожидает пока сокет не станет доступен на запись с помощью select.
 		/// until - предельная точка ожидания.
 		/// в случае ошибки - возвращает false.
 		/// учитывает WSAEINTR - повторяет ожидание, если только не было вызова interrupt
-		bool wait_writable(time_point until) { return wait_state(until, writable); }
+		bool wait_writable(time_point until) noexcept { return wait_state(until, writable); }
 
 	public:
 		std::streamsize showmanyc() override;
@@ -206,19 +212,31 @@ namespace ext::netlib
 		/// timeout любых операций над сокетом,
 		/// в случае превышения вызовы underflow/overflow/sync и другие вернут eof/-1/ошибку,
 		/// а last_error() == WSAETIMEDOUT
-		duration_type timeout() const { return m_timeout; }
-		duration_type timeout(duration_type newtimeout);
+		duration_type timeout() const noexcept { return m_timeout; }
+		duration_type timeout(duration_type newtimeout) noexcept;
 		/// возвращает последнюю ошибку возникшую в ходе выполнения операции
 		/// или ok если ошибок не было
-		const error_code_type & last_error() const { return m_lasterror; }
-		      error_code_type & last_error()       { return m_lasterror; }
+		const error_code_type & last_error() const noexcept { return m_lasterror; }
+		/// возвращает контекст последней ошибки, контекс - 1-2 слова опиывающее контекст в котором произошла ошибка:
+		/// read, connect, getaddrinfo, socket close, etc
+		const char * last_error_context() const noexcept { return m_lasterror_context; }
+		/// устанавливает полсденюю ошибкку и опционально контекст
+		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
+
+		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависиммые от первых
+		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщеаться через return значение.
+		/// !!! по умолчанию включено, но sock_stream, а так же любой std::iostream не будет пропускать эти исключения.
+		/// !!! sock_stream будет выключать данное поведение во внутреннем sock_streambuf.
+		bool throw_errors() const noexcept { return m_throw_errors; }
+		bool throw_errors(bool throw_errors) noexcept { return std::exchange(m_throw_errors, throw_errors); }
+
 
 		/// позволяет получить доступ к нижележащему сокету
 		/// при изменении свойств сокета - никаких гарантий работы класса,
 		/// можно использовать для получения свойств сокета, например local_endpoint/remove_endpoint.
 		/// 
 		/// handle != INVALID_SOCKET гарантируется только при is_open() == true
-		handle_type handle() { return m_sockhandle; }
+		handle_type handle() const noexcept { return m_sockhandle; }
 
 		/// вызов ::getpeername(handle(), addr, addrlen), + проверка результат
 		/// в случае ошибок кидает исключение system_error_type
@@ -259,10 +277,10 @@ namespace ext::netlib
 		/*                    управление подключением                           */
 		/************************************************************************/
 		/// подключение не валидно, если оно не открыто или была ошибка в процессе работы
-		bool is_valid() const;
+		bool is_valid() const noexcept;
 		/// подключение открыто, если была успешная попытка подключения,
 		/// т.е. is_connected, по факту.
-		bool is_open() const;
+		bool is_open() const noexcept;
 
 		/// инициализирует объект заданным socket handle'ом.
 		/// если объект уже был открыт/инициализирован немедленно возвращает false
@@ -282,14 +300,14 @@ namespace ext::netlib
 #ifdef EXT_ENABLE_OPENSSL
 		/// управление ssl сессией
 		/// есть ли активная ssl сессия
-		bool ssl_started() const;
+		bool ssl_started() const noexcept;
 		
 		/// возвращает текущую SSL сессию.
 		/// если вызова start_ssl еще не было - returns nullptr,
 		/// тем не менее stop_ssl останавливает ssl соединение, но не удаляет сессию,
 		/// повторный вызов start_ssl переиспользует ее.
 		/// вызов close - освобождает ssl сессию.
-		SSL * ssl_handle() { return m_sslhandle; }
+		SSL * ssl_handle() noexcept { return m_sslhandle; }
 
 		/// устанавливает SSL сессию.
 		/// Если уже есть активная(ssl_started) сессия - кидает std::logic_error исключение.
@@ -350,11 +368,11 @@ namespace ext::netlib
 		/// после закрытия - можно повторно использовать
 		/// может быть вызвано из любого потока, thread-safe
 		/// предназначено для асинхронного принудительного закрытия, как обработчик сигналов(как пример Ctrl+C)/GUI программах/другое
-		void interrupt();
+		void interrupt() noexcept;
 
 	public:
-		winsock2_streambuf();
-		~winsock2_streambuf();
+		winsock2_streambuf() noexcept;
+		~winsock2_streambuf() noexcept;
 
 		explicit winsock2_streambuf(socket_handle_type sock_handle);
 

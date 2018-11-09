@@ -23,7 +23,7 @@ namespace ext::netlib
 	/************************************************************************/
 	/*                   connect/resolve helpers                            */
 	/************************************************************************/
-	bool bsdsock_streambuf::do_resolve(const char * host, const char * service, addrinfo_type ** result)
+	bool bsdsock_streambuf::do_resolve(const char * host, const char * service, addrinfo_type ** result) noexcept
 	{
 		addrinfo_type hints;
 		
@@ -35,6 +35,7 @@ namespace ext::netlib
 		int res = ::getaddrinfo(host, service, &hints, result);
 		if (res == 0) return true;
 
+		m_lasterror_context = "getaddrinfo";
 		if (res == EAI_SYSTEM)
 			m_lasterror.assign(errno, std::generic_category());
 		else
@@ -43,52 +44,56 @@ namespace ext::netlib
 		return false;
 	}
 	
-	bool bsdsock_streambuf::do_setnonblocking(handle_type sock)
+	bool bsdsock_streambuf::do_setnonblocking(handle_type sock) noexcept
 	{
 		int res = ::fcntl(sock, F_SETFL, ::fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
 		if (res != 0) goto sockerror;
 		return true;
 
 	sockerror:
+		m_lasterror_context = "setnonblocking";
 		m_lasterror.assign(errno, std::generic_category());
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_createsocket(handle_type & sock, const addrinfo_type * addr)
+	bool bsdsock_streambuf::do_createsocket(handle_type & sock, const addrinfo_type * addr) noexcept
 	{
 		sock = ::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		if (sock != -1) return true;
 
+		m_lasterror_context = "socket_creation";
 		m_lasterror.assign(errno, std::generic_category());
 		return false;
 	}
 
-	inline bool bsdsock_streambuf::do_sockshutdown(handle_type sock, int how)
+	inline bool bsdsock_streambuf::do_sockshutdown(handle_type sock, int how) noexcept
 	{
 		auto res = ::shutdown(sock, how);
 		if (res == 0) return true;
 
+		m_lasterror_context = "socket_shutdown";
 		m_lasterror.assign(errno, std::generic_category());
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_sockclose(handle_type sock)
+	bool bsdsock_streambuf::do_sockclose(handle_type sock) noexcept
 	{
 		auto res = ::close(sock);
 		if (res == 0) return true;
 
+		m_lasterror_context = "socket_close";
 		m_lasterror.assign(errno, std::generic_category());
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port)
+	bool bsdsock_streambuf::do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port) noexcept
 	{
 		auto * in = reinterpret_cast<sockaddr_in *>(addr->ai_addr);
-		in->sin_port = htons(port);
+		in->sin_port = ::htons(port);
 		return do_sockconnect(sock, addr);
 	}
 	
-	bool bsdsock_streambuf::do_sockconnect(handle_type sock, const addrinfo_type * addr)
+	bool bsdsock_streambuf::do_sockconnect(handle_type sock, const addrinfo_type * addr) noexcept
 	{
 		int err, res, pipefd[2]; // self pipe trick. [0] readable, [1] writable
 		bool closepipe, pubres;  // должны ли мы закрыть pipe, или он был закрыт в interrupt
@@ -156,6 +161,7 @@ namespace ext::netlib
 			if (err == EINTR) goto again;
 			
 			closepipe = true;
+			m_lasterror_context = "socket_connect";
 			if (err == ETIMEDOUT) m_lasterror = make_error_code(sock_errc::timeout);
 			else                  m_lasterror.assign(err, std::generic_category());
 		}
@@ -163,6 +169,7 @@ namespace ext::netlib
 		{
 			// было прерывание, если оно было до publish_connecting, то мы должны закрыть pipefd[1]
 			// иначе pipefd[1] был закрыт внутри interrupt
+			m_lasterror_context = "socket_connect";
 			m_lasterror = std::make_error_code(std::errc::interrupted);
 			// такое возможно, только если мы не смогли опубликовать publish_connecting,
 			closepipe = prevstate == Closed;
@@ -178,7 +185,7 @@ namespace ext::netlib
 		return false;
 	}
 	
-	bool bsdsock_streambuf::do_connect(const addrinfo_type * addr)
+	bool bsdsock_streambuf::do_connect(const addrinfo_type * addr) noexcept
 	{
 		handle_type sock;
 		for (; addr; addr = addr->ai_next)
@@ -235,21 +242,34 @@ namespace ext::netlib
 	/************************************************************************/
 	/*                     State methods                                    */
 	/************************************************************************/
-	bool bsdsock_streambuf::publish_connecting(handle_type sock)
+	bool bsdsock_streambuf::publish_connecting(handle_type sock) noexcept
 	{
 		StateType prev = Closed;
 		m_sockhandle = sock;
 		return m_state.compare_exchange_strong(prev, Connecting, std::memory_order_release);
 	}
 
-	inline bool bsdsock_streambuf::publish_opened(handle_type sock, StateType & expected)
+	inline bool bsdsock_streambuf::publish_opened(handle_type sock, StateType & expected) noexcept
 	{
 		// пытаемся переключится в Opened
 		m_sockhandle = sock;
 		return m_state.compare_exchange_strong(expected, Opened, std::memory_order_release);
 	}
 
-	bool bsdsock_streambuf::do_shutdown()
+	bool bsdsock_streambuf::process_result(bool result)
+	{
+		if (not m_throw_errors or result) return result;
+
+		std::string err_msg;
+		err_msg.reserve(256);
+		err_msg += "bsdsock_streambuf::";
+		err_msg += m_lasterror_context;
+		err_msg += " failure";
+
+		throw system_error_type(m_lasterror, err_msg);
+	}
+
+	bool bsdsock_streambuf::do_shutdown() noexcept
 	{
 		StateType prev = Opened;
 		bool success = m_state.compare_exchange_strong(prev, Shutdowned, std::memory_order_relaxed);
@@ -258,11 +278,17 @@ namespace ext::netlib
 		// не получилось, значит был запрос на прерывание и shutdown был вызван оттуда
 		// или же мы уже сделали shutdown ранее
 		assert(prev == Interrupted || prev == Shutdowned);
-		if (prev == Interrupted) m_lasterror = std::make_error_code(std::errc::interrupted);
-		return false;
+		if (prev == Interrupted)
+		{
+			m_lasterror_context = "shutdown";
+			m_lasterror = std::make_error_code(std::errc::interrupted);
+			return false;
+		}
+
+		return true;
 	}
 
-	bool bsdsock_streambuf::do_close()
+	bool bsdsock_streambuf::do_close() noexcept
 	{
 		StateType prev = m_state.exchange(Closed, std::memory_order_release);
 
@@ -292,7 +318,8 @@ namespace ext::netlib
 #endif //EXT_ENABLE_OPENSSL
 
 		// делаем shutdown
-		return do_shutdown();
+		bool result = do_shutdown();
+		return process_result(result);
 	}
 
 	bool bsdsock_streambuf::close()
@@ -303,16 +330,18 @@ namespace ext::netlib
 		else
 		{
 			// делаем shutdown, после чего в любом случае закрываем сокет
+			bool old_throw = std::exchange(m_throw_errors, false);
 			result = shutdown();
 			result &= do_close();
+			m_throw_errors = old_throw;
 		}
 
 		// если закрытие успешно, очищаем последнюю ошибку
 		if (result) m_lasterror.clear();
-		return result;
+		return process_result(result);
 	}
 	
-	void bsdsock_streambuf::interrupt()
+	void bsdsock_streambuf::interrupt() noexcept
 	{
 		int res; EXT_UNUSED(res);
 		StateType prev;
@@ -404,29 +433,29 @@ namespace ext::netlib
 
 	//interrupted:
 		m_lasterror = std::make_error_code(std::errc::interrupted);
-    error:
+	error:
 		// нас interrupt'нули - выставляем соотвествующий код ошибки
 		int code = m_lasterror.value();
 		if (m_lasterror.category() != std::generic_category() || (code != EBADF and code != ENOTSOCK))
 			::close(sock);
 
-		throw std::system_error(m_lasterror, "bsdsock_streambuf::init_handle failed");
+		throw std::system_error(m_lasterror, "bsdsock_streambuf::init_handle failure");
 	}
 
 	/************************************************************************/
 	/*                   read/write/others                                  */
 	/************************************************************************/
-	bool bsdsock_streambuf::is_valid() const
+	bool bsdsock_streambuf::is_valid() const noexcept
 	{
 		return m_sockhandle != -1 && !m_lasterror;
 	}
 
-	bool bsdsock_streambuf::is_open() const
+	bool bsdsock_streambuf::is_open() const noexcept
 	{
 		return m_sockhandle != -1;
 	}
 
-	bool bsdsock_streambuf::wait_state(time_point until, int fstate)
+	bool bsdsock_streambuf::wait_state(time_point until, int fstate) noexcept
 	{
 		int err;
 		sockoptlen_t solen;
@@ -505,7 +534,7 @@ namespace ext::netlib
 				int res = ::SSL_read(m_sslhandle, data, count);
 				if (res > 0) return res;
 
-				if (ssl_rw_error(res, m_lasterror)) return 0;
+				if (ssl_rw_error(res, m_lasterror)) goto error;
 				continue;
 			}
 #endif // EXT_ENABLE_OPENSSL
@@ -513,10 +542,16 @@ namespace ext::netlib
 			int res = ::recv(m_sockhandle, data, count, 0);
 			if (res > 0) return res;
 
-			if (rw_error(res, errno, m_lasterror)) return 0;
+			if (rw_error(res, errno, m_lasterror)) goto error;
 			continue;
 
 		} while (wait_readable(until));
+
+	error:
+		m_lasterror_context = "read_some";
+		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+			throw system_error_type(m_lasterror, "bsdsock_streambuf::read_some failure");
+
 		return 0;
 	}
 
@@ -533,7 +568,7 @@ namespace ext::netlib
 				int res = ::SSL_write(m_sslhandle, data, count);
 				if (res > 0) return res;
 
-				if (ssl_rw_error(res, m_lasterror)) return 0;
+				if (ssl_rw_error(res, m_lasterror)) goto error;
 				continue;
 			}
 #endif // EXT_ENABLE_OPENSSL
@@ -541,14 +576,20 @@ namespace ext::netlib
 			int res = ::send(m_sockhandle, data, count, 0);
 			if (res > 0) return res;
 
-			if (rw_error(res, errno, m_lasterror)) return 0;
+			if (rw_error(res, errno, m_lasterror)) goto error;
 			continue;
 
 		} while (wait_readable(until));
+
+	error:
+		m_lasterror_context = "write_some";
+		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+			throw system_error_type(m_lasterror, "bsdsock_streambuf::write_some failure");
+
 		return 0;
 	}
 	
-	bool bsdsock_streambuf::rw_error(int res, int err, error_code_type & err_code)
+	bool bsdsock_streambuf::rw_error(int res, int err, error_code_type & err_code) noexcept
 	{
 		// error can be result of shutdown from interrupt
 		auto state = m_state.load(std::memory_order_relaxed);
@@ -581,63 +622,69 @@ namespace ext::netlib
 		assert(&addr);
 		if (is_open())
 		{
+			m_lasterror_context = "connect";
 			m_lasterror = std::make_error_code(std::errc::already_connected);
-			return false;
+
+			return process_result(false);
 		}
 		
-		return do_connect(&addr);
+		bool result = do_connect(&addr);
+		return process_result(result);
 	}
 
 	bool bsdsock_streambuf::connect(const std::string & host, const std::string & service)
 	{
 		if (is_open())
 		{
+			m_lasterror_context = "connect";
 			m_lasterror = std::make_error_code(std::errc::already_connected);
-			return false;
+
+			return process_result(false);
 		}
 
 		addrinfo_type * addr = nullptr;
 		bool res = do_resolve(host.c_str(), service.c_str(), &addr);
-		if (!res) return false;
+		if (!res) return process_result(false);
 
 		assert(addr);
 		res = do_connect(addr);
 
 		::freeaddrinfo(addr);
-		return res;
+		return process_result(res);
 	}
 
 	bool bsdsock_streambuf::connect(const std::string & host, unsigned short port)
 	{
 		if (is_open())
 		{
+			m_lasterror_context = "connect";
 			m_lasterror = std::make_error_code(std::errc::already_connected);
-			return false;
+			return process_result(false);
 		}
 
 		addrinfo_type * addr = nullptr;
 		bool res = do_resolve(host.c_str(), nullptr, &addr);
-		if (!res) return false;
+		if (!res) return process_result(false);
 		
 		set_port(addr, port);
 		res = do_connect(addr);
 		
 		::freeaddrinfo(addr);
-		return res;
+		return process_result(res);
 	}
 
 	/************************************************************************/
 	/*                     ssl stuff                                        */
 	/************************************************************************/
 #ifdef EXT_ENABLE_OPENSSL
-	static int fstate_from_ssl_result(int result)
+	static int fstate_from_ssl_result(int result) noexcept
 	{
 		if      (result == SSL_ERROR_WANT_READ)  return bsdsock_streambuf::readable;
 		else if (result == SSL_ERROR_WANT_WRITE) return bsdsock_streambuf::writable;
 		else        /* ??? */                    return bsdsock_streambuf::readable | bsdsock_streambuf::writable;
 	}
 
-	bool bsdsock_streambuf::ssl_rw_error(int & res, error_code_type & err_code)
+	bool bsdsock_streambuf::ssl_rw_error(int & res, error_code_type & err_code) noexcept
 	{
 		int err;
 		int ret = res;
@@ -703,27 +750,28 @@ namespace ext::netlib
 		}
 	}
 
-	bool bsdsock_streambuf::ssl_started() const
+	bool bsdsock_streambuf::ssl_started() const noexcept
 	{
 		return m_sslhandle != nullptr && ::SSL_get_session(m_sslhandle) != nullptr;
 	}
 
-	bsdsock_streambuf::error_code_type bsdsock_streambuf::ssl_error(SSL * ssl, int error)
+	bsdsock_streambuf::error_code_type bsdsock_streambuf::ssl_error(SSL * ssl, int error) noexcept
 	{
 		int ssl_err = ::SSL_get_error(ssl, error);
 		return openssl_geterror(ssl_err);
 	}
 
-	bool bsdsock_streambuf::do_createssl(SSL *& ssl, SSL_CTX * sslctx)
+	bool bsdsock_streambuf::do_createssl(SSL *& ssl, SSL_CTX * sslctx) noexcept
 	{
 		ssl = ::SSL_new(sslctx);
 		if (ssl) return true;
 
+		m_lasterror_context = "createssl";
 		m_lasterror.assign(::ERR_get_error(), openssl_err_category());
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_configuressl(SSL *& ssl, const char * servername)
+	bool bsdsock_streambuf::do_configuressl(SSL *& ssl, const char * servername) noexcept
 	{
 		int res;
 		if (servername && *servername != 0) // not empty
@@ -736,17 +784,19 @@ namespace ext::netlib
 		return true;
 
 	error:
+		m_lasterror_context = "configuressl";
 		m_lasterror = ssl_error(ssl, res);
 		::SSL_free(ssl);
 		ssl = nullptr;
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_sslconnect(SSL * ssl)
+	bool bsdsock_streambuf::do_sslconnect(SSL * ssl) noexcept
 	{
 		int res = ::SSL_set_fd(ssl, m_sockhandle);
 		if (res <= 0)
 		{
+			m_lasterror_context = "sslconnect";
 			m_lasterror = ssl_error(ssl, res);
 			return false;
 		}
@@ -758,18 +808,22 @@ namespace ext::netlib
 			res = ::SSL_connect(ssl);
 			if (res > 0) return true;
 
-			if (ssl_rw_error(res, m_lasterror)) return false;
+			if (ssl_rw_error(res, m_lasterror)) goto error;
 
 			fstate = fstate_from_ssl_result(res);
 		} while (wait_state(until, fstate));
+
+	error:
+		m_lasterror_context = "sslconnect";
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_sslaccept(SSL * ssl)
+	bool bsdsock_streambuf::do_sslaccept(SSL * ssl) noexcept
 	{
 		int res = ::SSL_set_fd(ssl, m_sockhandle);
 		if (res <= 0)
 		{
+			m_lasterror_context = "ssl_accept";
 			m_lasterror = ssl_error(ssl, res);
 			return false;
 		}
@@ -781,15 +835,17 @@ namespace ext::netlib
 			res = ::SSL_accept(ssl);
 			if (res > 0) return true;
 
-			if (ssl_rw_error(res, m_lasterror)) return false;
+			if (ssl_rw_error(res, m_lasterror)) goto error;
 
 			fstate = fstate_from_ssl_result(res);
 		} while (wait_state(until, fstate));
 
+	error:
+		m_lasterror_context = "ssl_accept";
 		return false;
 	}
 
-	bool bsdsock_streambuf::do_sslshutdown(SSL * ssl)
+	bool bsdsock_streambuf::do_sslshutdown(SSL * ssl) noexcept
 	{
 		// смотри описание 2х фазного SSL_shutdown в описании функции SSL_shutdown:
 		// https://www.openssl.org/docs/manmaster/ssl/SSL_shutdown.html
@@ -811,7 +867,7 @@ namespace ext::netlib
 			// should attempt second shutdown
 			if (res == 0) break;
 
-			if (ssl_rw_error(res, m_lasterror)) return false;
+			if (ssl_rw_error(res, m_lasterror)) goto error;
 
 			fstate = fstate_from_ssl_result(res);
 		} while (wait_state(until, fstate));
@@ -834,10 +890,10 @@ namespace ext::netlib
 		FD_SET(sock, &rdset);
 
 		selres = select(0, &rdset, nullptr, nullptr, &tv);
-		if (selres <= 0) return false;
+		if (selres <= 0) goto error;
 
 		rc = recv(sock, &ch, 1, MSG_PEEK);
-		if (rc != 0) return false; // socket closed
+		if (rc != 0) goto error; // socket closed
 
 		// да мы действительно получили FD_CLOSE
 		m_lasterror.clear();
@@ -846,8 +902,11 @@ namespace ext::netlib
 		res = ::SSL_clear(ssl);
 		if (res > 0) return true;
 
-		// -1 - error or nonblocking, we are always blocking
 		m_lasterror = ssl_error(ssl, res);
+		return false;
+
+	error:
+		m_lasterror_context = "sslshutdown";
 		return false;
 	}
 
@@ -864,20 +923,24 @@ namespace ext::netlib
 	{
 		if (!is_open())
 		{
+			m_lasterror_context = "start_ssl";
 			m_lasterror.assign(ENOTSOCK, std::system_category());
-			return false;
+			return process_result(false);
 		}
 
 		if (m_sslhandle)
 		{
 			::SSL_set_SSL_CTX(m_sslhandle, sslctx);
-			return do_sslconnect(m_sslhandle);
+			bool result = do_sslconnect(m_sslhandle);
+			return process_result(result);
 		}
 		else
 		{
-			return do_createssl(m_sslhandle, sslctx) &&
-			       do_configuressl(m_sslhandle) &&
-			       do_sslconnect(m_sslhandle);
+			bool result = do_createssl(m_sslhandle, sslctx) &&
+			              do_configuressl(m_sslhandle) &&
+			              do_sslconnect(m_sslhandle);
+
+			return process_result(result);
 		}
 	}
 
@@ -885,8 +948,9 @@ namespace ext::netlib
 	{
 		if (!is_open())
 		{
+			m_lasterror_context = "start_ssl";
 			m_lasterror.assign(ENOTSOCK, std::system_category());
-			return false;
+			return process_result(false);
 		}
 
 		if (sslmethod == nullptr)
@@ -895,8 +959,9 @@ namespace ext::netlib
 		SSL_CTX * sslctx = ::SSL_CTX_new(sslmethod);
 		if (sslctx == nullptr)
 		{
+			m_lasterror_context = "start_ssl";
 			m_lasterror.assign(::ERR_get_error(), openssl_err_category());
-			return false;
+			return process_result(false);
 		}
 		
 		bool result;
@@ -912,13 +977,17 @@ namespace ext::netlib
 		}
 		
 		::SSL_CTX_free(sslctx);
-		return result && do_sslconnect(m_sslhandle);
+		result = result && do_sslconnect(m_sslhandle);
+		return process_result(result);
 	}
 
 	bool bsdsock_streambuf::start_ssl()
 	{
 		if (m_sslhandle)
-			return do_sslconnect(m_sslhandle);
+		{
+			bool result = do_sslconnect(m_sslhandle);
+			return process_result(result);
+		}
 		else
 		{
 			const SSL_METHOD * sslm = nullptr;
@@ -930,8 +999,9 @@ namespace ext::netlib
 	{
 		if (!is_open())
 		{
+			m_lasterror_context = "accept_ssl";
 			m_lasterror.assign(ENOTSOCK, std::system_category());
-			return false;
+			return process_result(false);
 		}
 
 		bool result;
@@ -946,7 +1016,8 @@ namespace ext::netlib
 			         do_configuressl(m_sslhandle);
 		}
 
-		return result && do_sslaccept(m_sslhandle);
+		result = result && do_sslaccept(m_sslhandle);
+		return process_result(result);
 	}
 
 	bool bsdsock_streambuf::stop_ssl()
@@ -955,7 +1026,9 @@ namespace ext::netlib
 
 		// flush failed
 		if (sync() == -1) return false;
-		return do_sslshutdown(m_sslhandle);
+
+		bool result = do_sslshutdown(m_sslhandle);
+		return process_result(result);
 	}
 
 	void bsdsock_streambuf::free_ssl()
@@ -969,12 +1042,18 @@ namespace ext::netlib
 	/************************************************************************/
 	/*                     getters/setters                                  */
 	/************************************************************************/
-	bsdsock_streambuf::duration_type bsdsock_streambuf::timeout(duration_type newtimeout)
+	bsdsock_streambuf::duration_type bsdsock_streambuf::timeout(duration_type newtimeout) noexcept
 	{
 		if (newtimeout < std::chrono::seconds(1))
 			newtimeout = std::chrono::seconds(1);
 		
 		return std::exchange(m_timeout, newtimeout);
+	}
+
+	void bsdsock_streambuf::set_last_error(error_code_type errc, const char * context) noexcept
+	{
+		m_lasterror = errc;
+		m_lasterror_context = context;
 	}
 
 	void bsdsock_streambuf::getpeername(sockaddr_type * addr, socklen_t * addrlen)
@@ -986,7 +1065,7 @@ namespace ext::netlib
 		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
 		if (res != 0)
 		{
-			throw_last_socket_error("bsdsock_streambuf::peer_name getpeername failed");
+			throw_last_socket_error("bsdsock_streambuf::peer_name getpeername failure");
 		}
 	}
 
@@ -999,7 +1078,7 @@ namespace ext::netlib
 		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
 		if (res != 0)
 		{
-			throw_last_socket_error("bsdsock_streambuf::getsockname failed");
+			throw_last_socket_error("bsdsock_streambuf::getsockname failure");
 		}
 	}
 
@@ -1032,7 +1111,7 @@ namespace ext::netlib
 		unsigned short port;
 		inet_ntop(addr, host, port);
 		
-		char buffer[std::numeric_limits<unsigned short>::digits10 + 2];
+		ext::itoa_buffer<unsigned short> buffer;
 		host += ':';
 		host += ext::itoa(port, buffer);
 		
@@ -1048,7 +1127,7 @@ namespace ext::netlib
 
 		// both sockaddr_in6 and sockaddr_in have port member on same offset
 		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ntohs(port);
+		return ::ntohs(port);
 	}
 
 	unsigned short bsdsock_streambuf::sock_port()
@@ -1060,7 +1139,7 @@ namespace ext::netlib
 
 		// both sockaddr_in6 and sockaddr_in have port member on same offset
 		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ntohs(port);
+		return ::ntohs(port);
 	}
 
 	void bsdsock_streambuf::peer_name(std::string & name, unsigned short & port)
@@ -1114,13 +1193,14 @@ namespace ext::netlib
 	/************************************************************************/
 	/*                   ctors/dtor                                         */
 	/************************************************************************/
-	bsdsock_streambuf::bsdsock_streambuf()
+	bsdsock_streambuf::bsdsock_streambuf() noexcept
 	{
 		m_sockhandle = -1;
 	}
 
-	bsdsock_streambuf::~bsdsock_streambuf()
+	bsdsock_streambuf::~bsdsock_streambuf() noexcept
 	{
+		m_throw_errors = false;
 		close();
 	}
 
@@ -1132,7 +1212,7 @@ namespace ext::netlib
 			if (m_lasterror.category() != std::generic_category() || (code != EBADF && code != ENOTCONN))
 				::close(sock_handle);
 
-			throw std::system_error(m_lasterror, "bsdsock_streambuf::setnonblocking failed");
+			throw std::system_error(m_lasterror, "bsdsock_streambuf::setnonblocking failure");
 		}
 
 		m_sockhandle = sock_handle;
@@ -1143,12 +1223,14 @@ namespace ext::netlib
 	bsdsock_streambuf::bsdsock_streambuf(bsdsock_streambuf && right) noexcept
 		: base_type(std::move(right)),
 		  m_sockhandle(std::exchange(right.m_sockhandle, -1)),
-#ifdef EXT_ENABLE_OPENSSL
-		  m_sslhandle(std::exchange(right.m_sslhandle, nullptr)),
-#endif
 		  m_state(right.m_state.exchange(Closed, std::memory_order_relaxed)),
+		  m_timeout(right.m_timeout),
+		  m_throw_errors(right.m_throw_errors),
 		  m_lasterror(std::exchange(right.m_lasterror, error_code_type {})),
-		  m_timeout(right.m_timeout)
+		  m_lasterror_context(std::exchange(right.m_lasterror_context, nullptr))
+#ifdef EXT_ENABLE_OPENSSL
+		  , m_sslhandle(std::exchange(right.m_sslhandle, nullptr))
+#endif
 	{
 
 	}
@@ -1157,16 +1239,19 @@ namespace ext::netlib
 	{
 		if (this != &right)
 		{
+			m_throw_errors = false;
 			close();
 
 			base_type::operator =(std::move(right));
 			m_sockhandle = std::exchange(right.m_sockhandle, -1);
+			m_state.store(right.m_state.exchange(Closed, std::memory_order_relaxed), std::memory_order_relaxed);
+			m_timeout = right.m_timeout;
+			m_throw_errors = right.m_throw_errors;
+			m_lasterror = std::exchange(right.m_lasterror, error_code_type {});
+			m_lasterror_context = std::exchange(right.m_lasterror_context, nullptr);
 #ifdef EXT_ENABLE_OPENSSL
 			m_sslhandle = std::exchange(right.m_sslhandle, nullptr);
 #endif
-			m_state.store(right.m_state.exchange(Closed, std::memory_order_relaxed), std::memory_order_relaxed);
-			m_lasterror = std::exchange(right.m_lasterror, error_code_type {});
-			m_timeout = right.m_timeout;
 		}
 
 		return *this;
@@ -1182,4 +1267,3 @@ namespace ext::netlib
 	}
 	
 } // namespace ext::netlib
-

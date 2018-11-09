@@ -17,8 +17,7 @@ namespace ext::netlib
 	///   если пользователь попытается убрать буфер или предоставить слишком маленький буфер - класс откатится на буфер по умолчанию
 	/// * входящая область по умолчанию автоматически синхронизируется с исходящей. Подобно std::ios::tie
 	///   как только входящий буфер исчерпан, прежде чем он будет заполнен из сокета - исходящий буфер будет сброшен в сокет
-	class socket_streambuf_base :
-		public ext::streambuf
+	class socket_streambuf_base : public ext::streambuf
 	{
 	private:
 		typedef ext::streambuf base_type;
@@ -46,7 +45,7 @@ namespace ext::netlib
 		/// buffer_size должен быть не меньше 128, иначе он устанавливается в m_defbuffer_size
 		void init_buffers(std::size_t buffer_size = m_defbuffer_size);
 		/// переинициализирует get/put buffer areas. Буфферы никак не синхронизируеются с сокетом
-		void reset_buffers();
+		void reset_buffers() noexcept;
 
 		// input
 		std::streamsize xsgetn(char_type * ptr, std::streamsize n) override;
@@ -70,8 +69,8 @@ namespace ext::netlib
 
 	public:
 		/// синхронизация входящего потока с исходящим, по умолчанию включена
-		bool self_tie() const   { return m_tie_io; }
-		bool self_tie(bool tie) { return std::exchange(m_tie_io, tie); }
+		bool self_tie()   const noexcept { return m_tie_io; }
+		bool self_tie(bool tie) noexcept { return std::exchange(m_tie_io, tie); }
 
 	protected:
 		socket_streambuf_base() = default;

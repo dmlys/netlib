@@ -37,7 +37,6 @@
     <ClCompile Include="src\socket_stream.cpp" />
     <ClCompile Include="src\socket_streambuf_base.cpp" />
     <ClCompile Include="src\winsock2_streambuf.cpp" />
-    <ClCompile Include="tests\http_parser_tests.ppp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\ext\netlib\abstract_connection_controller.hpp" />
