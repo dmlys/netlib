@@ -20,7 +20,7 @@ namespace ext::netlib
 	std::enable_if_t<ext::is_iterator_v<OutputIterator>, std::size_t>
 	write_string(OutputIterator & out, const String & str)
 	{
-		auto str_lit = ext::as_literal(str);
+		auto str_lit = ext::str_view(str);
 		out = std::copy(begin(str_lit), end(str_lit), out);
 		return str_lit.size();
 	}
@@ -30,7 +30,7 @@ namespace ext::netlib
 	write_string(OutputConatiner & out, const String & str)
 	{
 		using std::begin; using std::end;
-		auto str_lit = ext::as_literal(str);
+		auto str_lit = ext::str_view(str);
 		ext::append(out, begin(str_lit), end(str_lit));
 		return str_lit.size();
 	}
@@ -39,7 +39,7 @@ namespace ext::netlib
 	std::enable_if_t<ext::iostreams::is_device_v<Sink>, std::size_t>
 	write_string(Sink & sink, const String & str)
 	{
-		auto str_lit = ext::as_literal(str);
+		auto str_lit = ext::str_view(str);
 		ext::iostreams::write_string(sink, str_lit);
 		return str_lit.size();
 	}

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstring> // for std::memcpy
 #include <algorithm>
 
 #include <ext/config.hpp>
@@ -635,7 +636,7 @@ namespace netlib
 		auto last  = first + header_str.size();
 		if (first == last) return false;
 
-		const auto sep = ext::as_literal(";=");
+		const auto sep = ext::str_view(";=");
 		last = std::find(first, last, ';');
 
 		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
@@ -678,7 +679,7 @@ namespace netlib
 
 		last = std::find(first, last, ';');
 
-		const auto sep = ext::as_literal(":=");
+		const auto sep = ext::str_view(":=");
 		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
 		if (middle != last)
 		{

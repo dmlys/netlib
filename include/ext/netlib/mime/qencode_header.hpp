@@ -45,7 +45,7 @@ namespace ext::netlib::mime
 		write_string(dest, name);
 		write_string(dest, ": ");
 
-		auto lit = ext::as_literal(value);
+		auto lit = ext::str_view(value);
 		qencode_header(dest, boost::begin(lit), boost::end(lit));
 	}
 
@@ -127,7 +127,7 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<ValueString>, std::size_t>
 	qencode_header_folded(Destination & dest, std::size_t cur_pos, std::size_t line_size, const ValueString & val)
 	{
-		auto inplit = ext::as_literal(val);
+		auto inplit = ext::str_view(val);
 		return qencode_header_folded(dest, cur_pos, line_size, boost::begin(inplit), boost::end(inplit));
 	}
 
@@ -148,8 +148,8 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>, std::size_t>
 	qencode_header_folded(Destination & dest, std::size_t line_size, const NameString & name, const ValueString & value)
 	{
-		auto namelit = ext::as_literal(name);
-		auto vallit = ext::as_literal(value);
+		auto namelit = ext::str_view(name);
+		auto vallit = ext::str_view(value);
 		auto namewidth = boost::size(namelit);
 
 		write_string(dest, namelit);

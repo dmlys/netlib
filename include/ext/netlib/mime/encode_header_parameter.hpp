@@ -3,7 +3,7 @@
 #include <ext/itoa.hpp>
 #include <ext/type_traits.hpp>
 #include <ext/range/range_traits.hpp>
-#include <ext/range/as_literal.hpp>
+#include <ext/range/str_view.hpp>
 
 #include <ext/netlib/mime/encode_quoted_utils.hpp>
 #include <ext/netlib/mime/encoding_tables.hpp>
@@ -208,8 +208,8 @@ namespace ext::netlib::mime
 		Destination & dest, std::size_t curPos, std::size_t lineSize,
 		const NameRandomAccessRange & name, const ValRandomAccessRange & value)
 	{
-		auto name_lit = ext::as_literal(name);
-		auto val_lit  = ext::as_literal(value);
+		auto name_lit = ext::str_view(name);
+		auto val_lit  = ext::str_view(value);
 
 		return encode_header_parameter_folded(
 			dest, curPos, lineSize,
@@ -280,8 +280,8 @@ namespace ext::netlib::mime
 	std::enable_if_t<std::conjunction_v<ext::is_range<NameRandomAccessRange>, ext::is_range<ValRandomAccessRange>>>
 	encode_header_parameter(Destination & dest, const NameRandomAccessRange & name, const ValRandomAccessRange & value)
 	{
-		auto name_lit = ext::as_literal(name);
-		auto val_lit = ext::as_literal(value);
+		auto name_lit = ext::str_view(name);
+		auto val_lit = ext::str_view(value);
 
 		return encode_header_parameter(
 			dest,

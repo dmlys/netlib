@@ -29,7 +29,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_container_v<OutputContainer>>
 	encode_url(const InputRange & input, OutputContainer & out)
 	{
-		auto inplit = ext::as_literal(input);
+		auto inplit = ext::str_view(input);
 		return encode_url(boost::begin(inplit), boost::end(inplit), out);
 	}
 
@@ -65,7 +65,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::iostreams::is_device_v<Sink>, Sink &>
 	encode_url(const InputRange & input, Sink & out)
 	{
-		auto inplit = ext::as_literal(input);
+		auto inplit = ext::str_view(input);
 		return encode_url(boost::begin(inplit), boost::end(inplit), out);
 	}
 
@@ -90,7 +90,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_container_v<OutputContainer>>
 	decode_url(const InputRange & input, OutputContainer & out)
 	{
-		auto inplit = ext::as_literal(input);
+		auto inplit = ext::str_view(input);
 		return decode_url(boost::begin(inplit), boost::end(inplit), out);
 	}
 
@@ -126,7 +126,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::iostreams::is_device_v<Sink>, Sink &>
 	decode_url(const InputRange & input, Sink & out)
 	{
-		auto inplit = ext::as_literal(input);
+		auto inplit = ext::str_view(input);
 		return decode_url(boost::begin(inplit), boost::end(inplit), out);
 	}
 }

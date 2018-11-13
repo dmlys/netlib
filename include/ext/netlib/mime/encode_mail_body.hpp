@@ -11,7 +11,7 @@ namespace ext::netlib::mime
 	template <class RandomAccessIterator>
 	bool check_7bit_valid(RandomAccessIterator first, RandomAccessIterator last, std::size_t max_size = MailDefaultLineSize)
 	{
-		const auto crln = ext::as_literal("\r\n");
+		const auto crln = ext::str_view("\r\n");
 		const auto is_valid_char = [](auto ch) { return ch == ' ' or ch == '\t' or (ch >= 32 and ch < 128); };
 
 		for (;;)
@@ -32,7 +32,7 @@ namespace ext::netlib::mime
 	template <class RandomAccessIterator>
 	bool check_8bit_valid(RandomAccessIterator first, RandomAccessIterator last, std::size_t max_size = MailMaxLineSize)
 	{
-		const auto crln = ext::as_literal("\r\n");
+		const auto crln = ext::str_view("\r\n");
 
 		for (;;)
 		{
@@ -53,7 +53,7 @@ namespace ext::netlib::mime
 	estimate_body_encoding(RandomAccessIterator first, RandomAccessIterator last, smtp_extensions_bitset extensions)
 	{
 		constexpr std::ptrdiff_t huge_size = 1024 * 1024;
-		const auto crln = ext::as_literal("\r\n");
+		const auto crln = ext::str_view("\r\n");
 
 		if (last - first > huge_size)
 		{
@@ -92,7 +92,7 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<String>, mail_encoding>
 	estimate_body_encoding(const String & str, smtp_extensions_bitset extensions)
 	{
-		auto lit = ext::as_literal(str);
+		auto lit = ext::str_view(str);
 		return estimate_body_encoding(lit.begin(), lit.end(), extensions);
 	}
 
@@ -149,7 +149,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_string_v<BodyString>, std::size_t>
 	encode_base64_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, const BodyString & body)
 	{
-		auto lit = ext::as_literal(body);
+		auto lit = ext::str_view(body);
 		return encode_base64_mail_body(dest, cur_pos, line_size, lit.begin(), lit.end());
 	}
 
@@ -170,9 +170,9 @@ namespace ext::netlib::mime
 		line_size = std::min(line_size, MailMaxLineSize);
 		line_size -= 1; // 1 - for soft line break "=\r\n"
 
-		const auto escaped_crln = ext::as_literal("=0D=0A");
-		const auto soft_line_break = ext::as_literal("=\r\n");
-		const auto hard_line_break = ext::as_literal("\r\n");
+		const auto escaped_crln = ext::str_view("=0D=0A");
+		const auto soft_line_break = ext::str_view("=\r\n");
+		const auto hard_line_break = ext::str_view("\r\n");
 		const auto is_space = [](char ch) { return ch == ' ' or ch == '\t'; };
 
 		RandomAccessIterator stopped, stop;
@@ -236,7 +236,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_string_v<BodyString>, std::size_t>
 	encode_quoted_printable_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, const BodyString & body)
 	{
-		auto lit = ext::as_literal(body);
+		auto lit = ext::str_view(body);
 		return encode_quoted_printable_mail_body(dest, cur_pos, line_size, lit.begin(), lit.end());
 	}
 

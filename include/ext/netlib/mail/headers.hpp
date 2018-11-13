@@ -4,7 +4,7 @@
 #include <algorithm>
 
 #include <ext/is_string.hpp>
-#include <ext/range/as_literal.hpp>
+#include <ext/range/str_view.hpp>
 #include <ext/time_fmt.hpp>
 
 #include <ext/netlib/mime/encode_header.hpp>
@@ -33,8 +33,8 @@ namespace ext::netlib::mail
 		static_assert(ext::is_string_v<NameString>);
 		static_assert(ext::is_string_v<ValueString>);
 
-		auto name_lit  = ext::as_literal(name);
-		auto value_lit = ext::as_literal(value);
+		auto name_lit  = ext::str_view(name);
+		auto value_lit = ext::str_view(value);
 
 		return unstructured_header_holder(name_lit, value_lit);
 	}
@@ -61,8 +61,8 @@ namespace ext::netlib::mail
 		static_assert(ext::is_string_v<NameString>);
 		static_assert(ext::is_string_or_string_range_v<ValueStrings>);
 
-		auto name_lit   = ext::as_literal(name);
-		auto values_lit = ext::as_literal(values);
+		auto name_lit   = ext::str_view(name);
+		auto values_lit = ext::str_view(values);
 
 		return address_header_holder(name_lit, values_lit);
 	}
@@ -86,7 +86,7 @@ namespace ext::netlib::mail
 	{
 		static_assert(ext::is_string_v<NameString>);
 
-		auto name_lit = ext::as_literal(name);
+		auto name_lit = ext::str_view(name);
 		return date_header_holder(name_lit, time);
 	}
 
@@ -108,7 +108,7 @@ namespace ext::netlib::mail
 	template <class Destination, class ... Types>
 	Destination & print_header(Destination & dest, const date_header_holder<Types...> & header)
 	{
-		auto timezone = ext::as_literal(" +0000");
+		auto timezone = ext::str_view(" +0000");
 		// 30 May 2015 23:15:00 +0000
 		constexpr unsigned buffer_size = 64;
 		char buffer[buffer_size];

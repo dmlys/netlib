@@ -51,7 +51,7 @@ namespace ext::netlib::mime
 	inline std::enable_if_t<ext::is_string_v<ValueString>, std::size_t>
 	encode_header_folded(Destination & dest, std::size_t cur_pos, std::size_t line_size, const ValueString & value)
 	{
-		auto inplit = ext::as_literal(value);
+		auto inplit = ext::str_view(value);
 		return encode_header_folded(dest, cur_pos, line_size, inplit.begin(), inplit.end());
 	}
 
@@ -59,8 +59,8 @@ namespace ext::netlib::mime
 	std::enable_if_t<ext::is_string_v<NameString> and ext::is_string_v<ValueString>, std::size_t>
 	encode_header_folded(Destination & dest, std::size_t line_size, const NameString & name, const ValueString & value)
 	{
-		auto namelit = ext::as_literal(name);
-		auto vallit  = ext::as_literal(value);
+		auto namelit = ext::str_view(name);
+		auto vallit  = ext::str_view(value);
 		auto namewidth = namelit.size();
 
 		write_string(dest, namelit);

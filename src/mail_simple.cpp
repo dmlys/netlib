@@ -65,7 +65,7 @@ namespace ext::netlib::mail::simple
 		write_string(os, "Content-Type: application/octet-stream\r\n");
 		write_string(os, "Content-Transfer-Encoding: base64\r\n");
 
-		auto prefix = ext::as_literal("Content-Disposition: attachment; ");
+		auto prefix = ext::str_view("Content-Disposition: attachment; ");
 		write_string(os, prefix);
 
 		mime::encode_header_parameter_folded(os, prefix.size(), mime::MailDefaultLineSize, "filename", attachment.name);
