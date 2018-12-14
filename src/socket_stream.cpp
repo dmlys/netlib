@@ -279,16 +279,14 @@ namespace ext::netlib
 #endif // BOOST_OS_WINDOWS
 
 	socket_stream::socket_stream(const std::string & host, unsigned short port)
-	    : std::iostream(&m_streambuf)
+	    : socket_stream()
 	{
-		m_streambuf.throw_errors(false);
 		connect(host, port);
 	}
 
 	socket_stream::socket_stream(const std::string & host, const std::string & service)
-	    : std::iostream(&m_streambuf)
+	    : socket_stream()
 	{
-		m_streambuf.throw_errors(false);
 		connect(host, service);
 	}
 
