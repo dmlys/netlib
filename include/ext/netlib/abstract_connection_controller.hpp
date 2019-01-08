@@ -30,8 +30,8 @@ namespace netlib
 		typedef boost::signals2::signal<event_slot::signature_type> event_sig;
 
 	protected:
+		mutable mutex_type m_mutex;    /// mutex guarding state-machine, can also be used by derived class
 		state_type m_state = offline;  /// state-machine state
-		mutex_type m_mutex;            /// mutex guarding state-machine, can also be used by derived class
 		event_sig m_event_signal;
 
 		ext::intrusive_ptr<ext::shared_state<bool>> m_connect_future;
@@ -86,7 +86,7 @@ namespace netlib
 		state_type get_state() override;
 		/// Make connect request.
 		/// Returns future<bool> - result of connection 
-		/// @Throws std::logic_error see class decription
+		/// @Throws std::logic_error see class description
 		ext::shared_future<bool> connect() override;
 		/// Makes disconnect request.
 		/// Returns future<void> - result of disconnection

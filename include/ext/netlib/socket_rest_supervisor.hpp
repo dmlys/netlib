@@ -22,8 +22,7 @@
 #include <ext/netlib/abstract_subscription_controller.hpp>
 #include <ext/netlib/subscription_handle.hpp>
 
-namespace ext {
-namespace netlib
+namespace ext::netlib
 {
 	class socket_rest_supervisor;
 	class socket_rest_supervisor_item;
@@ -32,27 +31,30 @@ namespace netlib
 
 	template <class ReturnType, class RequestBase>
 	class socket_rest_supervisor_request;
+
+
 	
 	/// Basic abstract item interface for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	///
-	/// Clients should use socket_rest_supervisor_subscription/socket_rest_supervisor_request
+	/// Clients should use more specialized socket_rest_supervisor_subscription/socket_rest_supervisor_request classes
+	/// defines some basic functionality, ref count, intrusive list hook, access to owner class
 	class socket_rest_supervisor_item :
 		public boost::intrusive::list_base_hook<
 			boost::intrusive::link_mode<boost::intrusive::link_mode_type::auto_unlink>
 		>
 	{
 	private:
-		typedef socket_rest_supervisor_item      self_type;
-		friend  socket_rest_supervisor;
+		using self_type = socket_rest_supervisor_item;
+		friend socket_rest_supervisor;
 
 	protected:
-		typedef boost::intrusive::list_base_hook<
+		using hook_type = boost::intrusive::list_base_hook<
 			boost::intrusive::link_mode<boost::intrusive::link_mode_type::auto_unlink>
-		> hook_type;
+		> ;
 
 	protected:
-		typedef std::unique_lock<std::mutex> parent_lock;
+		using parent_lock = std::unique_lock<std::mutex>;
 		socket_rest_supervisor * m_owner = nullptr;
 
 		/// can it be non atomic?
@@ -60,8 +62,7 @@ namespace netlib
 		static constexpr unsigned Paused  = 1 << 0;
 
 	protected:
-		static constexpr auto max_timepoint();
-		static void check_stream(socket_stream & stream);
+		static constexpr auto max_timepoint() -> std::chrono::steady_clock::time_point;
 
 		void set_parent(socket_rest_supervisor * parent) noexcept { m_owner = parent; }
 		bool is_orphan() const noexcept { return m_owner == nullptr; }
@@ -71,52 +72,52 @@ namespace netlib
 		void set_paused() noexcept      { m_flags.fetch_or(Paused, std::memory_order_relaxed); }
 		void reset_paused() noexcept    { m_flags.fetch_and(~Paused, std::memory_order_relaxed); }
 
+		// host name, as given by socket_rest_supervisor
 		std::string & host() const noexcept;
 		std::mutex & parent_mutex() const noexcept;
 		void notify() const noexcept;
 		auto logger() const noexcept -> ext::library_logger::logger *;
 
 	public:
-		/// refcount part, use_count is for intrusive_ptr
+		/// refcount partis for intrusive_ptr
 		virtual unsigned addref() noexcept = 0;
 		virtual unsigned release() noexcept = 0;
 		virtual unsigned use_count() const noexcept = 0;
 
-		/// item is abandoned and forgotten by supervisor,
-		/// typically called on supervisor destruction
+		/// abandons and forgets item, typically called on supervisor destruction
 		virtual void abandon() noexcept {}
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_stream & stream) = 0;
+		virtual void request(socket_streambuf & streambuf) = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_stream & stream) = 0;
+		virtual void response(socket_streambuf & streambuf) = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
 		/// 
 		/// Typical implementation can schedule next invocation immediately, 
-		/// or, in case no new data - return some delay.
+		/// or, in case if no new data - return some delay.
 		/// 
-		/// It's okay to return time_point::max after request, and correct time_point after response.
-		/// In case your next_invoke value is changed somewhere after response - 
-		/// call notify() this will wake up internal thread.
+		/// It's okay to return time_point::max after request, and recalculate time_point after response.
+		/// In case your next_invoke value is changed somewhere after response - call notify() this will wake up internal thread.
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point = 0;
 
 	public:
-		/// for internal socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) = 0;
-		/// for internal socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) = 0;
+		/// for internal socket_rest_supervisor internal use, calls request method
+		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) = 0;
+		/// for internal socket_rest_supervisor internal use, calls process method
+		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) = 0;
 
 	public:
 		virtual ~socket_rest_supervisor_item() = default;
 	};
 
+
 	/// Abstract base request interface for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	/// Derived class implements requests and responses via corresponding methods.
-	/// You probably want to use socket_rest_supervisor_request.
+	/// You probably want to use socket_rest_supervisor_request(see below).
 	class socket_rest_supervisor_request_base : public socket_rest_supervisor_item
 	{
 		friend socket_rest_supervisor;
@@ -127,31 +128,31 @@ namespace netlib
 
 		/// By default request is executed only once, then it's automatically removed from supervisor.
 		/// With those methods you can suppress removal(for example you need to repeat request due to authorization).
-		/// NOTE: reset_repeast is called automatically called after each request/response pair.
+		/// NOTE: reset_repeat is called automatically called after each request/response pair.
 		bool should_repeat() const noexcept { return (m_flags.load(std::memory_order_relaxed) & Repeat) != 0; }
 		void set_repeat() noexcept          { m_flags.fetch_or(Repeat, std::memory_order_relaxed); }
 		void reset_repeat() noexcept        { m_flags.fetch_and(~Repeat, std::memory_order_relaxed); }
 
 	protected:
-		/// optional shared_state support
+		/// optional shared_state support(see ext::future)
 		virtual ext::shared_state_basic * get_shared_state() noexcept { return nullptr; }
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_stream & stream) override = 0;
+		virtual void request(socket_streambuf & streambuf) override = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_stream & stream) override = 0;
-		/// one time execution does not needs scheduling
+		virtual void response(socket_streambuf & streambuf) override = 0;
+		/// one time execution does not needs scheduling, returns time_point::min()
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override final;
 
 	public:
-		/// for socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) override;
-		/// for socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) override;
+		/// for socket_rest_supervisor internal use, calls request method
+		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		/// for socket_rest_supervisor internal use, calls process method
+		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) override;
 	};
 
-	/// Abstract request with ext::future support socket_rest_supervisor(see below),
+	/// Abstract request with ext::future support for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	/// Derived class implements requests and responses via corresponding methods.
 	template <class ReturnType, class RequestBase = socket_rest_supervisor_request_base>
@@ -160,28 +161,30 @@ namespace netlib
 		public ext::shared_state<ReturnType>
 	{
 	private:
-		typedef RequestBase                   request_base_type;
-		typedef ext::shared_state<ReturnType> shared_state_type;
+		using request_base_type = RequestBase;
+		using shared_state_type = ext::shared_state<ReturnType>;
 
 	public:
-		typedef ReturnType               return_type;
-		typedef ext::future<return_type> future_type;
+		using return_type = ReturnType;
+		using future_type = ext::future<return_type>;
 
 	protected:
-		ext::shared_state_basic * get_shared_state() noexcept override { return this; }
+		virtual ext::shared_state_basic * get_shared_state() noexcept override { return this; }
 
 	public:
-		unsigned addref() noexcept override           { return shared_state_type::addref(); }
-		unsigned release() noexcept override          { return shared_state_type::release(); }
-		unsigned use_count() const noexcept override  { return shared_state_type::use_count(); }
+		virtual unsigned addref() noexcept override           { return shared_state_type::addref(); }
+		virtual unsigned release() noexcept override          { return shared_state_type::release(); }
+		virtual unsigned use_count() const noexcept override  { return shared_state_type::use_count(); }
 
-		void abandon() noexcept override { return shared_state_type::release_promise(); }
+		virtual void abandon() noexcept override { return shared_state_type::release_promise(); }
 
 	public:
 		// request and response should be implemented by derived class
 		using request_base_type::request;
 		using request_base_type::response;
 	};
+
+
 
 	/// Abstract subscription interface for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
@@ -197,8 +200,8 @@ namespace netlib
 		public abstract_subscription_controller
 	{
 	public:
-		typedef abstract_subscription_controller    base_type;
-		typedef socket_rest_supervisor_subscription self_type;
+		using base_type = abstract_subscription_controller;
+		using self_type = socket_rest_supervisor_subscription;
 		friend socket_rest_supervisor;
 
 	protected:
@@ -218,20 +221,20 @@ namespace netlib
 		void reset_pending() noexcept { m_flags.fetch_and(~Pending, std::memory_order_relaxed); }
 
 	public:
-		unsigned addref()  noexcept override { return base_type::counter_addref(); }
-		unsigned release() noexcept override { return base_type::counter_release(); }
-		unsigned use_count() const noexcept override { return base_type::counter_usecount(); }
+		virtual unsigned addref()  noexcept override { return base_type::counter_addref(); }
+		virtual unsigned release() noexcept override { return base_type::counter_release(); }
+		virtual unsigned use_count() const noexcept override { return base_type::counter_usecount(); }
 
 	protected:
-		void do_close_request(unique_lock lk) override;
-		void do_pause_request(unique_lock lk) override;
-		void do_resume_request(unique_lock lk) override;
+		virtual void do_close_request(unique_lock lk) override;
+		virtual void do_pause_request(unique_lock lk) override;
+		virtual void do_resume_request(unique_lock lk) override;
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_stream & stream) override = 0;
+		virtual void request(socket_streambuf & streambuf) override = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_stream & stream) override = 0;
+		virtual void response(socket_streambuf & streambuf) override = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -239,16 +242,15 @@ namespace netlib
 		/// Typical implementation can schedule next invocation immediately, 
 		/// or, in case no new data - return some delay.
 		/// 
-		/// It's okay to return time_point::max after request, and correct time_point after response.
-		/// In case you you next_invoke is changed some where after response - 
-		/// call notify() this will wake up internal thread.
+		/// It's okay to return time_point::max after request, and recalculate time_point after response.
+		/// In case your next_invoke value is changed somewhere after response - call notify() this will wake up internal thread.
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override = 0;
 
 	public:
-		/// for socket_rest_supervisor use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_stream & stream) override;
-		/// for socket_rest_supervisor use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_stream & stream) override;
+		/// for socket_rest_supervisor internal use, calls request method
+		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		/// for socket_rest_supervisor internal use, calls process method
+		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) override;
 	};
 
 
@@ -261,7 +263,7 @@ namespace netlib
 	/// * class controls connection state, emits signals in case of connect/disconnect/connection lost.
 	///   Between connect/disconnect subscription hold their current state, so they can continue work after restoring connection.
 	///   
-	/// * Subscription must provide strong exception garanties(only for std::runtime_error derived exceptions),
+	/// * Subscription must provide strong exception guaranties(only for std::runtime_error derived exceptions),
 	///   so in case of error they can restore and continue working, or self close.
 	///   
 	/// Normally you would inherit/composite this class and add more concrete methods like:
@@ -271,29 +273,29 @@ namespace netlib
 	class socket_rest_supervisor : public abstract_connection_controller
 	{
 	private:
-		typedef abstract_connection_controller  base_type;
-		typedef socket_rest_supervisor          self_type;
+		using base_type = abstract_connection_controller;
+		using self_type = socket_rest_supervisor;
 
 	public:
-		typedef socket_stream::error_code_type    error_code_type;
-		typedef socket_stream::system_error_type  system_error_type;
+		using error_code_type   = socket_streambuf::error_code_type;
+		using system_error_type = socket_streambuf::system_error_type;
 
-		typedef socket_rest_supervisor_item           item;
+		using item = socket_rest_supervisor_item;
 		friend item;
 		
-		typedef socket_rest_supervisor_request_base  request_base;
-		typedef socket_rest_supervisor_subscription  subscription;
+		using request_base = socket_rest_supervisor_request_base;
+		using subscription = socket_rest_supervisor_subscription;
 
 		template <class Type, class RequestBase = request_base>
 		using request = socket_rest_supervisor_request<Type, RequestBase>;
 
 	protected:
-		typedef boost::intrusive::base_hook<item::hook_type> item_list_option;
+		using item_list_option = boost::intrusive::base_hook<item::hook_type>;
 
-		typedef boost::intrusive::list<
+		using item_list = boost::intrusive::list<
 			item, item_list_option,
 			boost::intrusive::constant_time_size<false>
-		> item_list;
+		>;
 		
 		enum thread_state : bool
 		{
@@ -332,7 +334,7 @@ namespace netlib
 		// One from that list send request and moved to request list.
 		// Those are processing requests and moved back to waiting queue.
 		item_list m_items;
-		socket_stream m_sockstream;
+		socket_streambuf m_sock_streambuf;
 
 		thread_state m_thread_state = stopped;
 		bool m_connect_request = false;
@@ -359,8 +361,8 @@ namespace netlib
 		using base_type::notify_connected;
 		using base_type::notify_disconnected;
 
-		void do_connect_request(unique_lock lk) override;
-		void do_disconnect_request(unique_lock lk) override;
+		virtual void do_connect_request(unique_lock lk) override;
+		virtual void do_disconnect_request(unique_lock lk) override;
 
 		/// returns std::chrono::steady_clock::time_point::max()
 		static constexpr auto max_timepoint() -> std::chrono::steady_clock::time_point;
@@ -375,18 +377,17 @@ namespace netlib
 
 		/// connection error handler, calls notify_disconnected
 		virtual void on_conn_error(std::runtime_error & ex);
-		/// connection error handler, calls notify_disconnected
-		virtual void on_socket_error();
+		virtual void on_conn_error(std::system_error & ex);
 
 	protected:
 		/************************************************************************/
 		/*                 Scheduling / Action management                       */
 		/************************************************************************/
-		/// schedules subscriptions from waiting into requests.
+		/// Schedules subscriptions from waiting into requests.
 		/// Each subscription that is not paused and which next_invoke has passed - 
 		/// is moved from waiting into requests.
 		/// 
-		/// returns time_point of nearest subscription if there no ready subscriptions; now otherwise.
+		/// returns time_point of nearest subscription if there no ready subscriptions; 'now' otherwise.
 		/// lk is a lock m_mutex used to protect waiting list.
 		virtual auto schedule_subscriptions(unique_lock & lk, item_list & waiting, item_list & requests)
 			-> std::chrono::steady_clock::time_point;
@@ -406,16 +407,20 @@ namespace netlib
 	public:
 		/// setts connection address, they will be used on a next connect.
 		void set_address(std::string host, std::string service);
+		auto get_address() const -> std::tuple<std::string, std::string>;
 		/// sets socket timeout, it will be used on a next connect.
 		void set_timeout(std::chrono::steady_clock::duration timeout);
+		auto get_timeout() const -> std::chrono::steady_clock::duration;
 		/// Sets number of requests made before first response if processed.
 		/// By default 1, which makes it behave traditionally: send request - wait response.
 		/// nslots = 0 -> same as 1.
 		/// This setting will be used only on next connect.
 		void set_request_slots(unsigned nslots);
+		auto get_request_slots() const -> unsigned;
 		/// sets optional logger, should be called prior first call to connect.
-		/// (internal thread starts on first connect request)
-		void set_logger(ext::library_logger::logger * logger);
+		/// (internal thread starts on first connect request, m_logger is accessed only from internal thread, except this setter/getter)
+		void set_logger(ext::library_logger::logger * logger)    { m_logger = logger; }
+		auto set_logger() const -> ext::library_logger::logger * { return m_logger; }
 
 		/// last error description
 		std::string last_errormsg();
@@ -427,8 +432,14 @@ namespace netlib
 		/// To delete/stop subscription close it via handle.
 		virtual void add_item(item * ptr);
 
+		/// Adds request. Request will be executed only once(but see request repeat mechanism),
+		/// returns asynchronous future object. You can cancel request via future::cancel method.
 		template <class Request>
 		typename Request::future_type add_request(ext::intrusive_ptr<Request> ptr);
+
+		/// Adds subscription. subscription will work continuously(depends on internal subscriptions parameters),
+		/// returns handle, allowing controlling of subscription.
+		/// To delete/stop subscription close it via handle.
 		subscription_handle add_subscription(ext::intrusive_ptr<subscription> ptr);
 
 	public:
@@ -439,6 +450,9 @@ namespace netlib
 		socket_rest_supervisor(socket_rest_supervisor &&) = delete;
 		socket_rest_supervisor & operator =(socket_rest_supervisor &&) = delete;
 	};
+
+
+
 
 	constexpr auto socket_rest_supervisor::max_timepoint() -> std::chrono::steady_clock::time_point
 	{
@@ -453,15 +467,9 @@ namespace netlib
 		};
 	}
 
-	constexpr auto socket_rest_supervisor_item::max_timepoint()
+	constexpr auto socket_rest_supervisor_item::max_timepoint() -> std::chrono::steady_clock::time_point
 	{
 		return socket_rest_supervisor::max_timepoint();
-	}
-
-	inline void socket_rest_supervisor_item::check_stream(socket_stream & stream)
-	{
-		if (not stream)
-			throw socket_stream::system_error_type(stream.last_error());
 	}
 
 	inline std::string & socket_rest_supervisor_item::host() const noexcept
@@ -501,4 +509,4 @@ namespace netlib
 		return {ptr};
 	}
 
-}} // namespace ext::netlib
+} // namespace ext::netlib

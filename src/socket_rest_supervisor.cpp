@@ -1,16 +1,16 @@
-// author: Dmitry Lysachenko
+﻿// author: Dmitry Lysachenko
 // date: Saturday 19 march 2017
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
 
 #include <ext/netlib/socket_rest_supervisor.hpp>
+#include <ext/library_logger/logging_macros.hpp>
+#include <ext/Errors.hpp>
+
 #include <boost/scope_exit.hpp>
 
-#include <ext/Errors.hpp>
-#include <ext/library_logger/logging_macros.hpp>
 
-namespace ext {
-namespace netlib
+namespace ext::netlib
 {
 	namespace
 	{
@@ -58,7 +58,7 @@ namespace netlib
 		assert(not m_disconnect_request);
 
 		m_disconnect_request = true;
-		m_sockstream.interrupt();
+		m_sock_streambuf.interrupt();
 
 		lk.unlock();
 		m_request_event.notify_all();
@@ -85,7 +85,8 @@ namespace netlib
 		};
 
 		m_connect_request = false; // request taken
-		m_sockstream.reset();
+		m_sock_streambuf.close();
+		m_sock_streambuf.throw_errors(true);
 
 		host = m_host;
 		service = m_service;
@@ -96,29 +97,22 @@ namespace netlib
 
 	bool socket_rest_supervisor::exec_connect(const std::string & host, const std::string & service, std::chrono::steady_clock::duration timeout)
 	{
+		assert(m_sock_streambuf.throw_errors());
 		EXTLL_INFO(m_logger, "Connecting to " << host << ":" << service);
 
-		if (timeout.count() > 0) m_sockstream.timeout(timeout);
-		m_sockstream.connect(host, service);
+		if (timeout.count() > 0) m_sock_streambuf.timeout(timeout);
+		m_sock_streambuf.connect(host, service);
 
-		if (not m_sockstream)
-		{
-			on_socket_error();
-			return false;
-		}
-		else
-		{
-			EXTLL_INFO(m_logger, "Successfully connected to " << host << ":" << service);
-			
-			unique_lock lk(m_mutex);
-			notify_connected(std::move(lk));
-			return true;
-		}
+		EXTLL_INFO(m_logger, "Successfully connected to " << host << ":" << service);
+
+		unique_lock lk(m_mutex);
+		notify_connected(std::move(lk));
+		return true;
 	}
 
 	void socket_rest_supervisor::exec_disconnect()
 	{
-		m_sockstream.close();
+		m_sock_streambuf.close();
 		EXTLL_INFO(m_logger, "Disconnected");
 
 		unique_lock lk(m_mutex);
@@ -131,7 +125,7 @@ namespace netlib
 	{
 		std::string errmsg;
 		errmsg.reserve(1024);
-		error_code_type ec = m_sockstream.last_error();
+		error_code_type ec = m_sock_streambuf.last_error();
 
 		errmsg = ex.what();
 		errmsg += "; socket_state - ";
@@ -144,24 +138,29 @@ namespace netlib
 		m_disconnect_request = false; // take off disconnect request if any
 		m_lasterr = ec;
 		m_lasterr_message = std::move(errmsg);
-		m_sockstream.close();
+		m_sock_streambuf.close();
 
 		notify_disconnected(std::move(lk));
 	}
 
-	void socket_rest_supervisor::on_socket_error()
+	void socket_rest_supervisor::on_conn_error(std::system_error & ex)
 	{
-		std::string errmsg = "socket_stream error. ";
-		errmsg += ext::FormatError(m_sockstream.last_error());
+		assert(ex.code() == m_sock_streambuf.last_error());
+
+		std::string errmsg;
+		errmsg.reserve(1024);
+
+		errmsg += "socket_streambuf error. ";
+		errmsg += ext::FormatError(ex);
 
 		EXTLL_ERROR(m_logger, errmsg);
 
-		/// set error
+		/// set error info
 		unique_lock lk(m_mutex);
 		m_disconnect_request = false; // take off disconnect request if any
-		m_lasterr = m_sockstream.last_error();
+		m_lasterr = m_sock_streambuf.last_error();
 		m_lasterr_message = std::move(errmsg);
-		m_sockstream.close();
+		m_sock_streambuf.close();
 
 		notify_disconnected(std::move(lk));
 	}
@@ -185,21 +184,28 @@ namespace netlib
 		m_service = service;
 	}
 
+	auto socket_rest_supervisor::get_address() const -> std::tuple<std::string, std::string>
+	{
+		unique_lock lk(m_mutex);
+		return std::tuple(m_host, m_service);
+	}
+
 	void socket_rest_supervisor::set_timeout(std::chrono::steady_clock::duration timeout)
 	{
 		unique_lock lk(m_mutex);
 		m_timeout = timeout;
 	}
 
+	auto socket_rest_supervisor::get_timeout() const -> std::chrono::steady_clock::duration
+	{
+		unique_lock lk(m_mutex);
+		return m_timeout;
+	}
+
 	void socket_rest_supervisor::set_request_slots(unsigned nslots)
 	{
 		if (nslots == 0) nslots = 1;
 		m_request_slots.store(nslots, std::memory_order_relaxed);
-	}
-
-	void socket_rest_supervisor::set_logger(ext::library_logger::logger * logger)
-	{
-		m_logger = logger;
 	}
 
 	/************************************************************************/
@@ -237,7 +243,7 @@ namespace netlib
 				// take one subscription, make request, place it into replies
 				replies.splice(replies.end(), requests, requests.begin());
 				auto & task = replies.back();
-				bool made = task.make_request(lk, m_sockstream);
+				bool made = task.make_request(lk, m_sock_streambuf);
 				
 				if (request_slots -= made) continue;
 				else                       goto reply_avail;
@@ -258,7 +264,7 @@ namespace netlib
 				++request_slots;
 				waiting.splice(waiting.end(), replies, replies.begin());
 				auto & task = waiting.back();
-				task.process_response(lk, m_sockstream);
+				task.process_response(lk, m_sock_streambuf);
 			}
 		}
 	}
@@ -323,6 +329,10 @@ namespace netlib
 					exec_disconnect();
 				}
 			}
+			catch (std::system_error & ex)
+			{
+				on_conn_error(ex);
+			}
 			catch (std::runtime_error & ex)
 			{
 				on_conn_error(ex);
@@ -355,13 +365,13 @@ namespace netlib
 
 		m_items.clear_and_dispose([](auto * ptr)
 		{
-			// add_subscrition calls addref - we have to release
+			// add_subscription calls addref - we have to release
 			ptr->abandon();
 			ptr->release();
 		});
 	}
 
-	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, socket_stream & stream)
+	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, socket_streambuf & streambuf)
 	{
 		auto * state = get_shared_state();
 		if (state and not state->mark_uncancellable())
@@ -373,8 +383,12 @@ namespace netlib
 		try
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
-			request(stream);
+			request(streambuf);
 			return true;
+		}
+		catch (socket_streambuf::system_error_type & )
+		{
+			throw;
 		}
 		catch (std::runtime_error & )
 		{
@@ -385,18 +399,17 @@ namespace netlib
 
 			if (not state) throw;
 			state->set_exception(std::current_exception());
-			if (not stream) throw;
 
 			return false;
 		}
 	}
 
-	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, socket_stream & stream)
+	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, socket_streambuf & streambuf)
 	{
 		try
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
-			response(stream);
+			response(streambuf);
 
 			if (should_repeat())
 				reset_repeat();
@@ -404,6 +417,10 @@ namespace netlib
 			{
 				unlink(); release();
 			}
+		}
+		catch (socket_streambuf::system_error_type & )
+		{
+			throw;
 		}
 		catch (std::runtime_error & )
 		{
@@ -415,7 +432,6 @@ namespace netlib
 			auto * state = get_shared_state();
 			if (not state) throw;
 			state->set_exception(std::current_exception());
-			if (not stream) throw;
 		}
 	}
 
@@ -457,11 +473,11 @@ namespace netlib
 			unlink();
 		}
 		
-		// add_subscrition calls addref - on close we have to release
+		// add_subscription calls addref - on close we have to release
 		release();
 	}
 
-	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, socket_stream & stream)
+	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, socket_streambuf & streambuf)
 	{
 		bool success = false;
 		set_pending();
@@ -479,15 +495,14 @@ namespace netlib
 
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
-			request(stream);
+			request(streambuf);
 		}
 
-		check_stream(stream);
 		success = true;
 		return true;
 	}
 
-	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, socket_stream & stream)
+	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, socket_streambuf & streambuf)
 	{
 		BOOST_SCOPE_EXIT_ALL(&)
 		{
@@ -504,9 +519,7 @@ namespace netlib
 
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
-			response(stream);
+			response(streambuf);
 		}
-
-		check_stream(stream);
 	}
-}}
+} // namespace ext::netlib
