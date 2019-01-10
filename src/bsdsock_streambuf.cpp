@@ -579,7 +579,7 @@ namespace ext::netlib
 			if (rw_error(res, errno, m_lasterror)) goto error;
 			continue;
 
-		} while (wait_readable(until));
+		} while (wait_writable(until));
 
 	error:
 		m_lasterror_context = "write_some";

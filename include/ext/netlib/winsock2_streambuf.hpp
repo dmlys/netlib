@@ -70,7 +70,7 @@ namespace ext::netlib
 		static const std::string empty_str;
 		static const std::wstring wempty_str;
 
-	private:
+	protected:
 		/// внутреннее состояние класса, нужно для поддержки вызова interrupt.
 		/// все состояния кроме Interrupting / Interrupted последовательно меняется из основного потока работы.
 		/// в состояние Interrupting / Interrupted класс может быть переведен в любой момент
@@ -91,7 +91,7 @@ namespace ext::netlib
 			Interrupted,
 		};
 
-	private:
+	protected:
 		handle_type m_sockhandle; // = INVALID_SOCKET;
 		std::atomic<StateType> m_state = {Closed};
 
@@ -105,7 +105,7 @@ namespace ext::netlib
 		SSL * m_sslhandle = nullptr;
 #endif
 
-	private:
+	protected:
 		/// публикует сокет для которого началось подключение,
 		/// после публикации сокет доступен через m_sockhandle, а состояние изменяется в Connecting.
 		/// Таким образом он может быть прерван вызовом closesocket из interrupt.
@@ -360,7 +360,7 @@ namespace ext::netlib
 		/// сбрасывает исходящий буфер, останавливает ssl сессию,
 		/// shutdowns socket. В любом случае закрывает сокет.
 		/// переводит объект в рабочее default состояние.
-		/// возвращает были ли ошибка при закрытии сокета.
+		/// возвращает были ли ошибки при закрытии сокета.
 		bool close();
 
 		/// прерывает исполнение операции путем закрытия сокета,
