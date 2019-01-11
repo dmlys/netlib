@@ -41,7 +41,7 @@ namespace ext::netlib
 	/// defines some basic functionality, ref count, intrusive list hook, access to owner class
 	class socket_rest_supervisor_item :
 		public boost::intrusive::list_base_hook<
-			boost::intrusive::link_mode<boost::intrusive::link_mode_type::auto_unlink>
+			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
 		>
 	{
 	private:
@@ -50,8 +50,8 @@ namespace ext::netlib
 
 	protected:
 		using hook_type = boost::intrusive::list_base_hook<
-			boost::intrusive::link_mode<boost::intrusive::link_mode_type::auto_unlink>
-		> ;
+			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
+		>;
 
 	protected:
 		using parent_lock = std::unique_lock<std::mutex>;
@@ -59,7 +59,8 @@ namespace ext::netlib
 
 		/// can it be non atomic?
 		std::atomic_uint m_flags = ATOMIC_VAR_INIT(0);
-		static constexpr unsigned Paused  = 1 << 0;
+		static constexpr unsigned PausedMark = 1 << 0;
+		static constexpr unsigned RemoveMark = PausedMark << 1;
 
 	protected:
 		static constexpr auto max_timepoint() -> std::chrono::steady_clock::time_point;
@@ -68,18 +69,22 @@ namespace ext::netlib
 		bool is_orphan() const noexcept { return m_owner == nullptr; }
 
 		/// all items can be paused, if so - they are not working(value next_invoke is ignored) until they are unpaused
-		bool is_paused() const noexcept { return (m_flags.load(std::memory_order_relaxed) & Paused) != 0; }
-		void set_paused() noexcept      { m_flags.fetch_or(Paused, std::memory_order_relaxed); }
-		void reset_paused() noexcept    { m_flags.fetch_and(~Paused, std::memory_order_relaxed); }
+		bool is_paused() const noexcept { return (m_flags.load(std::memory_order_relaxed) & PausedMark) != 0; }
+		void set_paused() noexcept      { m_flags.fetch_or(PausedMark, std::memory_order_relaxed); }
+		void reset_paused() noexcept    { m_flags.fetch_and(~PausedMark, std::memory_order_relaxed); }
+
+		bool should_remove() const noexcept { return (m_flags.load(std::memory_order_relaxed) & RemoveMark) != 0; }
+		void mark_for_removal() noexcept    { m_flags.fetch_or(RemoveMark, std::memory_order_relaxed); }
+		void unmark_for_removal() noexcept  { m_flags.fetch_and(~RemoveMark, std::memory_order_relaxed); }
 
 		// host name, as given by socket_rest_supervisor
 		std::string & host() const noexcept;
 		std::mutex & parent_mutex() const noexcept;
-		void notify() const noexcept;
+		void notify_parent() const noexcept;
 		auto logger() const noexcept -> ext::library_logger::logger *;
 
 	public:
-		/// refcount partis for intrusive_ptr
+		/// refcount parts for intrusive_ptr
 		virtual unsigned addref() noexcept = 0;
 		virtual unsigned release() noexcept = 0;
 		virtual unsigned use_count() const noexcept = 0;
@@ -124,7 +129,7 @@ namespace ext::netlib
 
 	protected:
 		using socket_rest_supervisor_item::m_flags;
-		static constexpr unsigned Repeat = Paused << 1;
+		static constexpr unsigned Repeat = PausedMark << 1;
 
 		/// By default request is executed only once, then it's automatically removed from supervisor.
 		/// With those methods you can suppress removal(for example you need to repeat request due to authorization).
@@ -212,7 +217,7 @@ namespace ext::netlib
 
 	protected:
 		using socket_rest_supervisor_item::m_flags;
-		static constexpr unsigned Pending = Paused << 1;
+		static constexpr unsigned Pending = PausedMark << 1;
 
 		/// Indicates that subscription has done request and waiting/processing response.
 		/// It is for do_close_request - pending removal subscription is delayed until response processing is finished.
@@ -484,7 +489,7 @@ namespace ext::netlib
 		return m_owner->m_mutex;
 	}
 
-	inline void socket_rest_supervisor_item::notify() const noexcept
+	inline void socket_rest_supervisor_item::notify_parent() const noexcept
 	{
 		assert(m_owner);
 		m_owner->m_request_event.notify_all();

@@ -27,6 +27,8 @@ namespace ext::netlib
 			reverse_lock(reverse_lock &&) = delete;
 			reverse_lock & operator =(reverse_lock &&) = delete;
 		};
+
+		constexpr auto release_item = [](auto * ptr) { ptr->release(); };
 	}
 
 
@@ -58,7 +60,6 @@ namespace ext::netlib
 		assert(not m_disconnect_request);
 
 		m_disconnect_request = true;
-		m_sock_streambuf.interrupt();
 
 		lk.unlock();
 		m_request_event.notify_all();
@@ -223,6 +224,18 @@ namespace ext::netlib
 		{
 			waiting.splice(waiting.end(), requests);
 			waiting.splice(waiting.end(), replies);
+
+			// erase removed items, should be noexcept
+			auto first = waiting.begin();
+			auto last  = waiting.end();
+
+			for (; first != last; ++first)
+			{
+				if (first->should_remove())
+				{
+					first = waiting.erase_and_dispose(first, release_item);
+				}
+			}
 		};
 
 		unique_lock lk(m_mutex);
@@ -267,6 +280,10 @@ namespace ext::netlib
 				task.process_response(lk, m_sock_streambuf);
 			}
 		}
+
+		// process left replies ones
+		for (auto & task : replies)
+			task.process_response(lk, m_sock_streambuf);
 	}
 
 	auto socket_rest_supervisor::schedule_subscriptions(unique_lock & lk, item_list & waiting, item_list & requests)
@@ -287,6 +304,12 @@ namespace ext::netlib
 
 			while (first != last)
 			{
+				if (first->should_remove())
+				{
+					first = subs.erase_and_dispose(first, release_item);
+					continue;
+				}
+
 				if (first->is_paused())
 				{
 					++first;
@@ -376,8 +399,9 @@ namespace ext::netlib
 		auto * state = get_shared_state();
 		if (state and not state->mark_uncancellable())
 		{
-			// if already cancelled - do nothing, and release request
-			unlink(); release(); return false;
+			// if already cancelled - mark for later removal
+			mark_for_removal();
+			return false;
 		}
 
 		try
@@ -394,7 +418,7 @@ namespace ext::netlib
 		{
 			BOOST_SCOPE_EXIT_ALL(this)
 			{
-				unlink(); release();
+				mark_for_removal();
 			};
 
 			if (not state) throw;
@@ -414,9 +438,7 @@ namespace ext::netlib
 			if (should_repeat())
 				reset_repeat();
 			else
-			{
-				unlink(); release();
-			}
+				mark_for_removal();
 		}
 		catch (socket_streambuf::system_error_type & )
 		{
@@ -426,7 +448,7 @@ namespace ext::netlib
 		{
 			BOOST_SCOPE_EXIT_ALL(this)
 			{
-				unlink(); release();
+				mark_for_removal();
 			};
 
 			auto * state = get_shared_state();
@@ -453,14 +475,13 @@ namespace ext::netlib
 		reset_paused();
 		notify_resumed(std::move(lk));
 
-		if (owner) notify();
+		if (owner) notify_parent();
 	}
 
 	void socket_rest_supervisor_subscription::do_close_request(unique_lock lk)
 	{
 		if (is_orphan())
 		{
-			assert(not is_linked());
 			notify_closed(std::move(lk));
 			return;
 		}
@@ -470,11 +491,9 @@ namespace ext::netlib
 			if (is_pending()) return;
 
 			notify_closed(std::move(lk));
-			unlink();
+			mark_for_removal();
+			notify_parent();
 		}
-		
-		// add_subscription calls addref - on close we have to release
-		release();
 	}
 
 	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, socket_streambuf & streambuf)
@@ -489,7 +508,7 @@ namespace ext::netlib
 			{
 				reset_pending();
 				notify_closed(std::move(lk));
-				unlink(); release();
+				mark_for_removal();
 			}
 		};
 
@@ -513,7 +532,7 @@ namespace ext::netlib
 			if (get_state(lk) >= closing)
 			{
 				notify_closed(std::move(lk));
-				unlink(); release();
+				mark_for_removal();
 			}
 		};
 
