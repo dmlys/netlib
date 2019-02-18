@@ -3,14 +3,14 @@
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
 
-#include <ext/netlib/socket_rest_supervisor.hpp>
+#include <ext/net/socket_rest_supervisor.hpp>
 #include <ext/library_logger/logging_macros.hpp>
 #include <ext/Errors.hpp>
 
 #include <boost/scope_exit.hpp>
 
 
-namespace ext::netlib
+namespace ext::net
 {
 	namespace
 	{
@@ -541,4 +541,4 @@ namespace ext::netlib
 			response(streambuf);
 		}
 	}
-} // namespace ext::netlib
+} // namespace ext::net

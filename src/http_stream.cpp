@@ -1,7 +1,7 @@
-#include <ext/netlib/http_stream.hpp>
+#include <ext/net/http_stream.hpp>
 
 namespace ext {
-namespace netlib
+namespace net
 {
 	auto http_streambuf::underflow() -> int_type
 	{

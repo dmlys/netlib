@@ -1,7 +1,7 @@
-﻿#include <ext/netlib/abstract_subscription_controller.hpp>
+﻿#include <ext/net/abstract_subscription_controller.hpp>
 
 namespace ext {
-namespace netlib
+namespace net
 {
 	BOOST_NORETURN void abstract_subscription_controller::on_bad_request()
 	{

@@ -1,11 +1,11 @@
-﻿#include <ext/netlib/mail/simple.hpp>
-#include <ext/netlib/socket_stream.hpp>
-#include <ext/netlib/smtp.hpp>
+﻿#include <ext/net/mail/simple.hpp>
+#include <ext/net/socket_stream.hpp>
+#include <ext/net/smtp.hpp>
 
-#include <ext/netlib/write_string.hpp>
-#include <ext/netlib/mime/encode_header_parameter.hpp>
-#include <ext/netlib/mime/encode_mail_body.hpp>
-#include <ext/netlib/mail/wellknown_headers.hpp>
+#include <ext/net/write_string.hpp>
+#include <ext/net/mime/encode_header_parameter.hpp>
+#include <ext/net/mime/encode_mail_body.hpp>
+#include <ext/net/mail/wellknown_headers.hpp>
 
 #include <ext/Errors.hpp>
 #include <ext/library_logger/logging_macros.hpp>
@@ -14,11 +14,11 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
-namespace ext::netlib::mail::simple
+namespace ext::net::mail::simple
 {
 	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log)
 	{
-		ext::netlib::socket_stream sock;
+		ext::net::socket_stream sock;
 		smtp_session ses {sock, log};
 		sock.connect(sp.smtp_addr, sp.smtp_service);
 
@@ -146,7 +146,7 @@ namespace ext::netlib::mail::simple
 
 	void write_message(std::ostream & os, const message & msg, smtp_extensions_bitset extensions)
 	{
-		using namespace ext::netlib::mail::headers;
+		using namespace ext::net::mail::headers;
 		os << date() << from(msg.from);
 
 		if (not msg.reply_to.empty())

@@ -14,8 +14,8 @@
 #include <ext/codecvt_conv.hpp>
 #include <ext/Errors.hpp>  // for ext::FormatError
 
-#include <ext/netlib/winsock2_streambuf.hpp>
-#include <ext/netlib/socket_include.hpp>
+#include <ext/net/winsock2_streambuf.hpp>
+#include <ext/net/socket_include.hpp>
 
 #ifdef _MSC_VER
 // warning C4244: '=' : conversion from '__int64' to 'long', possible loss of data
@@ -24,7 +24,7 @@
 #pragma warning(disable : 4267 4244 4706)
 #endif // _MSC_VER
 
-namespace ext::netlib
+namespace ext::net
 {
 	const std::string  winsock2_streambuf::empty_str;
 	const std::wstring winsock2_streambuf::wempty_str;
@@ -573,7 +573,7 @@ namespace ext::netlib
 
 	error:
 		m_lasterror_context = "read_some";
-		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+		if (m_throw_errors and m_lasterror == ext::net::sock_errc::error)
 			throw system_error_type(m_lasterror, "winsock2_streambuf::read_some failure");
 
 		return 0;
@@ -607,7 +607,7 @@ namespace ext::netlib
 
 	error:
 		m_lasterror_context = "write_some";
-		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+		if (m_throw_errors and m_lasterror == ext::net::sock_errc::error)
 			throw system_error_type(m_lasterror, "winsock2_streambuf::write_some failure");
 
 		return 0;
@@ -1292,4 +1292,4 @@ namespace ext::netlib
 		other = std::move(*this);
 		*this = std::move(tmp);
 	}
-} // namespace ext::netlib
+} // namespace ext::net

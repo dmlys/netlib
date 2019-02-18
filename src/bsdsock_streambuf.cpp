@@ -13,10 +13,10 @@
 #include <ext/config.hpp>  // for EXT_UNREACHABLE
 #include <ext/Errors.hpp>  // for ext::FormatError
 
-#include <ext/netlib/bsdsock_streambuf.hpp>
-#include <ext/netlib/socket_include.hpp>
+#include <ext/net/bsdsock_streambuf.hpp>
+#include <ext/net/socket_include.hpp>
 
-namespace ext::netlib
+namespace ext::net
 {
 	const std::string bsdsock_streambuf::empty_str;
 	
@@ -549,7 +549,7 @@ namespace ext::netlib
 
 	error:
 		m_lasterror_context = "read_some";
-		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+		if (m_throw_errors and m_lasterror == ext::net::sock_errc::error)
 			throw system_error_type(m_lasterror, "bsdsock_streambuf::read_some failure");
 
 		return 0;
@@ -583,7 +583,7 @@ namespace ext::netlib
 
 	error:
 		m_lasterror_context = "write_some";
-		if (m_throw_errors and m_lasterror == ext::netlib::sock_errc::error)
+		if (m_throw_errors and m_lasterror == ext::net::sock_errc::error)
 			throw system_error_type(m_lasterror, "bsdsock_streambuf::write_some failure");
 
 		return 0;
@@ -1266,4 +1266,4 @@ namespace ext::netlib
 		*this = std::move(tmp);
 	}
 	
-} // namespace ext::netlib
+} // namespace ext::net

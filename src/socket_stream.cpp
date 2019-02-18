@@ -1,6 +1,6 @@
-#include <ext/netlib/socket_stream.hpp>
+#include <ext/net/socket_stream.hpp>
 
-namespace ext::netlib
+namespace ext::net
 {
 #if BOOST_OS_WINDOWS
 	void socket_stream::connect(const std::wstring & host, unsigned short port)

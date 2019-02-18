@@ -4,8 +4,8 @@
 #include <codecvt>
 #include <iostream>
 
-#include <ext/netlib/socket_base.hpp>
-#include <ext/netlib/socket_include.hpp>
+#include <ext/net/socket_base.hpp>
+#include <ext/net/socket_include.hpp>
 
 #if BOOST_OS_WINDOWS
 #include <ext/codecvt_conv.hpp>
@@ -20,7 +20,7 @@
 
 #endif // _MSC_VER
 
-namespace ext::netlib
+namespace ext::net
 {
 	/************************************************************************/
 	/*                platform independent stuff                            */

@@ -4,7 +4,7 @@
 #include <openssl/x509.h>
 #include <openssl/dh.h>
 
-#include <ext/netlib/openssl.hpp>
+#include <ext/net/openssl.hpp>
 #include <boost/predef.h> // for BOOST_OS_WINDOWS
 #include <boost/static_assert.hpp>
 
@@ -17,7 +17,7 @@
 
 #endif // BOOST_OS_WINDOWS
 
-namespace ext::netlib::openssl
+namespace ext::net::openssl
 {
 	BOOST_STATIC_ASSERT(static_cast<int>(ssl_error::none)              == SSL_ERROR_NONE);
 	BOOST_STATIC_ASSERT(static_cast<int>(ssl_error::ssl)               == SSL_ERROR_SSL);
@@ -198,10 +198,10 @@ namespace ext::netlib::openssl
 
 		auto * bio = ::BIO_new_mem_buf(data, static_cast<int>(len));
 		bio_uptr.reset(bio);
-		if (not bio) throw_last_error("ext::netlib::openssl::load_certificate: ::BIO_new_mem_buf failed");
+		if (not bio) throw_last_error("ext::net::openssl::load_certificate: ::BIO_new_mem_buf failed");
 
 		X509 * cert = ::PEM_read_bio_X509(bio, nullptr, password_callback, &passwd);
-		if (not cert) throw_last_error("ext::netlib::openssl::load_certificate: ::PEM_read_bio_X509 failed");
+		if (not cert) throw_last_error("ext::net::openssl::load_certificate: ::PEM_read_bio_X509 failed");
 		return x509_uptr(cert);
 	}
 
@@ -211,10 +211,10 @@ namespace ext::netlib::openssl
 
 		auto * bio = BIO_new_mem_buf(data, static_cast<int>(len));
 		bio_uptr.reset(bio);
-		if (not bio) throw_last_error("ext::netlib::openssl::load_private_key: ::BIO_new_mem_buf failed");
+		if (not bio) throw_last_error("ext::net::openssl::load_private_key: ::BIO_new_mem_buf failed");
 
 		EVP_PKEY * pkey = ::PEM_read_bio_PrivateKey(bio, nullptr, password_callback, &passwd);
-		if (not bio) throw_last_error("ext::netlib::openssl::load_private_key: ::PEM_read_bio_PrivateKey failed");
+		if (not bio) throw_last_error("ext::net::openssl::load_private_key: ::PEM_read_bio_PrivateKey failed");
 		return evp_pkey_uptr(pkey);
 	}
 
@@ -224,13 +224,13 @@ namespace ext::netlib::openssl
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
-			throw std::system_error(errc, "ext::netlib::openssl::load_certificate_from_file: std::fopen failed");
+			throw std::system_error(errc, "ext::net::openssl::load_certificate_from_file: std::fopen failed");
 		}
 
 		X509 * cert = ::PEM_read_X509(fp, nullptr, password_callback, &passwd);
 		std::fclose(fp);
 
-		if (not cert) throw_last_error("ext::netlib::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
+		if (not cert) throw_last_error("ext::net::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
 		return x509_uptr(cert);
 	}
 
@@ -240,13 +240,13 @@ namespace ext::netlib::openssl
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
-			throw std::system_error(errc, "ext::netlib::openssl::load_private_key_from_file: std::fopen failed");
+			throw std::system_error(errc, "ext::net::openssl::load_private_key_from_file: std::fopen failed");
 		}
 
 		EVP_PKEY * pkey = ::PEM_read_PrivateKey(fp, nullptr, password_callback, &passwd);
 		std::fclose(fp);
 
-		if (not pkey) throw_last_error("ext::netlib::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
+		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
 		return evp_pkey_uptr(pkey);
 	}
 
@@ -265,13 +265,13 @@ namespace ext::netlib::openssl
 		if (cert != nullptr)
 		{
 			if (::SSL_CTX_use_certificate(ctx, cert) !=1)
-				throw_last_error("ext::netlib::openssl::create_sslctx: ::SSL_CTX_use_certificate failed");
+				throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_certificate failed");
 		}
 
 		if (pkey != nullptr)
 		{
 			if (::SSL_CTX_use_PrivateKey(ctx, pkey) != 1)
-				throw_last_error("ext::netlib::openssl::create_sslctx: ::SSL_CTX_use_PrivateKey failed");
+				throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_PrivateKey failed");
 		}
 
 		return ssl_ctx_uptr;
@@ -289,7 +289,7 @@ namespace ext::netlib::openssl
 
 		ssl_ctx_uptr ssl_ctx_uptr(ctx);
 		if (::SSL_CTX_set_cipher_list(ctx, "aNULL:eNULL") != 1)
-			throw_last_error("ext::netlib::openssl::create_anonymous_sslctx: ::SSL_CTX_set_cipher_list failed");
+			throw_last_error("ext::net::openssl::create_anonymous_sslctx: ::SSL_CTX_set_cipher_list failed");
 
 		::DH * dh = ::DH_get_2048_256();
 		::SSL_CTX_set_tmp_dh(ctx, dh);

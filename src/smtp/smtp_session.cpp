@@ -1,7 +1,7 @@
-#include <ext/netlib/smtp/smtp_session.hpp>
+#include <ext/net/smtp/smtp_session.hpp>
 #include <ext/library_logger/logging_macros.hpp>
 
-namespace ext::netlib::smtp
+namespace ext::net::smtp
 {
 	BOOST_NORETURN void smtp_session::throw_smtp_exception(const std::string & errmsg)
 	{

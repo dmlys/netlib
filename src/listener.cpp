@@ -3,11 +3,11 @@
 
 #include <ext/config.hpp>
 #include <ext/itoa.hpp>
-#include <ext/netlib/socket_base.hpp>
-#include <ext/netlib/socket_include.hpp>
-#include <ext/netlib/listener.hpp>
+#include <ext/net/socket_base.hpp>
+#include <ext/net/socket_include.hpp>
+#include <ext/net/listener.hpp>
 
-namespace ext::netlib
+namespace ext::net
 {
 	bool listener::is_listening() const
 	{
@@ -16,7 +16,7 @@ namespace ext::netlib
 		int enabled = 0;
 		socklen_t len = sizeof(enabled);
 		int res = ::getsockopt(m_listening_socket, SOL_SOCKET, SO_ACCEPTCONN, reinterpret_cast<char *>(&enabled), &len);
-		if (res != 0) throw_last_socket_error("ext::netlib::listener::is_listening: ::getsockopt SO_ACCEPTCONN failed");
+		if (res != 0) throw_last_socket_error("ext::net::listener::is_listening: ::getsockopt SO_ACCEPTCONN failed");
 
 		return enabled;
 	}
@@ -24,11 +24,11 @@ namespace ext::netlib
 	void listener::getsockname(sockaddr_type * addr, socklen_t * addrlen)
 	{
 		if (m_listening_socket == -1)
-			throw std::runtime_error("ext::netlib::listener::getsockname: bad socket");
+			throw std::runtime_error("ext::net::listener::getsockname: bad socket");
 
 		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
 		auto res = ::getsockname(m_listening_socket, addr, so_addrlen);
-		if (res != 0) throw_last_socket_error("ext::netlib::listener::getsockname: ::getsockname failed");
+		if (res != 0) throw_last_socket_error("ext::net::listener::getsockname: ::getsockname failed");
 	}
 
 	std::string listener::sock_endpoint()
@@ -100,10 +100,10 @@ namespace ext::netlib
 		hint.ai_socktype = SOCK_STREAM;
 
 		int res = ::getaddrinfo(host, service, &hint, &addrres);
-		if (res != 0) throw_last_socket_error("ext::netlib::listener::bind: ::getaddrinfo failed");
+		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::getaddrinfo failed");
 
 		m_listening_socket = ::socket(addrres->ai_family, addrres->ai_socktype, addrres->ai_protocol);
-		if (m_listening_socket == -1) throw_last_socket_error("ext::netlib::listener::bind: ::socket failed");
+		if (m_listening_socket == -1) throw_last_socket_error("ext::net::listener::bind: ::socket failed");
 
 		//int enabled = 0;
 		//res = ::setsockopt(m_listening_socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
@@ -111,10 +111,10 @@ namespace ext::netlib
 
 		int enabled = 1;
 		res = ::setsockopt(m_listening_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
-		if (res != 0) throw_last_socket_error("ext::netlib::listener::bind: ::setsockopt SO_REUSEADDR failed");
+		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::setsockopt SO_REUSEADDR failed");
 
 		res = ::bind(m_listening_socket, addrres->ai_addr, addrres->ai_addrlen);
-		if (res != 0) throw_last_socket_error("ext::netlib::listener::bind: ::bind failed");
+		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::bind failed");
 
 		freeaddrinfo(addrres);
 	}
@@ -122,13 +122,13 @@ namespace ext::netlib
 	void listener::listen(int backlog /* = 1 */)
 	{
 		int res = ::listen(m_listening_socket, backlog);
-		if (res < 0) throw_last_socket_error("ext::netlib::listener::listen: ::listen failed");
+		if (res < 0) throw_last_socket_error("ext::net::listener::listen: ::listen failed");
 	}
 
 	socket_streambuf listener::accept()
 	{
 		socket_handle_type sock = ::accept(m_listening_socket, nullptr, nullptr);
-		if (sock == -1) throw_last_socket_error("ext::netlib::listener::accept: ::accept failed");
+		if (sock == -1) throw_last_socket_error("ext::net::listener::accept: ::accept failed");
 
 		return socket_streambuf(sock);
 	}
@@ -152,7 +152,7 @@ namespace ext::netlib
 	{
 		if (m_listening_socket == -1) return;
 
-		int res = ext::netlib::close(m_listening_socket);
+		int res = ext::net::close(m_listening_socket);
 		m_listening_socket = -1;
 		assert(res == 0); EXT_UNUSED(res);
 	}
@@ -183,7 +183,7 @@ namespace ext::netlib
 	{
 		if (m_listening_socket == -1) return;
 
-		int res = ext::netlib::close(m_listening_socket);
+		int res = ext::net::close(m_listening_socket);
 		assert(res == 0); EXT_UNUSED(res);
 	}
 }

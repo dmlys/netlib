@@ -1,11 +1,11 @@
 #include <stdexcept>
 #include <boost/regex.hpp>
 
-#include <ext/netlib/parse_url.hpp>
-#include <ext/netlib/mime/url_encoding.hpp>
+#include <ext/net/parse_url.hpp>
+#include <ext/net/mime/url_encoding.hpp>
 
 namespace ext {
-namespace netlib
+namespace net
 {
 	namespace
 	{

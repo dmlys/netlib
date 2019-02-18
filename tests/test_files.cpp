@@ -1,3 +1,3 @@
 #include "test_files.h"
 
-boost::filesystem::path test_files_location = "netlib/tests";
+boost::filesystem::path test_files_location = "net/tests";

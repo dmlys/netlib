@@ -1,7 +1,7 @@
-#include <ext/netlib/abstract_connection_controller.hpp>
+#include <ext/net/abstract_connection_controller.hpp>
 
 namespace ext {
-namespace netlib
+namespace net
 {
 	BOOST_NORETURN void abstract_connection_controller::on_bad_connect_request()
 	{

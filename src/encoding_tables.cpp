@@ -1,12 +1,12 @@
-#include <ext/netlib/mime/encoding_tables.hpp>
+#include <ext/net/mime/encoding_tables.hpp>
 
-const char ext::netlib::mime::encoding_tables::hex_encoding_array[16] =
+const char ext::net::mime::encoding_tables::hex_encoding_array[16] =
 {
 	// '0' .. '9', 'A'..'F'
 	48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70,
 };
 
-const char ext::netlib::mime::encoding_tables::hex_decoding_array[256] =
+const char ext::net::mime::encoding_tables::hex_decoding_array[256] =
 {
 	/*       0  1  2  3   4  5  6  7   8  9  A  B   C  D  E  F */
 	/* 0 */ -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
@@ -30,7 +30,7 @@ const char ext::netlib::mime::encoding_tables::hex_decoding_array[256] =
 	/* F */ -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
 };
 
-const char ext::netlib::mime::encoding_tables::qencoding_array[256] =
+const char ext::net::mime::encoding_tables::qencoding_array[256] =
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,   9,  -1,  -1,  -1,  -1,  -1,  -1, // 9 - htab, is printable
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
@@ -50,7 +50,7 @@ const char ext::netlib::mime::encoding_tables::qencoding_array[256] =
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
 };
 
-const char ext::netlib::mime::encoding_tables::quoted_printable_array[256] =
+const char ext::net::mime::encoding_tables::quoted_printable_array[256] =
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,   9,  -1,  -1,  -1,  -1,  -1,  -1, // 9 - htab, is printable
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
@@ -72,7 +72,7 @@ const char ext::netlib::mime::encoding_tables::quoted_printable_array[256] =
 
 // attribute - char : = < any(US - ASCII) CHAR except SPACE, CTLs, "*", "'", "%", or tspecials>
 // tspecials = '()<>@,;:\/"[]?='
-const char ext::netlib::mime::encoding_tables::parameter_unqouted_array[256] =
+const char ext::net::mime::encoding_tables::parameter_unqouted_array[256] =
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, // > 32 - printable, except:
@@ -94,7 +94,7 @@ const char ext::netlib::mime::encoding_tables::parameter_unqouted_array[256] =
 
 // attribute - char := < any(US - ASCII) CHAR except SPACE, CTLs, "*", "'", "%", or tspecials >
 // cause quoted tspecials are allowed
-const char ext::netlib::mime::encoding_tables::parameter_qouted_array[256] =
+const char ext::net::mime::encoding_tables::parameter_qouted_array[256] =
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,   9,  -1,  -1,  -1,  -1,  -1,  -1, // >htab is ok
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, // SPACE is printable, >= 32 - printable, except:
@@ -114,7 +114,7 @@ const char ext::netlib::mime::encoding_tables::parameter_qouted_array[256] =
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
 };
 
-const char ext::netlib::mime::encoding_tables::percent_encoding_array[256] = 
+const char ext::net::mime::encoding_tables::percent_encoding_array[256] = 
 {
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  
 	 -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  

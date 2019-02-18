@@ -3,13 +3,13 @@
 #include <ext/library_logger/logging_macros.hpp>
 #include <ext/base64.hpp>
 
-#include <ext/netlib/smtp/smtp_protocol.hpp>
+#include <ext/net/smtp/smtp_protocol.hpp>
 
 #if EXT_ENABLE_OPENSSL
 #	include <openssl/ssl.h>
 #endif
 
-namespace ext::netlib::smtp
+namespace ext::net::smtp
 {
 	static bool contains(std::string_view respline, std::string_view test)
 	{

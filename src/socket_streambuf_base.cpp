@@ -2,9 +2,9 @@
 #include <climits> // for INT_MAX
 #include <utility> // for std::exchange
 #include <algorithm>
-#include <ext/netlib/socket_streambuf_base.hpp>
+#include <ext/net/socket_streambuf_base.hpp>
 
-namespace ext::netlib
+namespace ext::net
 {
 	/************************************************************************/
 	/*                 get/put area implementation                          */

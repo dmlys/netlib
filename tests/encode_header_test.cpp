@@ -1,10 +1,10 @@
-#include <ext/netlib/mime/bencode_header.hpp>
-#include <ext/netlib/mime/qencode_header.hpp>
-#include <ext/netlib/mime/encode_header_parameter.hpp>
+#include <ext/net/mime/bencode_header.hpp>
+#include <ext/net/mime/qencode_header.hpp>
+#include <ext/net/mime/encode_header_parameter.hpp>
 
 #include <boost/test/unit_test.hpp>
 
-namespace mime = ext::netlib::mime;
+namespace mime = ext::net::mime;
 using mime::MailDefaultLineSize;
 
 BOOST_AUTO_TEST_CASE(bencode_header_folded_test)

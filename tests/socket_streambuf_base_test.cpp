@@ -3,14 +3,14 @@
 #include <string>
 #include <random>
 #include <functional>
-#include <ext/netlib/socket_streambuf_base.hpp>
+#include <ext/net/socket_streambuf_base.hpp>
 
 #include <boost/test/unit_test.hpp>
 
 namespace
 {
 	template <class Container>
-	class test_socket_streambuf : public ext::netlib::socket_streambuf_base
+	class test_socket_streambuf : public ext::net::socket_streambuf_base
 	{
 		Container * m_cnt;
 		std::size_t m_readpos = 0;

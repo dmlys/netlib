@@ -49,7 +49,7 @@ Project
 		}
 
 		files: [
-			"include/ext/netlib/**",
+			"include/ext/net/**",
 			"src/**",
 		]
 
@@ -57,12 +57,12 @@ Project
 			var excludes = [];
 			if (qbs.targetOS.contains("windows"))
 			{
-				excludes.push("include/ext/netlib/bsdsock*")
+				excludes.push("include/ext/net/bsdsock*")
 				excludes.push("src/bsdsock*")
 			}
 			else
 			{
-				excludes.push("include/ext/netlib/winsock*")
+				excludes.push("include/ext/net/winsock*")
 				excludes.push("src/winsock*")
 			}
 

@@ -1,4 +1,4 @@
-#include <ext/netlib/http_parser.hpp>
+#include <ext/net/http_parser.hpp>
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
 
@@ -9,7 +9,7 @@ BOOST_AUTO_TEST_CASE(http_parser_response_test)
 
 	std::istringstream is(text);
 	std::string method, url, body;
-	std::tie(method, url, body) = ext::netlib::parse_http_request(is);
+	std::tie(method, url, body) = ext::net::parse_http_request(is);
 
 	BOOST_CHECK(method == "POST");
 	BOOST_CHECK(url    == "/test/index.html");
@@ -21,7 +21,7 @@ static string_map parse_http_header(std::string_view text)
 {
 	string_map result;
 	std::string_view name, value;
-	while (ext::netlib::parse_http_header(text, name, value))
+	while (ext::net::parse_http_header(text, name, value))
 		result[std::string(name)] = std::string(value);
 
 	return result;

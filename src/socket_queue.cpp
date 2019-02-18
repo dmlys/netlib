@@ -6,8 +6,8 @@
 #include <ext/config.hpp>
 #include <ext/utility.hpp>
 #include <ext/Errors.hpp>
-#include <ext/netlib/socket_queue.hpp>
-#include <ext/netlib/socket_include.hpp>
+#include <ext/net/socket_queue.hpp>
+#include <ext/net/socket_include.hpp>
 
 #include <ext/library_logger/logger.hpp>
 #include <ext/library_logger/logging_macros.hpp>
@@ -47,13 +47,13 @@ using ioctl_type = int;
 
 #endif // BOOST_OS_WINDOWS
 
-namespace ext::netlib
+namespace ext::net
 {
 	static auto create_interrupt_pair() -> std::tuple<socket_handle_type, socket_handle_type>
 	{
 #if BOOST_OS_WINDOWS
 		auto handle = ::socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-		if (handle < 0) throw_last_socket_error("ext::netlib::socket_queue: failed to create interrupt UDP socket");
+		if (handle < 0) throw_last_socket_error("ext::net::socket_queue: failed to create interrupt UDP socket");
 
 		return std::make_tuple(handle, INVALID_SOCKET);
 #else
@@ -62,7 +62,7 @@ namespace ext::netlib
 		if (res != 0)
 		{
 			auto errc = std::error_code(errno, std::system_category());
-			throw std::system_error(errc, "ext::netlib::socket_queue: failed to create interrupt pipe pair");
+			throw std::system_error(errc, "ext::net::socket_queue: failed to create interrupt pipe pair");
 		}
 
 		return std::make_tuple(pipefd[0], pipefd[1]);
@@ -92,7 +92,7 @@ namespace ext::netlib
 
 	auto socket_queue::process_interrupted()
 	{
-		LOG_WARN("ext::netlib::socket_queue interrupted");
+		LOG_WARN("ext::net::socket_queue interrupted");
 
 #if BOOST_OS_WINDOWS
 		std::tie(m_interrupt_listen, m_interrupt_write) = create_interrupt_pair();
@@ -116,7 +116,7 @@ namespace ext::netlib
 		while (avail)
 		{
 			int res = read(sock, buffer, std::min(buffer_size, avail));
-			if (res == -1) throw_last_socket_error("ext::netlib::socket_queue::consume_all_input: ::read failed");
+			if (res == -1) throw_last_socket_error("ext::net::socket_queue::consume_all_input: ::read failed");
 
 			avail -= res;
 		}
@@ -253,7 +253,7 @@ namespace ext::netlib
 			auto errc = std::error_code(err, std::system_category());
 			LOG_ERROR("got error while executing select: {}", ext::FormatError(errc));
 
-			throw std::system_error(errc, "ext::netlib::socket_queue::wait_readable: ::select failed");
+			throw std::system_error(errc, "ext::net::socket_queue::wait_readable: ::select failed");
 		}
 
 		if (m_interrupted.load(std::memory_order_relaxed) or FD_ISSET(m_interrupt_listen, &readset))
@@ -365,13 +365,13 @@ namespace ext::netlib
 		return submit(std::move(*sock.rdbuf()), wtype);
 	}
 
-	void socket_queue::add_listener(ext::netlib::listener listener)
+	void socket_queue::add_listener(ext::net::listener listener)
 	{
 		assert(listener.is_listening());
 		m_listeners.push_back(std::move(listener));
 	}
 
-	auto socket_queue::remove_listener(unsigned short port) -> ext::netlib::listener
+	auto socket_queue::remove_listener(unsigned short port) -> ext::net::listener
 	{
 		auto first = m_listeners.begin();
 		auto last  = m_listeners.end();
