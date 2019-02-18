@@ -25,9 +25,9 @@ namespace ext::netlib
 		return str_lit.size();
 	}
 
-	template <class OutputConatiner, class String>
-	std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-	write_string(OutputConatiner & out, const String & str)
+	template <class OutputContainer, class String>
+	std::enable_if_t<ext::is_container_v<OutputContainer>, std::size_t>
+	write_string(OutputContainer & out, const String & str)
 	{
 		using std::begin; using std::end;
 		auto str_lit = ext::str_view(str);
@@ -53,9 +53,9 @@ namespace ext::netlib
 		return last - first;
 	}
 
-	template <class OutputConatiner, class Iterator>
-	std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-	write_string(OutputConatiner & out, Iterator first, Iterator last)
+	template <class OutputContainer, class Iterator>
+	std::enable_if_t<ext::is_container_v<OutputContainer>, std::size_t>
+	write_string(OutputContainer & out, Iterator first, Iterator last)
 	{
 		ext::append(out, first, last);
 		return last - first;
@@ -102,9 +102,9 @@ namespace ext::netlib
 		return len;
 	}
 
-	template <class OutputConatiner, class CharType>
-	std::enable_if_t<ext::is_container_v<OutputConatiner>, std::size_t>
-	write_string(OutputConatiner & out, const CharType * str, std::size_t len)
+	template <class OutputContainer, class CharType>
+	std::enable_if_t<ext::is_container_v<OutputContainer>, std::size_t>
+	write_string(OutputContainer & out, const CharType * str, std::size_t len)
 	{
 		ext::append(out, str, str + len);
 		return len;
