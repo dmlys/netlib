@@ -1,4 +1,4 @@
-#include <ext/net/abstract_connection_controller.hpp>
+﻿#include <ext/net/abstract_connection_controller.hpp>
 
 namespace ext {
 namespace net
@@ -27,10 +27,14 @@ namespace net
 	}
 
 	template <class State>
-	inline static void set_result(State & state)
+	inline static void set_result(State & state, std::exception_ptr eptr)
 	{
 		if (not state or state->is_ready()) return;
-		state->set_value();
+
+		if (eptr == nullptr)
+			state->set_value();
+		else
+			state->set_exception(std::move(eptr));
 	}
 
 	void abstract_connection_controller::emit_signal(event_sig & sig, event_type ev)
@@ -52,7 +56,15 @@ namespace net
 			m_connect_future = ext::make_intrusive<ext::shared_state<bool>>();
 			m_connect_future->mark_uncancellable();
 			
-			do_connect_request(std::move(lk));
+			try
+			{
+				do_connect_request(std::move(lk));
+			}
+			catch (...)
+			{
+				notify_connected(unique_lock(m_mutex), false, std::current_exception());
+			}
+
 			return {m_connect_future};
 
 		case online:
@@ -80,7 +92,15 @@ namespace net
 			m_disconnect_future = ext::make_intrusive<ext::shared_state<void>>();
 			m_connect_future->mark_uncancellable();
 
-			do_disconnect_request(std::move(lk));
+			try
+			{
+				do_disconnect_request(std::move(lk));
+			}
+			catch (...)
+			{
+				notify_disconnected(unique_lock(m_mutex), std::current_exception());
+			}
+
 			return {m_disconnect_future};
 
 		default:
@@ -117,7 +137,7 @@ namespace net
 		}
 	}
 
-	void abstract_connection_controller::notify_disconnected(unique_lock lk)
+	void abstract_connection_controller::notify_disconnected(unique_lock lk, std::exception_ptr eptr)
 	{
 		assert(lk.owns_lock());
 		auto connected = m_connect_future;
@@ -130,7 +150,7 @@ namespace net
 			lk.unlock();
 
 			set_result(connected, false, nullptr);
-			set_result(disconnected);
+			set_result(disconnected, std::move(eptr));
 
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			emit_signal(m_event_signal, connection_controller::connection_error);
@@ -140,7 +160,7 @@ namespace net
 			m_state = offline;
 			lk.unlock();
 
-			set_result(disconnected);
+			set_result(disconnected, std::move(eptr));
 			set_result(connected, false, nullptr);
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			return;
@@ -150,7 +170,7 @@ namespace net
 			lk.unlock();
 
 			assert(connected->is_ready());
-			set_result(disconnected);
+			set_result(disconnected, std::move(eptr));
 
 			emit_signal(m_event_signal, connection_controller::disconnected);
 			emit_signal(m_event_signal, connection_controller::connection_error);

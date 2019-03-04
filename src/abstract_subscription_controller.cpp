@@ -32,6 +32,17 @@ namespace net
 	}
 
 	template <class State>
+	inline static void set_result(State & state, std::exception_ptr eptr)
+	{
+		if (not state or state->is_ready()) return;
+
+		if (eptr == nullptr)
+			state->set_value();
+		else
+			state->set_exception(std::move(eptr));
+	}
+
+	template <class State>
 	inline static void abandoned_request(State & state, bool counterpart_success)
 	{
 		if (not counterpart_success and state and state->is_pending())
@@ -53,8 +64,16 @@ namespace net
 				m_state = closing;
 				m_close_future = ext::make_intrusive<ext::shared_state<void>>();
 				m_close_future->mark_uncancellable();
-				
-				do_close_request(std::move(lk));
+
+				try
+				{
+					do_close_request(std::move(lk));
+				}
+				catch (...)
+				{
+					notify_closed(unique_lock(m_mutex), std::current_exception());
+				}
+
 				return {m_close_future};
 
 			case closed:
@@ -74,7 +93,15 @@ namespace net
 				m_pause_future = ext::make_intrusive<ext::shared_state<bool>>();
 				m_pause_future->mark_uncancellable();
 
-				do_pause_request(std::move(lk));
+				try
+				{
+					do_pause_request(std::move(lk));
+				}
+				catch (...)
+				{
+					notify_paused(unique_lock(m_mutex), false, std::current_exception());
+				}
+
 				return {m_pause_future};
 
 			case resuming:
@@ -100,7 +127,15 @@ namespace net
 				m_resume_future = ext::make_intrusive<ext::shared_state<bool>>();
 				m_resume_future->mark_uncancellable();
 
-				do_resume_request(std::move(lk));
+				try
+				{
+					do_resume_request(std::move(lk));
+				}
+				catch (...)
+				{
+					notify_resumed(unique_lock(m_mutex), false, std::current_exception());
+				}
+
 				return {m_resume_future};
 
 			case pausing:
@@ -115,7 +150,7 @@ namespace net
 		}
 	}
 
-	void abstract_subscription_controller::notify_closed(unique_lock lk)
+	void abstract_subscription_controller::notify_closed(unique_lock lk, std::exception_ptr eptr)
 	{
 		assert(lk.owns_lock());
 		auto fclosed = m_close_future;
@@ -136,7 +171,7 @@ namespace net
 				m_state = closed;
 				lk.unlock();
 
-				if (fclosed) fclosed->set_value();
+				set_result(fclosed, eptr);
 				abandoned_request(fpaused, false);
 				abandoned_request(fresumed, false);
 				emit_signal(m_event_signal, closed);

@@ -69,7 +69,8 @@ namespace net
 		/// Derived class notifies about disconnect/connection loss. thread safe.
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		void notify_disconnected(unique_lock lk);
+		/// You should avoid calling this method with eptr != nullptr.
+		void notify_disconnected(unique_lock lk, std::exception_ptr eptr = nullptr);
 
 		/// connect state-machine event implementation.
 		/// assert(lk.owns_lock() == true)

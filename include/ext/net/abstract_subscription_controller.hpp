@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <mutex>
 
 #include <boost/config.hpp>
@@ -66,7 +66,8 @@ namespace net
 		/// Derived class notifies about successful close request. thread safe.
 		/// On call takes lock (lk.owns_lock() == true)
 		/// lock is unlocked in process before emitting signals.
-		virtual void notify_closed(unique_lock lk);
+		/// You should avoid calling this method with eptr != nullptr.
+		virtual void notify_closed(unique_lock lk, std::exception_ptr eptr = nullptr);
 		/// Derived class notifies about execution of pause request. thread safe.
 		/// * if success == true request future is set with true
 		/// * if success == false and eptr != null, request future is set with set_exception(eptr)
