@@ -1,9 +1,11 @@
-import qbs
+﻿import qbs
 import qbs.Environment
 
 
 CppApplication
 {
+	type: base.concat("autotest")
+
 	Depends { name: "cpp" }
 	Depends { name: "extlib" }
 	Depends { name: "netlib" }
