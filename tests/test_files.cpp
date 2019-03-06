@@ -1,3 +1,3 @@
 #include "test_files.h"
 
-boost::filesystem::path test_files_location = "net/tests";
+std::filesystem::path test_files_location = std::filesystem::path(__FILE__).parent_path();

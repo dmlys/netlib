@@ -12,9 +12,9 @@ struct GlobalFixture
 
 		if (argc >= 2)
 		{
-			boost::filesystem::path files_location = argv[1];
-			boost::system::error_code ec;
-			if (boost::filesystem::exists(files_location, ec))
+			std::filesystem::path files_location = argv[1];
+			std::error_code ec;
+			if (std::filesystem::exists(files_location, ec))
 			{
 				test_files_location = files_location;
 			}
