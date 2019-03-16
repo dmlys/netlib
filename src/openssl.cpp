@@ -3,6 +3,8 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 #include <openssl/dh.h>
+#include <openssl/pkcs12.h>
+#include <openssl/cms.h>
 
 #include <ext/net/openssl.hpp>
 #include <boost/predef.h> // for BOOST_OS_WINDOWS
@@ -182,6 +184,11 @@ namespace ext::net::openssl
 		::EVP_PKEY_free(pkey);
 	}
 
+	void pkcs12_deleter::operator()(PKCS12 * pkcs12) const noexcept
+	{
+		::PKCS12_free(pkcs12);
+	}
+
 	/************************************************************************/
 	/*                  utility stuff                                       */
 	/************************************************************************/
@@ -243,12 +250,61 @@ namespace ext::net::openssl
 			throw std::system_error(errc, "ext::net::openssl::load_private_key_from_file: std::fopen failed");
 		}
 
+		//                  traditional or PKCS#8 format
 		EVP_PKEY * pkey = ::PEM_read_PrivateKey(fp, nullptr, password_callback, &passwd);
 		std::fclose(fp);
 
 		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
 		return evp_pkey_uptr(pkey);
 	}
+
+	pkcs12_uptr load_pkcs12(const char * data, std::size_t len)
+	{
+		bio_uptr source_bio(::BIO_new_mem_buf(data, static_cast<int>(len)));
+		if (not source_bio) throw_last_error("ext::net::openssl::load_pkcs12: ::BIO_new_mem_buf failed");
+
+		pkcs12_uptr pkcs12(::d2i_PKCS12_bio(source_bio.get(), nullptr));
+		if (not pkcs12) throw_last_error("ext::net::openssl::load_pkcs12_from_file: ::d2i_PKCS12_fp failed");
+		return pkcs12;
+	}
+
+	pkcs12_uptr load_pkcs12_from_file(const char * path)
+	{
+		std::FILE * fp = std::fopen(path, "r");
+		if (fp == nullptr)
+		{
+			std::error_code errc(errno, std::generic_category());
+			throw std::system_error(errc, "ext::net::openssl::load_pkcs12_from_file: std::fopen failed");
+		}
+
+		pkcs12_uptr pkcs12(::d2i_PKCS12_fp(fp, nullptr));
+		std::fclose(fp);
+
+		if (not pkcs12) throw_last_error("ext::net::openssl::load_pkcs12_from_file: ::d2i_PKCS12_fp failed");
+		return pkcs12;
+	}
+
+	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_uptr & evp_pkey, x509_uptr & x509, stackof_x509_uptr & ca)
+	{
+		X509 * raw_cert = nullptr;
+		EVP_PKEY * raw_pkey = nullptr;
+		STACK_OF(X509) * raw_ca = nullptr;
+
+		int res = ::PKCS12_parse(pkcs12, passwd.c_str(), &raw_pkey, &raw_cert, &raw_ca);
+		if (res <= 0) throw_last_error("ext::net::openssl::parse_pkcs12: ::PKCS12_parse failed");
+
+		evp_pkey.reset(raw_pkey);
+		x509.reset(raw_cert);
+		ca.reset(raw_ca);
+	}
+
+	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd) -> std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr>
+	{
+		std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr> result;
+		parse_pkcs12(pkcs12, passwd, std::get<0>(result), std::get<1>(result), std::get<2>(result));
+		return result;
+	}
+
 
 	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey)
 	{
@@ -296,6 +352,32 @@ namespace ext::net::openssl
 		::DH_free(dh);
 
 		return ssl_ctx_uptr;
+	}
+
+	struct cms_contentinfo_deleter { void operator()(CMS_ContentInfo * info) { CMS_ContentInfo_free(info); } };
+	using cms_contentinfo_ptr = std::unique_ptr<CMS_ContentInfo, cms_contentinfo_deleter>;
+
+	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * ca, std::string_view msg_body, bool detached)
+	{
+		openssl::bio_uptr bio_input_ptr, bio_output_ptr;
+		bio_input_ptr.reset( ::BIO_new_mem_buf(msg_body.data(), static_cast<int>(msg_body.size())) );
+		bio_output_ptr.reset( ::BIO_new(::BIO_s_mem()) );
+
+		if (not bio_input_ptr)  openssl::throw_last_error("ext::net::openssl::sign_mail: input  BIO_mem fail(::BIO_new_mem_buf)");
+		if (not bio_output_ptr) openssl::throw_last_error("ext::net::openssl::sign_mail: output BIO_mem fail(::BIO_new(::BIO_s_mem()))");
+
+		int flags = CMS_STREAM | CMS_CRLFEOL;
+		if (detached) flags |= CMS_DETACHED;
+
+		cms_contentinfo_ptr cms_info(::CMS_sign(x509, pkey, ca, bio_input_ptr.get(), flags));
+		if (not cms_info) openssl::throw_last_error("ext::net::openssl::sign_mail: CMS_sign call failure");
+
+		int res = ::SMIME_write_CMS(bio_output_ptr.get(), cms_info.get(), bio_input_ptr.get(), flags);
+		if (res <= 0) openssl::throw_last_error("ext::net::openssl::sign_mail: SMIME_write_CMS call failure");
+
+		char * data;
+		int len = BIO_get_mem_data(bio_output_ptr.get(), &data);
+		return std::string(data, len);
 	}
 }
 

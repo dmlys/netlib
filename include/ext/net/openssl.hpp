@@ -1,6 +1,7 @@
 #pragma once
 #ifdef EXT_ENABLE_OPENSSL
 #include <memory>
+#include <tuple>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -10,11 +11,13 @@ struct bio_st;
 struct x509_st;
 struct rsa_st;
 struct evp_pkey_st;
+struct PKCS12_st;
 
 typedef bio_st           BIO;
 typedef x509_st          X509;
 typedef rsa_st           RSA;
 typedef evp_pkey_st      EVP_PKEY;
+typedef PKCS12_st        PKCS12;
 
 struct stack_st_X509;
 
@@ -80,6 +83,7 @@ namespace ext::net::openssl
 	struct x509_deleter     { void operator()(X509 * cert)     const noexcept; };
 	struct rsa_deleter      { void operator()(RSA * rsa)       const noexcept; };
 	struct evp_pkey_deleter { void operator()(EVP_PKEY * pkey) const noexcept; };
+	struct pkcs12_deleter   { void operator()(PKCS12 * pkcs12) const noexcept; };
 
 	struct stackof_x509_deleter { void operator()(stack_st_X509 * ca) const noexcept; };
 
@@ -90,6 +94,7 @@ namespace ext::net::openssl
 	using x509_uptr     = std::unique_ptr<X509, x509_deleter>;
 	using rsa_uptr      = std::unique_ptr<RSA, rsa_deleter>;
 	using evp_pkey_uptr = std::unique_ptr<EVP_PKEY, evp_pkey_deleter>;
+	using pkcs12_uptr   = std::unique_ptr<PKCS12, pkcs12_deleter>;
 
 	using stackof_x509_uptr = std::unique_ptr<stack_st_X509, stackof_x509_deleter>;
 
@@ -106,10 +111,27 @@ namespace ext::net::openssl
 
 	/// Loads X509 certificate from given path and with optional password
 	/// Throws std::system_error in case of errors
-	x509_uptr load_certificate_from_file(const char * path, std::string_view passwd = "");
-	// loads private key from given given path and with optional password
+	x509_uptr     load_certificate_from_file(const char * path, std::string_view passwd = "");
+	/// loads private key from given given path and with optional password
 	/// Throws std::system_error in case of errors
-	evp_pkey_uptr load_private_key_from_file(const char * path, std::string_view passwd);
+	evp_pkey_uptr load_private_key_from_file(const char * path, std::string_view passwd = "");
+
+	/// Loads PKCS12 file from given memory location.
+	/// Throws std::system_error in case of errors
+	pkcs12_uptr load_pkcs12(const char * data, std::size_t len);
+	/// Loads PKCS12 file from given path.
+	/// Throws std::system_error in case of errors
+	pkcs12_uptr load_pkcs12_from_file(const char * path);
+	inline pkcs12_uptr load_pkcs12(std::string_view str) { return load_pkcs12(str.data(), str.size()); }
+
+	inline x509_uptr     load_certificate_from_file(const std::string & path, std::string_view passwd = "") { return load_certificate_from_file(path.c_str(), passwd); }
+	inline evp_pkey_uptr load_private_key_from_file(const std::string & path, std::string_view passwd = "") { return load_private_key_from_file(path.c_str(), passwd); }
+	inline pkcs12_uptr   load_pkcs12_from_file(const std::string & path) { return load_pkcs12_from_file(path.c_str()); }
+
+	/// Parses PKCS12 into private key, x509 certificate and certificate authorities
+	/// Throws std::system_error in case of errors
+	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_uptr & evp_pkey, x509_uptr & x509, stackof_x509_uptr & ca);
+	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd = "") -> std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr>;
 
 	/// creates SSL_CTX with given SSL method and sets given certificate and private key
 	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey);
@@ -127,6 +149,9 @@ namespace ext::net::openssl
 	ssl_ctx_uptr create_anonymous_sslctx(const SSL_METHOD * method);
 	///	same as above with SSLv23_server_method
 	ssl_ctx_uptr create_anonymous_sslctx();
+
+	/// signs email(msg_body) with given private key, x509 certificate and ca's
+	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * ca, std::string_view msg_body, bool detached);
 }
 
 namespace ext::net
