@@ -14,6 +14,11 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
+#if EXT_ENABLE_OPENSSL
+#include <openssl/cms.h>
+#endif
+
+
 namespace ext::net::mail::simple
 {
 	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log)
@@ -112,9 +117,11 @@ namespace ext::net::mail::simple
 		std::string boundary = generate_mime_bounary();
 
 		/// шапка multipart/mixed
+		print_header(os, headers::mime_version());
 		write_string(os, "Content-Type: multipart/mixed; boundary=\"");
 		write_string(os, boundary);
 		write_string(os, "\"\r\n");
+
 		write_string(os, "\r\nThis is a multi-part message in MIME format.\r\n");
 
 		boundary.insert(0, "--");
@@ -162,18 +169,20 @@ namespace ext::net::mail::simple
 			os << bcc(rcp);
 
 		os << subject(msg.subject);
-		os << mime_version();
 
+#if EXT_ENABLE_OPENSSL
+		if (msg.private_key)
+		{
+			std::ostringstream ostr;
+			write_message_body(ostr, msg, extensions);
+			auto msg_body = ostr.str();
+			msg_body = openssl::sign_mail(msg.private_key.get(), msg.x509.get(), msg.ca.get(), msg_body, msg.sign_detached);
+			os << msg_body;
+		}
+		else
+#endif
 		write_message_body(os, msg, extensions);
 
-		//if (msg.cert_path.empty())
-		//	write_message(os, msg);
-		//else {
-		//	std::string msg_body;
-		//	auto dev = boost::iostreams::back_inserter(msg_body);
-		//	write_message(dev, msg);
-		//	sing_body(msg_body, msg);
-		//	os << msg_body;
-		//}
 	}
-}
+
+} // ext::net::mail::simple

@@ -8,6 +8,10 @@
 #include <ext/net/mime/mail_encoding.hpp>
 #include <ext/net/smtp/smtp_extensions.hpp>
 
+#if EXT_ENABLE_OPENSSL
+#include <ext/net/openssl.hpp>
+#endif
+
 namespace ext::net::mail::simple
 {
 	struct mail_attachment
@@ -37,9 +41,14 @@ namespace ext::net::mail::simple
 
 		std::vector<mail_attachment> attachments;
 
-		//std::string cert_path;
-		//std::string cert_passwd;
-		//bool sign_detached = true;
+#if EXT_ENABLE_OPENSSL
+		// certificate and private key for signing
+		openssl::evp_pkey_uptr private_key;
+		openssl::x509_uptr     x509;
+		openssl::stackof_x509_uptr ca;
+		bool sign_detached = true;
+#endif
+
 	};
 
 	struct send_params
@@ -60,4 +69,6 @@ namespace ext::net::mail::simple
 
 	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log = nullptr);
 	void write_message(std::ostream & os, const message & msg, smtp_extensions_bitset extensions = {});
+
+	//std::string sign_mail(EVP_PKEY * pkey, X509 * x509, std::string_view msg_body);
 }
