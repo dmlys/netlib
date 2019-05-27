@@ -428,9 +428,9 @@ namespace ext::net
 		auto set_logger() const -> ext::library_logger::logger * { return m_logger; }
 
 		/// last error description
-		std::string last_errormsg();
+		std::string last_errormsg() const;
 		/// last error code
-		error_code_type last_error();
+		error_code_type last_error() const;
 
 		/// Adds subscription. subscription will work continuously(depends on internal subscriptions parameters),
 		/// returns handle, allowing controlling of subscription.

@@ -148,11 +148,7 @@ namespace ext::net
 	{
 		assert(ex.code() == m_sock_streambuf.last_error());
 
-		std::string errmsg;
-		errmsg.reserve(1024);
-
-		errmsg += "socket_streambuf error. ";
-		errmsg += ext::FormatError(ex);
+		std::string errmsg = ext::FormatError(ex);
 
 		EXTLL_ERROR(m_logger, errmsg);
 
@@ -166,13 +162,13 @@ namespace ext::net
 		notify_disconnected(std::move(lk));
 	}
 
-	std::string socket_rest_supervisor::last_errormsg()
+	std::string socket_rest_supervisor::last_errormsg() const
 	{
 		unique_lock lk(m_mutex);
 		return m_lasterr_message;
 	}
 
-	auto socket_rest_supervisor::last_error() -> error_code_type
+	auto socket_rest_supervisor::last_error() const -> error_code_type
 	{
 		unique_lock lk(m_mutex);
 		return m_lasterr;
