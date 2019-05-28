@@ -225,12 +225,12 @@ namespace ext::net
 			auto first = waiting.begin();
 			auto last  = waiting.end();
 
-			for (; first != last; ++first)
+			while (first != last)
 			{
 				if (first->should_remove())
-				{
 					first = waiting.erase_and_dispose(first, release_item);
-				}
+				else
+					++first;
 			}
 		};
 
@@ -250,10 +250,12 @@ namespace ext::net
 			else request_avail:
 			{
 				// take one subscription, make request, place it into replies
-				replies.splice(replies.end(), requests, requests.begin());
-				auto & task = replies.back();
+				auto & task = requests.front();
 				bool made = task.make_request(lk, m_sock_streambuf);
-				
+
+				if (made)  replies.splice(replies.end(), requests, requests.begin());
+				else       waiting.splice(waiting.end(), requests, requests.begin());
+
 				if (request_slots -= made) continue;
 				else                       goto reply_avail;
 			}
