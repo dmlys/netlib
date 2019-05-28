@@ -20,15 +20,12 @@ namespace net
 	private:
 		subscription_ptr m_ptr;
 
-	private:
-		BOOST_NORETURN static void throw_closed_handle() { throw std::logic_error("subsciption_handle is closed"); }
-
 	public:
 		auto get() const noexcept                  { return m_ptr; }
 		void assign(subscription_ptr ptr) noexcept { m_ptr = std::move(ptr); }
-		bool empty() const                noexcept { return not static_cast<bool>(m_ptr); }
-		void reset()                      noexcept { m_ptr.reset(); }
-		operator bool() const             noexcept { return static_cast<bool>(m_ptr); }
+		bool empty() const noexcept                { return not static_cast<bool>(m_ptr); }
+		void reset()       noexcept                { return m_ptr.reset(); }
+		operator bool() const noexcept             { return static_cast<bool>(m_ptr); }
 
 	public: // operators
 		bool operator  <(const subscription_handle & other) const
@@ -42,31 +39,13 @@ namespace net
 		}
 
 	public: // interface
-		state_type get_state()
-		{			
-			return m_ptr ? m_ptr->get_state() : subscription_controller::closed;
-		}
+		state_type get_state() {return m_ptr ? m_ptr->get_state() : subscription_controller::closed; }
 		
-		auto pause()
-		{
-			return m_ptr ? m_ptr->pause() : ext::make_ready_future(false);
-		}
+		auto pause()  { return m_ptr ? m_ptr->pause() : ext::make_ready_future(false); }
+		auto resume() { return m_ptr ? m_ptr->resume() : ext::make_ready_future(false); }
+		void close()  { if (m_ptr) m_ptr->close(); m_ptr.reset(); }
 
-		auto resume()
-		{
-			return m_ptr ? m_ptr->resume() : ext::make_ready_future(false);
-		}
-
-		void close()
-		{			
-			if (m_ptr) m_ptr->close();
-			m_ptr.reset();
-		}
-
-		auto on_event(const event_slot & slot)
-		{
-			return m_ptr ? m_ptr->on_event(slot) : boost::signals2::connection();
-		}
+		auto on_event(const event_slot & slot) { return m_ptr ? m_ptr->on_event(slot) : boost::signals2::connection(); }
 
 	public:
 		subscription_handle() = default;
