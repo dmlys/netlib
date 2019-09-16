@@ -64,7 +64,6 @@ namespace ext::net::mail::simple
 		quit_connection(ses);
 	}
 
-
 	static void write_attachment(std::ostream & os, const mail_attachment & attachment, smtp_extensions_bitset extensions)
 	{
 		write_string(os, "Content-Type: application/octet-stream\r\n");
@@ -73,7 +72,9 @@ namespace ext::net::mail::simple
 		auto prefix = ext::str_view("Content-Disposition: attachment; ");
 		write_string(os, prefix);
 
-		mime::encode_header_parameter_folded(os, prefix.size(), mime::MailDefaultLineSize, "filename", attachment.name);
+		if (not attachment.name.empty())
+			mime::encode_header_parameter_folded(os, prefix.size(), mime::MailDefaultLineSize, "filename", attachment.name);
+
 		write_string(os, "\r\n\r\n");
 
 		mime::encode_base64_mail_body(os, 0, mime::MailDefaultLineSize, attachment.content);

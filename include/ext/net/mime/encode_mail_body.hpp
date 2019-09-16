@@ -2,6 +2,8 @@
 #include <ext/is_string.hpp>
 #include <ext/type_traits.hpp> // for is_iterator
 #include <ext/base64.hpp>
+
+#include <ext/net/mime/encoding_tables.hpp>
 #include <ext/net/mime/encode_quoted_utils.hpp>
 #include <ext/net/mime/mail_encoding.hpp>
 #include <ext/net/smtp/smtp_extensions.hpp>

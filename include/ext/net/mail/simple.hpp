@@ -16,7 +16,7 @@ namespace ext::net::mail::simple
 {
 	struct mail_attachment
 	{
-		// all strings are must be in utf-8
+		// all strings must be in utf-8
 		
 		std::string name;
 		std::string content;
@@ -24,7 +24,7 @@ namespace ext::net::mail::simple
 
 	struct message
 	{
-		// all strings are must be in utf-8
+		// all strings must be in utf-8
 
 		std::string from;
 		std::string reply_to;
@@ -53,7 +53,7 @@ namespace ext::net::mail::simple
 
 	struct send_params
 	{
-		// all strings are must be in utf-8
+		// all strings must be in utf-8
 
 		std::string smtp_addr = "localhost";
 		std::string smtp_service = "smtp";
@@ -69,6 +69,4 @@ namespace ext::net::mail::simple
 
 	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log = nullptr);
 	void write_message(std::ostream & os, const message & msg, smtp_extensions_bitset extensions = {});
-
-	//std::string sign_mail(EVP_PKEY * pkey, X509 * x509, std::string_view msg_body);
 }
