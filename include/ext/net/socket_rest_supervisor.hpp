@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // author: Dmitry Lysachenko
 // date: Saturday 19 march 2017
 // license: boost software license
@@ -33,7 +33,7 @@ namespace ext::net
 	class socket_rest_supervisor_request;
 
 
-	
+
 	/// Basic abstract item interface for socket_rest_supervisor(see below),
 	/// logically it's a child class of socket_rest_supervisor.
 	///
@@ -101,7 +101,7 @@ namespace ext::net
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
 		/// 
-		/// Typical implementation can schedule next invocation immediately, 
+		/// Typical implementation can schedule next invocation immediately,
 		/// or, in case if no new data - return some delay.
 		/// 
 		/// It's okay to return time_point::max after request, and recalculate time_point after response.
@@ -216,6 +216,9 @@ namespace ext::net
 		using base_type::m_state;
 
 	protected:
+		ext::library_logger::logger * get_logger() const override { return socket_rest_supervisor_item::logger(); }
+
+	protected:
 		using socket_rest_supervisor_item::m_flags;
 		static constexpr unsigned Pending = PausedMark << 1;
 
@@ -244,7 +247,7 @@ namespace ext::net
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
 		/// 
-		/// Typical implementation can schedule next invocation immediately, 
+		/// Typical implementation can schedule next invocation immediately,
 		/// or, in case no new data - return some delay.
 		/// 
 		/// It's okay to return time_point::max after request, and recalculate time_point after response.
@@ -261,7 +264,7 @@ namespace ext::net
 
 	/// Manages and controls set of independent of each other subscription/requests for a socket connection.
 	/// Typical example would be HTTP rest repeating requests.
-	/// * Operations on socket should be stateless, in sense: 
+	/// * Operations on socket should be stateless, in sense:
 	///   send request, receive response. They should be not connection state, like envelope in SMTP.
 	///   Of course subscription can abuse connection and send/receive data in single request call - this is not advised.
 	///
@@ -311,9 +314,10 @@ namespace ext::net
 		using base_type::mutex_type;
 		using base_type::unique_lock;
 		using base_type::m_mutex;
+		using base_type::m_logger;
 
 	protected:
-		// This class should manage socket connection to some host:service 
+		// This class should manage socket connection to some host:service
 		// and periodically execute some abstract subscriptions.
 		// In fact subscriptions are sending request/parsing responses themselves,
 		// and this class it more of manager of subscriptions, in addition to managing socket.
@@ -322,8 +326,8 @@ namespace ext::net
 		// While server preparing response - we are doing nothing(receiving nothing),
 		// while we processing reply(parsing data, xml, json, etc) - server does nothing with us(of course it can serve other clients).
 		// 
-		// This introduce latency, to reduce it, because of subscriptions rest nature, 
-		// one can send N(some small reasonable value, for example 4) requests 
+		// This introduce latency, to reduce it, because of subscriptions rest nature,
+		// one can send N(some small reasonable value, for example 4) requests
 		// and then one by one process replies, sending more requests in process.
 		// This way, while we parsing first reply, server can process next request.
 		// Though, this will not help if there is only one subscription.
@@ -357,7 +361,6 @@ namespace ext::net
 		std::string m_host;
 		std::string m_service;
 		std::chrono::steady_clock::duration m_timeout;
-		ext::library_logger::logger * m_logger = nullptr;
 
 		error_code_type m_lasterr;
 		std::string m_lasterr_message;
@@ -389,7 +392,7 @@ namespace ext::net
 		/*                 Scheduling / Action management                       */
 		/************************************************************************/
 		/// Schedules subscriptions from waiting into requests.
-		/// Each subscription that is not paused and which next_invoke has passed - 
+		/// Each subscription that is not paused and which next_invoke has passed -
 		/// is moved from waiting into requests.
 		/// 
 		/// returns time_point of nearest subscription if there no ready subscriptions; 'now' otherwise.
@@ -425,7 +428,7 @@ namespace ext::net
 		/// sets optional logger, should be called prior first call to connect.
 		/// (internal thread starts on first connect request, m_logger is accessed only from internal thread, except this setter/getter)
 		void set_logger(ext::library_logger::logger * logger)    { m_logger = logger; }
-		auto set_logger() const -> ext::library_logger::logger * { return m_logger; }
+		auto get_logger() const -> ext::library_logger::logger * { return m_logger; }
 
 		/// last error description
 		std::string last_errormsg() const;
@@ -461,8 +464,8 @@ namespace ext::net
 
 	constexpr auto socket_rest_supervisor::max_timepoint() -> std::chrono::steady_clock::time_point
 	{
-		// MSVC 2015 and some version of gcc have a bug, 
-		// that waiting in std::chrono::steady_clock::time_point::max() 
+		// MSVC 2015 and some version of gcc have a bug,
+		// that waiting in std::chrono::steady_clock::time_point::max()
 		// does not work due to integer overflow internally.
 		// 
 		// Prevent this by returning time_point::max() / 2, value still will be quite a big

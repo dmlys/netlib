@@ -37,23 +37,22 @@ namespace net
 	///    online          disconnect        disconnecting   place disconnect request
 	///    online          disconnected      offline         emit signals: disconnect, connection error, connection lost
 	///    
-	///    disconnecting   connect           BadConnectRequest
+	///    disconnecting   connect           disconnecting   delayed connect*
 	///    disconnecting   connected         none            ignore, see below
 	///    disconnecting   disconnect        disconnecting   none
 	///    disconnecting   disconnected      offline         emit disconnect signal
 	///    
-	///    It can happed that connection was successful, but state machine was already transferred to disconnect state.
+	///    It can happen that connection was successful, but state machine was already transferred to disconnect state.
 	///    State machine should ignore that conflict, and implementation should disconnect immediately after that.
 	///    (disconnect request should not be lost)
 	///    
-	///    In correctly implemented controller BadTransactionRequest should not happed.
-	///    Handle of such state is implementation-defined way, but not ignore.
+	///    In correctly implemented controller BadTransactionRequest should not happen.
+	///    Handle of such state is implementation-defined, but not ignoring.
 	///    Throw exception, call std::terminate etc.
 	///    
-	///    BadConnectRequest - is logical error.
-	///    Client should not issue connect call until connection is before disconnected.
-	///    Implementation should throw std::logic_error derived exception in such cases.
-	///    TODO: can/should be this reworked, like scheduling connect call?
+	///    delayed connect - if we can't disconnect immediately - there is disconnecting state.
+	///    When in it we can't just start connecting until disconnect is finished.
+	///    In that case controller should remember that it should automatically connect immediately after disconnect happened.
 	class connection_controller
 	{
 	public:
@@ -73,7 +72,18 @@ namespace net
 			connection_error,
 		};
 
+		enum delayed_state_type
+		{
+			normal,
+			want_connect,
+			// want_disconnect,
+		};
+
 		typedef boost::signals2::slot<void(event_type ev)> event_slot;
+
+	public:
+		static const char * state_string(state_type state) noexcept;
+		static const char * delayed_string(delayed_state_type state) noexcept;
 
 	public:
 		/// current state of connection,
@@ -81,7 +91,7 @@ namespace net
 		virtual state_type get_state() = 0;
 
 		/// Make connect request.
-		/// Returns future<bool> - result of connection 
+		/// Returns future<bool> - result of connection
 		/// @Throws std::logic_error see class decription
 		virtual ext::shared_future<bool> connect() = 0;
 		/// Makes disconnect request.
@@ -92,4 +102,32 @@ namespace net
 
 		virtual ~connection_controller() = default;
 	};
+
+
+
+
+	inline const char * connection_controller::state_string(state_type state) noexcept
+	{
+		switch (state)
+		{
+			case state_type::online:         return "online";
+			case state_type::offline:        return "offline";
+			case state_type::connecting:     return "connecting";
+			case state_type::disconnecting:  return "disconnecting";
+
+			default: EXT_UNREACHABLE();
+		}
+	}
+
+	inline const char * connection_controller::delayed_string(delayed_state_type state) noexcept
+	{
+		switch (state)
+		{
+			case delayed_state_type::normal:         return "normal";
+			case delayed_state_type::want_connect:   return "want_connect";
+
+			default: EXT_UNREACHABLE();
+		}
+	}
+
 }}

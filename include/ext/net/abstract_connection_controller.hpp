@@ -1,8 +1,9 @@
-﻿#pragma once
+#pragma once
 #include <mutex>
 
 #include <boost/config.hpp>
 #include <boost/signals2.hpp>
+#include <ext/library_logger/logger.hpp>
 #include <ext/net/connection_controller.hpp>
 
 namespace ext {
@@ -30,18 +31,23 @@ namespace net
 		typedef boost::signals2::signal<event_slot::signature_type> event_sig;
 
 	protected:
-		mutable mutex_type m_mutex;    /// mutex guarding state-machine, can also be used by derived class
-		state_type m_state = offline;  /// state-machine state
+		/// mutex guarding state-machine, can also be used by derived class
+		mutable mutex_type m_mutex;
+		mutable ext::library_logger::logger * m_logger = nullptr;
+		state_type m_state = offline;
+		delayed_state_type m_delayed_state = normal;
 		event_sig m_event_signal;
 
 		ext::intrusive_ptr<ext::shared_state<bool>> m_connect_future;
 		ext::intrusive_ptr<ext::shared_state<void>> m_disconnect_future;
 		
+	public:
+		/// name of this object, used mainly for logging purposes
+		virtual std::string_view name() const { return "<anonymous>"; }
+
 	protected:
-		/// BadTransactionRequest handler (see connection_controller description), throws std::logic_error
+		/// BadTransactionRequest handler, throws std::logic_error
 		/*virtual*/ void BOOST_NORETURN on_bad_transaction();
-		/// BadConnectRequest handler (see connection_controller description), throws std::logic_error
-		/*virtual*/ void BOOST_NORETURN on_bad_connect_request();
 
 		/// Emits signal sig with state, default implementation just calls sig(state).
 		/// Can be overridden to customize signal emission, for example, serialize and signal calls via GUI thread queue
@@ -74,10 +80,10 @@ namespace net
 
 		/// connect state-machine event implementation.
 		/// assert(lk.owns_lock() == true)
-		ext::shared_future<bool> do_connect(unique_lock & lk);
+		ext::shared_future<bool> do_connect(unique_lock lk);
 		/// disconnect state-machine event implementation.
 		/// assert(lk.owns_lock() == true)
-		ext::shared_future<void> do_disconnect(unique_lock & lk);
+		ext::shared_future<void> do_disconnect(unique_lock lk);
 		/// returns current state-machine state
 		/// assert(lk.owns_lock() == true)
 		state_type get_state(unique_lock & lk) { return  m_state; }
@@ -86,7 +92,7 @@ namespace net
 		/// current state
 		state_type get_state() override;
 		/// Make connect request.
-		/// Returns future<bool> - result of connection 
+		/// Returns future<bool> - result of connection
 		/// @Throws std::logic_error see class description
 		ext::shared_future<bool> connect() override;
 		/// Makes disconnect request.

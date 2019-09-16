@@ -1,8 +1,10 @@
-﻿#pragma once
+#pragma once
 #include <mutex>
 
 #include <boost/config.hpp>
 #include <boost/signals2.hpp>
+
+#include <ext/library_logger/logger.hpp>
 #include <ext/net/subscription_controller.hpp>
 
 namespace ext {
@@ -30,16 +32,25 @@ namespace net
 		typedef boost::signals2::signal<event_slot::signature_type> signal_type;
 
 	protected:
+		mutable mutex_type m_mutex;
 		state_type m_state = opened;
-		mutex_type m_mutex;
+		delayed_state_type m_delayed_state = normal;
 		signal_type m_event_signal;
 
 		ext::intrusive_ptr<ext::shared_state<void>> m_close_future;
 		ext::intrusive_ptr<ext::shared_state<bool>> m_pause_future, m_resume_future;
 
 	protected:
-		/// BadRequest handler (see subscription_controller description), throws std::logic_error
-		/*virtual*/ void BOOST_NORETURN on_bad_request();
+		/// optional logger support, this method always will be called under m_mutex lock
+		virtual ext::library_logger::logger * get_logger() const { return nullptr; }
+
+	public:
+		/// name of this object, used mainly for logging purposes
+		virtual std::string_view name() const { return "<anonymous>"; }
+
+	protected:
+		/// BadTransactionRequest handler (see connection_controller description), throws std::logic_error
+		/*virtual*/ void BOOST_NORETURN on_bad_transaction();
 		/// unexpected handler currently does nothing
 		/*virtual*/ void on_unexpected(state_type ev);
 
@@ -87,13 +98,13 @@ namespace net
 
 		/// close state-machine event implementation.
 		/// assert(lk.owns_lock() == true)
-		ext::shared_future<void> do_close(unique_lock & lk);
+		ext::shared_future<void> do_close(unique_lock lk);
 		/// pause state-machine event implementation.
 		/// assert(lk.owns_lock() == true)
-		ext::shared_future<bool> do_pause(unique_lock & lk);
+		ext::shared_future<bool> do_pause(unique_lock lk);
 		/// resume state-machine event implementation.
 		/// assert(lk.owns_lock() == true)
-		ext::shared_future<bool> do_resume(unique_lock & lk);
+		ext::shared_future<bool> do_resume(unique_lock lk);
 
 		/// returns current state-machine state
 		/// assert(lk.owns_lock() == true)
@@ -104,17 +115,17 @@ namespace net
 		/// actually it can be changed immediately after call.
 		state_type get_state() override;
 		/// Makes close request.
-		/// Returns future<void> - result of connection 
+		/// Returns future<void> - result of connection
 		ext::shared_future<void> close() override;
 		/// Makes pause request.
-		/// Returns future<bool> - result of connection 
+		/// Returns future<bool> - result of connection
 		/// @Throws std::logic_error, see class decription
 		ext::shared_future<bool> pause() override;
 		/// Makes resume request.
-		/// Returns future<bool> - result of connection 
+		/// Returns future<bool> - result of connection
 		/// @Throws std::logic_error, see class decription
 		ext::shared_future<bool> resume() override;
-		/// event signal, event is identified with state_type		
+		/// event signal, event is identified with state_type
 		boost::signals2::connection on_event(const event_slot & slot) override
 		{ return m_event_signal.connect(slot); }
 
