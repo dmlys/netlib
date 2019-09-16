@@ -1,4 +1,4 @@
-﻿// author: Dmitry Lysachenko
+// author: Dmitry Lysachenko
 // date: Saturday 19 march 2017
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
@@ -6,6 +6,10 @@
 #include <ext/net/socket_rest_supervisor.hpp>
 #include <ext/library_logger/logging_macros.hpp>
 #include <ext/Errors.hpp>
+
+#include <ext/net/socket_rest_supervisor.hpp>
+#include <ext/net/bsdsock_streambuf.hpp>
+#include <ext/net/socket_include.hpp>
 
 #include <boost/scope_exit.hpp>
 
@@ -86,8 +90,9 @@ namespace ext::net
 		};
 
 		m_connect_request = false; // request taken
-		m_sock_streambuf.close();
-		m_sock_streambuf.throw_errors(true);
+		m_sock_streambuf->close();
+		m_sock_streambuf->throw_errors(true);
+		m_sock_streambuf->self_tie(false);
 
 		host = m_host;
 		service = m_service;
@@ -98,11 +103,11 @@ namespace ext::net
 
 	bool socket_rest_supervisor::exec_connect(const std::string & host, const std::string & service, std::chrono::steady_clock::duration timeout)
 	{
-		assert(m_sock_streambuf.throw_errors());
+		assert(m_sock_streambuf->throw_errors());
 		EXTLL_INFO(m_logger, "Connecting to " << host << ":" << service);
 
-		if (timeout.count() > 0) m_sock_streambuf.timeout(timeout);
-		m_sock_streambuf.connect(host, service);
+		if (timeout.count() > 0) m_sock_streambuf->timeout(timeout);
+		m_sock_streambuf->connect(host, service);
 
 		EXTLL_INFO(m_logger, "Successfully connected to " << host << ":" << service);
 
@@ -113,7 +118,8 @@ namespace ext::net
 
 	void socket_rest_supervisor::exec_disconnect()
 	{
-		m_sock_streambuf.close();
+		m_sock_streambuf->throw_errors(false);
+		m_sock_streambuf->close();
 		EXTLL_INFO(m_logger, "Disconnected");
 
 		unique_lock lk(m_mutex);
@@ -140,7 +146,7 @@ namespace ext::net
 	{
 		std::string errmsg;
 		errmsg.reserve(1024);
-		error_code_type ec = m_sock_streambuf.last_error();
+		error_code_type ec = m_sock_streambuf->last_error();
 
 		errmsg = "socket_rest_supervisor error. ";
 		errmsg += ex.what();
@@ -154,14 +160,14 @@ namespace ext::net
 		m_disconnect_request = false; // take off disconnect request if any
 		m_lasterr = ec;
 		m_lasterr_message = std::move(errmsg);
-		m_sock_streambuf.close();
+		m_sock_streambuf->close();
 
 		notify_disconnected(std::move(lk));
 	}
 
 	void socket_rest_supervisor::on_conn_error(std::system_error & ex)
 	{
-		assert(ex.code() == m_sock_streambuf.last_error());
+		assert(ex.code() == m_sock_streambuf->last_error());
 
 		std::string errmsg = "socket_rest_supervisor connection error. " + ext::FormatError(ex);
 
@@ -170,9 +176,9 @@ namespace ext::net
 		/// set error info
 		unique_lock lk(m_mutex);
 		m_disconnect_request = false; // take off disconnect request if any
-		m_lasterr = m_sock_streambuf.last_error();
+		m_lasterr = m_sock_streambuf->last_error();
 		m_lasterr_message = std::move(errmsg);
-		m_sock_streambuf.close();
+		m_sock_streambuf->close();
 
 		notify_disconnected(std::move(lk));
 	}
@@ -217,7 +223,8 @@ namespace ext::net
 	void socket_rest_supervisor::set_request_slots(unsigned nslots)
 	{
 		if (nslots == 0) nslots = 1;
-		m_request_slots.store(nslots, std::memory_order_relaxed);
+		unique_lock lk(m_mutex);
+		m_request_slots = nslots;
 	}
 
 	/************************************************************************/
@@ -225,78 +232,73 @@ namespace ext::net
 	/************************************************************************/
 	void socket_rest_supervisor::run_subscriptions()
 	{
-		unsigned request_slots = m_request_slots.load(std::memory_order_relaxed);
 		std::chrono::steady_clock::time_point next_reschedule;
-		
-		item_list requests, replies;
-		item_list & waiting = m_items;
 
-		BOOST_SCOPE_EXIT_ALL(&waiting, &requests, &replies)
+		BOOST_SCOPE_EXIT_ALL(this)
 		{
-			waiting.splice(waiting.end(), requests);
-			waiting.splice(waiting.end(), replies);
+			m_waiting.splice(m_waiting.end(), m_requests);
+			m_waiting.splice(m_waiting.end(), m_replies);
 
 			// erase removed items, should be noexcept
-			auto first = waiting.begin();
-			auto last  = waiting.end();
+			auto first = m_waiting.begin();
+			auto last  = m_waiting.end();
 
 			while (first != last)
 			{
 				if (first->should_remove())
-					first = waiting.erase_and_dispose(first, release_item);
+					first = m_waiting.erase_and_dispose(first, release_item);
 				else
 					++first;
 			}
 		};
 
 		unique_lock lk(m_mutex);
+		m_currnet_requests_slots = m_request_slots;
 		for (;;)
 		{
 			// disconnect request
 			// flag is reset in exec_disconnect, which is called from thread_proc
-			if (m_disconnect_request) break;
-			
-			if (requests.empty())
+			if (m_disconnect_request) break;						
+
+			if (m_requests.empty())
 			{
 				// no pending requests, we should try reschedule
-				next_reschedule = schedule_subscriptions(lk, waiting, requests);
-				if (not requests.empty()) goto request_avail;
+				next_reschedule = schedule_subscriptions(lk, m_waiting, m_requests);
+				if (not m_requests.empty()) goto request_avail;
 			}
 			else request_avail:
 			{
 				// take one subscription, make request, place it into replies
-				auto & task = requests.front();
-				bool made = task.make_request(lk, m_sock_streambuf);
+				m_replies.splice(m_replies.end(), m_requests, m_requests.begin());
+				auto & task = m_replies.back();
+				bool made = task.make_request(lk, *m_sock_streambuf);
 
-				if (made)  replies.splice(replies.end(), requests, requests.begin());
-				else       waiting.splice(waiting.end(), requests, requests.begin());
-
-				if (request_slots -= made) continue;
-				else                       goto reply_avail;
+				if (m_currnet_requests_slots -= made) continue;
+				else                                  goto reply_avail;
 			}
 			
-			if (replies.empty())
+			if (m_replies.empty())
 			{
 				// check if we should disconnected
 				if (m_disconnect_request) break;
 				// both replies and requests are empty, wait for next_reschedule and repeat cycle
-				assert(requests.empty());
+				assert(m_requests.empty());
 				m_request_event.wait_until(lk, next_reschedule);
 				continue;
 			}
 			else reply_avail:
 			{
 				// take pending reply subscription, process response, place it back into waiting
-				++request_slots;
-				waiting.splice(waiting.end(), replies, replies.begin());
-				auto & task = waiting.back();
-				task.process_response(lk, m_sock_streambuf);
+				++m_currnet_requests_slots;
+				m_waiting.splice(m_waiting.end(), m_replies, m_replies.begin());
+				auto & task = m_waiting.back();
+				task.process_response(lk, *m_sock_streambuf);
 			}
 		}
 
 		// process left replies ones
-		for (auto & task : replies)
-			task.process_response(lk, m_sock_streambuf);
+		for (auto & task : m_replies)
+			task.process_response(lk, *m_sock_streambuf);
 	}
 
 	auto socket_rest_supervisor::schedule_subscriptions(unique_lock & lk, item_list & waiting, item_list & requests)
@@ -384,7 +386,7 @@ namespace ext::net
 		ptr->m_owner = this;
 		ptr->addref();
 
-		m_items.push_back(*ptr);
+		m_waiting.push_back(*ptr);
 	
 		lk.unlock();
 		m_request_event.notify_all();
@@ -399,7 +401,7 @@ namespace ext::net
 		if (m_thread.joinable())
 			m_thread.join();
 
-		m_items.clear_and_dispose([](auto * ptr)
+		m_waiting.clear_and_dispose([](auto * ptr)
 		{
 			// add_subscription calls addref - we have to release
 			ptr->abandon();
@@ -407,7 +409,7 @@ namespace ext::net
 		});
 	}
 
-	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, socket_streambuf & streambuf)
+	bool socket_rest_supervisor_request_base::make_request(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf)
 	{
 		auto * state = get_shared_state();
 		if (state and not state->mark_uncancellable())
@@ -443,7 +445,7 @@ namespace ext::net
 		}
 	}
 
-	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, socket_streambuf & streambuf)
+	void socket_rest_supervisor_request_base::process_response(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf)
 	{
 		try
 		{
@@ -512,7 +514,7 @@ namespace ext::net
 		}
 	}
 
-	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, socket_streambuf & streambuf)
+	bool socket_rest_supervisor_subscription::make_request(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf)
 	{
 		bool success = false;
 		set_pending();
@@ -531,13 +533,14 @@ namespace ext::net
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
 			request(streambuf);
+			check_stream(streambuf);
 		}
 
 		success = true;
 		return true;
 	}
 
-	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, socket_streambuf & streambuf)
+	void socket_rest_supervisor_subscription::process_response(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf)
 	{
 		BOOST_SCOPE_EXIT_ALL(&)
 		{
@@ -555,6 +558,60 @@ namespace ext::net
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
 			response(streambuf);
+			check_stream(streambuf);
 		}
 	}
-} // namespace ext::net
+
+	std::size_t socket_rest_supervisor::socket_streambuf::write_some(const char_type * data, std::size_t count)
+	{
+	again:
+		auto until = time_point::clock::now() + m_timeout;
+		do {
+
+#ifdef EXT_ENABLE_OPENSSL
+			if (ssl_started())
+			{
+				int res = ::SSL_write(m_sslhandle, data, count);
+				if (res > 0) return res;
+
+				if (ssl_rw_error(res, m_lasterror)) goto error;
+				continue;
+			}
+#endif // EXT_ENABLE_OPENSSL
+
+			int res = ::send(m_sockhandle, data, count, 0);
+			if (res > 0) return res;
+
+			if (rw_error(res, errno, m_lasterror)) goto error;
+			if (errno == EINTR) continue;
+
+			assert(errno == EWOULDBLOCK);
+
+			if (m_parent->m_replies.empty())
+				continue;
+			else
+			{
+				// take pending reply subscription, process response, place it back into waiting
+				unique_lock lk(m_parent->m_mutex);
+				auto & waiting = m_parent->m_waiting;
+				auto & replies = m_parent->m_replies;
+
+				++m_parent->m_currnet_requests_slots;
+
+				waiting.splice(waiting.end(), replies, replies.begin());
+				auto & task = waiting.back();
+
+				task.process_response(lk, *m_parent->m_sock_streambuf);
+				goto again;
+			}			
+
+		} while (wait_writable(until));
+
+    error:
+		m_lasterror_context = "write_some";
+		if (m_throw_errors and m_lasterror == ext::net::sock_errc::error)
+			throw system_error_type(m_lasterror, "bsdsock_streambuf::write_some failure");
+
+		return 0;
+	}
+}

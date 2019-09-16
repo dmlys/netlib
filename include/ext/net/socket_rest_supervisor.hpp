@@ -95,9 +95,9 @@ namespace ext::net
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_streambuf & streambuf) = 0;
+		virtual void request(ext::net::socket_streambuf & streambuf) = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_streambuf & streambuf) = 0;
+		virtual void response(ext::net::socket_streambuf & streambuf) = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -111,9 +111,9 @@ namespace ext::net
 
 	public:
 		/// for internal socket_rest_supervisor internal use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) = 0;
+		virtual bool make_request(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) = 0;
 		/// for internal socket_rest_supervisor internal use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) = 0;
+		virtual void process_response(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) = 0;
 
 	public:
 		virtual ~socket_rest_supervisor_item() = default;
@@ -145,17 +145,17 @@ namespace ext::net
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_streambuf & streambuf) override = 0;
+		virtual void request(ext::net::socket_streambuf & streambuf) override = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_streambuf & streambuf) override = 0;
+		virtual void response(ext::net::socket_streambuf & streambuf) override = 0;
 		/// one time execution does not needs scheduling, returns time_point::min()
 		virtual auto next_invoke() -> std::chrono::steady_clock::time_point override final;
 
 	public:
 		/// for socket_rest_supervisor internal use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		virtual bool make_request(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) override;
 		/// for socket_rest_supervisor internal use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		virtual void process_response(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) override;
 	};
 
 	/// Abstract request with ext::future support for socket_rest_supervisor(see below),
@@ -241,9 +241,9 @@ namespace ext::net
 
 	public:
 		/// writes request into sock
-		virtual void request(socket_streambuf & streambuf) override = 0;
+		virtual void request(ext::net::socket_streambuf & streambuf) override = 0;
 		/// reads and processes response from socket
-		virtual void response(socket_streambuf & streambuf) override = 0;
+		virtual void response(ext::net::socket_streambuf & streambuf) override = 0;
 
 		/// Returns time for next scheduled invocation.
 		/// Normally called after request call, not necessary after response.
@@ -257,9 +257,9 @@ namespace ext::net
 
 	public:
 		/// for socket_rest_supervisor internal use, calls request method
-		virtual bool make_request(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		virtual bool make_request(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) override;
 		/// for socket_rest_supervisor internal use, calls process method
-		virtual void process_response(parent_lock & srs_lk, socket_streambuf & streambuf) override;
+		virtual void process_response(parent_lock & srs_lk, ext::net::socket_streambuf & streambuf) override;
 	};
 
 
@@ -286,8 +286,8 @@ namespace ext::net
 		using self_type = socket_rest_supervisor;
 
 	public:
-		using error_code_type   = socket_streambuf::error_code_type;
-		using system_error_type = socket_streambuf::system_error_type;
+		using error_code_type   = ext::net::socket_streambuf::error_code_type;
+		using system_error_type = ext::net::socket_streambuf::system_error_type;
 
 		using item = socket_rest_supervisor_item;
 		friend item;
@@ -310,6 +310,8 @@ namespace ext::net
 		{
 			stopped, running,
 		};
+
+		class socket_streambuf; // inherits ext::net::socket_streambuf;
 
 	protected:
 		using base_type::mutex_type;
@@ -343,16 +345,20 @@ namespace ext::net
 		// When time comes - subscription are moved to pending list.
 		// One from that list send request and moved to request list.
 		// Those are processing requests and moved back to waiting queue.
-		item_list m_items;
-		socket_streambuf m_sock_streambuf;
+
+		// m_requests and m_replies are accessed only from background threaded and not subject of multi threading
+		item_list m_waiting, m_requests, m_replies;
+		std::unique_ptr<socket_streambuf> m_sock_streambuf = std::make_unique<socket_streambuf>(this);
 
 		thread_state m_thread_state = stopped;
 		bool m_connect_request = false;
 		bool m_disconnect_request = false;
+		bool m_interrupt_request = false;
 
 		// number of requests made before first response if processed,
 		// by default 1, which makes it behave traditionally: send request - wait response.
-		std::atomic_uint m_request_slots = ATOMIC_VAR_INIT(1);
+		unsigned m_request_slots = 1;
+		unsigned m_currnet_requests_slots;
 
 		// thread running subscriptions
 		mutable std::thread m_thread;
@@ -461,6 +467,18 @@ namespace ext::net
 	};
 
 
+
+	class socket_rest_supervisor::socket_streambuf : public ext::net::socket_streambuf
+	{
+		socket_rest_supervisor * m_parent;
+
+	public:
+		//virtual std::size_t read_some(char_type * data, std::size_t count) override;
+		virtual std::size_t write_some(const char_type * data, std::size_t count) override;
+
+	public:
+		socket_streambuf(socket_rest_supervisor * parent) : m_parent(parent) {}
+	};
 
 
 	constexpr auto socket_rest_supervisor::max_timepoint() -> std::chrono::steady_clock::time_point
