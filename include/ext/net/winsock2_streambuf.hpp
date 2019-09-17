@@ -222,6 +222,8 @@ namespace ext::net
 		const char * last_error_context() const noexcept { return m_lasterror_context; }
 		/// устанавливает полсденюю ошибкку и опционально контекст
 		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
+		/// возвращает имя данного класса, для логирования
+		static const char * class_name() noexcept { return "bsdsock_streambuf"; }
 
 		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависиммые от первых
 		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщеаться через return значение.

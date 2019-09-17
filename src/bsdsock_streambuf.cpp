@@ -262,7 +262,8 @@ namespace ext::net
 
 		std::string err_msg;
 		err_msg.reserve(256);
-		err_msg += "bsdsock_streambuf::";
+		err_msg += class_name();
+		err_msg += "::";
 		err_msg += m_lasterror_context;
 		err_msg += " failure";
 

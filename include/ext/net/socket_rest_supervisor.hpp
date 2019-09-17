@@ -64,6 +64,7 @@ namespace ext::net
 
 	protected:
 		static constexpr auto max_timepoint() -> std::chrono::steady_clock::time_point;
+		static void check_stream(ext::net::socket_streambuf & stream);
 
 		void set_parent(socket_rest_supervisor * parent) noexcept { m_owner = parent; }
 		bool is_orphan() const noexcept { return m_owner == nullptr; }
@@ -313,7 +314,7 @@ namespace ext::net
 	protected:
 		using base_type::mutex_type;
 		using base_type::unique_lock;
-		using base_type::m_mutex;
+		using base_type::m_mutex; // mutable
 		using base_type::m_logger;
 
 	protected:
@@ -354,8 +355,8 @@ namespace ext::net
 		std::atomic_uint m_request_slots = ATOMIC_VAR_INIT(1);
 
 		// thread running subscriptions
-		std::thread m_thread;
-		std::condition_variable m_request_event;
+		mutable std::thread m_thread;
+		mutable std::condition_variable m_request_event;
 		
 		// connection info
 		std::string m_host;

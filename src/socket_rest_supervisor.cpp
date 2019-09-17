@@ -122,13 +122,28 @@ namespace ext::net
 		notify_disconnected(std::move(lk));
 	}
 
+	void socket_rest_supervisor_item::check_stream(socket_streambuf & streambuf)
+	{
+		if (streambuf.is_valid()) return;
+
+		std::string err_msg;
+		err_msg.reserve(256);
+		err_msg += streambuf.class_name();
+		err_msg += "::";
+		err_msg += streambuf.last_error_context();
+		err_msg += " failure";
+
+		throw socket_stream::system_error_type(streambuf.last_error(), err_msg);
+	}
+
 	void socket_rest_supervisor::on_conn_error(std::runtime_error & ex)
 	{
 		std::string errmsg;
 		errmsg.reserve(1024);
 		error_code_type ec = m_sock_streambuf.last_error();
 
-		errmsg = ex.what();
+		errmsg = "socket_rest_supervisor error. ";
+		errmsg += ex.what();
 		errmsg += "; socket_state - ";
 		errmsg += ext::FormatError(ec);
 
@@ -148,7 +163,7 @@ namespace ext::net
 	{
 		assert(ex.code() == m_sock_streambuf.last_error());
 
-		std::string errmsg = ext::FormatError(ex);
+		std::string errmsg = "socket_rest_supervisor connection error. " + ext::FormatError(ex);
 
 		EXTLL_ERROR(m_logger, errmsg);
 
@@ -406,18 +421,20 @@ namespace ext::net
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
 			request(streambuf);
+			check_stream(streambuf);
+
 			return true;
 		}
-		catch (socket_streambuf::system_error_type & )
+		catch (socket_rest_supervisor::system_error_type & )
 		{
 			throw;
 		}
 		catch (std::runtime_error & )
 		{
-			BOOST_SCOPE_EXIT_ALL(this)
-			{
-				mark_for_removal();
-			};
+			if (not streambuf.is_valid())
+				throw;
+
+			mark_for_removal();
 
 			if (not state) throw;
 			state->set_exception(std::current_exception());
@@ -432,25 +449,26 @@ namespace ext::net
 		{
 			reverse_lock<parent_lock> rlk(srs_lk);
 			response(streambuf);
+			check_stream(streambuf);
 
 			if (should_repeat())
 				reset_repeat();
 			else
 				mark_for_removal();
 		}
-		catch (socket_streambuf::system_error_type & )
+		catch (socket_rest_supervisor::system_error_type & )
 		{
 			throw;
 		}
 		catch (std::runtime_error & )
 		{
-			BOOST_SCOPE_EXIT_ALL(this)
-			{
-				mark_for_removal();
-			};
+			if (not streambuf.is_valid())
+				throw;
 
+			mark_for_removal();
 			auto * state = get_shared_state();
 			if (not state) throw;
+
 			state->set_exception(std::current_exception());
 		}
 	}
