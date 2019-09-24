@@ -121,14 +121,21 @@ namespace ext::net
 		void submit(socket_stream    sock, wait_type wtype = readable);
 
 	public:
+		/// queue is empty if it does not have any listeners or sockets
+		bool empty() const noexcept { return m_listeners.empty() and m_socks.empty(); }
+		/// clears this queue, closes any listeners and sockets currently present in this queue
+		void clear() noexcept;
+
+	public:
 		/// adds listener to socket_queue, new incoming connections will be automatically submitted with readable while wait*/take calls takes place
 		void add_listener(ext::net::listener listener);
 		/// removes and returns listener with specified port
 		auto remove_listener(unsigned short port) -> ext::net::listener;
 		auto take_listener(unsigned short port) -> ext::net::listener { return remove_listener(port); }
 
-		auto get_listeners() const -> const listener_list &;
-		auto take_listeners() -> listener_list;
+		auto get_listeners() const -> const listener_list & { return m_listeners; }
+		auto get_listeners()       ->       listener_list & { return m_listeners; }
+		auto take_listeners()      ->       listener_list   { return std::move(m_listeners); }
 
 	public:
 		/// sets/gets default timeout for newly accepted sockets from listeners

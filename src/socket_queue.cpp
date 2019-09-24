@@ -92,7 +92,7 @@ namespace ext::net
 
 	auto socket_queue::process_interrupted()
 	{
-		LOG_WARN("ext::net::socket_queue interrupted");
+		LOG_DEBUG("ext::net::socket_queue interrupted");
 
 #if BOOST_OS_WINDOWS
 		std::tie(m_interrupt_listen, m_interrupt_write) = create_interrupt_pair();
@@ -176,12 +176,12 @@ namespace ext::net
 
 		for (; first != last; ++first)
 		{
-			auto & item = *m_cur;
+			auto & item = *first;
 			auto & sock = item.sock;
 			// have some data
 			if (sock.in_avail())
 			{
-				LOG_DEBUG("socket {} is readable", sock.handle());
+				LOG_TRACE("socket {} is readable", sock.handle());
 				break;
 			}
 
@@ -234,11 +234,11 @@ namespace ext::net
 		std::tie(max_handle, sock_until) = helper::fill_fdset(&readset, &writeset, *this, now);
 		make_timeval(std::min(sock_until, until) - time_point::clock::now(), select_timeout);
 
-		LOG_INFO("executing select with timeout {} seconds", select_timeout.tv_sec);
+		LOG_TRACE("executing select with timeout {} seconds", select_timeout.tv_sec);
 		res = ::select(max_handle + 1, &readset, &writeset, nullptr, &select_timeout);
 		if (res == 0)
 		{
-			LOG_INFO("select timed out, restarting");
+			LOG_TRACE("select timed out, restarting");
 			goto again;
 		}
 
@@ -253,7 +253,7 @@ namespace ext::net
 			auto errc = std::error_code(err, std::system_category());
 			LOG_ERROR("got error while executing select: {}", ext::FormatError(errc));
 
-			throw std::system_error(errc, "ext::net::socket_queue::wait_readable: ::select failed");
+			throw std::system_error(errc, "ext::net::socket_queue::wait_ready: ::select failed");
 		}
 
 		if (m_interrupted.load(std::memory_order_relaxed) or FD_ISSET(m_interrupt_listen, &readset))
@@ -267,7 +267,7 @@ namespace ext::net
 				continue;
 
 			auto new_sock = listener.accept();
-			LOG_INFO("got new socket {} connection from {}", new_sock.handle(), new_sock.peer_endpoint());
+			LOG_DEBUG("got new socket {} connection from {}", new_sock.handle(), new_sock.peer_endpoint());
 
 			configure(new_sock);
 			submit(std::move(new_sock));
@@ -290,7 +290,7 @@ namespace ext::net
 			if (res != 0) goto sockopt_error;
 			if (err != 0) goto sock_error;
 
-			LOG_DEBUG("socket {} is readable", handle);
+			LOG_TRACE("socket {} is readable", handle);
 			m_cur = it;
 			return ready;
 
@@ -341,7 +341,7 @@ namespace ext::net
 			result = std::move(m_cur->sock);
 			m_cur = m_socks.erase(m_cur);
 
-			LOG_INFO("socket {} taken", result.handle());
+			LOG_TRACE("socket {} taken", result.handle());
 		}
 
 		return std::make_tuple(result_status, std::move(result));
@@ -349,7 +349,7 @@ namespace ext::net
 
 	void socket_queue::submit(socket_streambuf buf, wait_type wtype)
 	{
-		LOG_INFO("socket {} submitted", buf.handle());
+		LOG_TRACE("socket {} submitted", buf.handle());
 		//if (not (wtype & freadable) and not (wtype & fwritable))
 		//	throw std::logic_error("bad wait_type");
 
@@ -363,6 +363,12 @@ namespace ext::net
 	void socket_queue::submit(socket_stream sock, wait_type wtype)
 	{
 		return submit(std::move(*sock.rdbuf()), wtype);
+	}
+
+	void socket_queue::clear() noexcept
+	{
+		m_listeners.clear();
+		m_socks.clear();
 	}
 
 	void socket_queue::add_listener(ext::net::listener listener)
