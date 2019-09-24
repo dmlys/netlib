@@ -171,7 +171,9 @@ namespace ext::net::openssl
 
 	void stackof_x509_deleter::operator()(STACK_OF(X509) * ca) const noexcept
 	{
-		::sk_X509_free(ca);
+		// https://wiki.nikhef.nl/grid/How_to_handle_OpenSSL_and_not_get_hurt_and_what_does_that_library_call_really_do%3F#Proper_memory_liberation_of_a_STACK_OF_.28X509.29_.2A
+		// sk_X509_pop_free should be used instead of sk_X509_free, or memory leaks will occur or certificate chains longer than 1
+		::sk_X509_pop_free(ca, ::X509_free);
 	}
 
 	void rsa_deleter::operator()(RSA * rsa) const noexcept
