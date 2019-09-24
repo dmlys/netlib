@@ -1057,7 +1057,7 @@ namespace ext::net
 		m_lasterror_context = context;
 	}
 
-	void bsdsock_streambuf::getpeername(sockaddr_type * addr, socklen_t * addrlen)
+	void bsdsock_streambuf::getpeername(sockaddr_type * addr, socklen_t * addrlen) const
 	{
 		if (!is_open())
 			throw std::runtime_error("bsdsock_streambuf::getpeername: bad socket");
@@ -1070,7 +1070,7 @@ namespace ext::net
 		}
 	}
 
-	void bsdsock_streambuf::getsockname(sockaddr_type * addr, socklen_t * addrlen)
+	void bsdsock_streambuf::getsockname(sockaddr_type * addr, socklen_t * addrlen) const
 	{
 		if (!is_open())
 			throw std::runtime_error("bsdsock_streambuf::getsockname: bad socket");
@@ -1083,7 +1083,7 @@ namespace ext::net
 		}
 	}
 
-	std::string bsdsock_streambuf::peer_endpoint()
+	std::string bsdsock_streambuf::peer_endpoint() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1101,7 +1101,7 @@ namespace ext::net
 		return host;
 	}
 
-	std::string bsdsock_streambuf::sock_endpoint()
+	std::string bsdsock_streambuf::sock_endpoint() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1119,7 +1119,7 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short bsdsock_streambuf::peer_port()
+	unsigned short bsdsock_streambuf::peer_port() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1131,7 +1131,7 @@ namespace ext::net
 		return ::ntohs(port);
 	}
 
-	unsigned short bsdsock_streambuf::sock_port()
+	unsigned short bsdsock_streambuf::sock_port() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1143,7 +1143,7 @@ namespace ext::net
 		return ::ntohs(port);
 	}
 
-	void bsdsock_streambuf::peer_name(std::string & name, unsigned short & port)
+	void bsdsock_streambuf::peer_name(std::string & name, unsigned short & port) const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1153,7 +1153,7 @@ namespace ext::net
 		inet_ntop(addr, name, port);
 	}
 
-	void bsdsock_streambuf::sock_name(std::string & name, unsigned short & port)
+	void bsdsock_streambuf::sock_name(std::string & name, unsigned short & port) const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -1163,28 +1163,28 @@ namespace ext::net
 		inet_ntop(addr, name, port);
 	}
 
-	auto bsdsock_streambuf::peer_name() -> std::pair<std::string, unsigned short>
+	auto bsdsock_streambuf::peer_name() const -> std::pair<std::string, unsigned short>
 	{
 		std::pair<std::string, unsigned short> res;
 		peer_name(res.first, res.second);
 		return res;
 	}
 
-	auto bsdsock_streambuf::sock_name() -> std::pair<std::string, unsigned short>
+	auto bsdsock_streambuf::sock_name() const -> std::pair<std::string, unsigned short>
 	{
 		std::pair<std::string, unsigned short> res;
 		sock_name(res.first, res.second);
 		return res;
 	}
 
-	std::string bsdsock_streambuf::peer_address()
+	std::string bsdsock_streambuf::peer_address() const
 	{
 		std::string addr; unsigned short port;
 		peer_name(addr, port);
 		return addr;
 	}
 
-	std::string bsdsock_streambuf::sock_address()
+	std::string bsdsock_streambuf::sock_address() const
 	{
 		std::string addr; unsigned short port;
 		sock_name(addr, port);

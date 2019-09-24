@@ -21,7 +21,7 @@ namespace ext::net
 		return enabled;
 	}
 
-	void listener::getsockname(sockaddr_type * addr, socklen_t * addrlen)
+	void listener::getsockname(sockaddr_type * addr, socklen_t * addrlen) const
 	{
 		if (m_listening_socket == -1)
 			throw std::runtime_error("ext::net::listener::getsockname: bad socket");
@@ -31,7 +31,7 @@ namespace ext::net
 		if (res != 0) throw_last_socket_error("ext::net::listener::getsockname: ::getsockname failed");
 	}
 
-	std::string listener::sock_endpoint()
+	std::string listener::sock_endpoint() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -49,7 +49,7 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short listener::sock_port()
+	unsigned short listener::sock_port() const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -61,7 +61,7 @@ namespace ext::net
 		return ntohs(port);
 	}
 
-	void listener::sock_name(std::string & name, unsigned short & port)
+	void listener::sock_name(std::string & name, unsigned short & port) const
 	{
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
@@ -71,14 +71,14 @@ namespace ext::net
 		inet_ntop(addr, name, port);
 	}
 
-	auto listener::sock_name() -> std::pair<std::string, unsigned short>
+	auto listener::sock_name() const -> std::pair<std::string, unsigned short>
 	{
 		std::pair<std::string, unsigned short> res;
 		sock_name(res.first, res.second);
 		return res;
 	}
 
-	std::string listener::sock_address()
+	std::string listener::sock_address() const
 	{
 		std::string addr; unsigned short port;
 		sock_name(addr, port);

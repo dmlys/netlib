@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <memory>
 #include <string>
 #include <ext/net/socket_base.hpp>
@@ -26,20 +26,20 @@ namespace ext::net
 	public:
 		/// calls ::getsockname(handle(), addr, namelen),
 		/// throws std::system_error in case or errors
-		void getsockname(sockaddr_type * addr, socklen_t * addrlen);
+		void getsockname(sockaddr_type * addr, socklen_t * addrlen) const;
 		/// returns socket endpoint address port as $addr:$port string(calls getsockname)
 		/// throws std::system_error in case or errors
-		std::string sock_endpoint();
+		std::string sock_endpoint() const;
 		/// returns socket endpoint address and port(calls getsockname).
 		/// throws std::system_error in case or errors
-		void sock_name(std::string & name, unsigned short & port);
-		auto sock_name() -> std::pair<std::string, unsigned short>;
+		void sock_name(std::string & name, unsigned short & port) const;
+		auto sock_name() const -> std::pair<std::string, unsigned short>;
 		/// returns socket endpoint address(calls getsockname).
 		/// throws std::system_error in case or errors
-		std::string sock_address();
+		std::string sock_address() const;
 		/// returns socket endpoint port(calls getsockname).
 		/// throws std::system_error in case or errors
-		unsigned short sock_port();
+		unsigned short sock_port() const;
 
 	public:
 		/// binds this listener to given address and port.

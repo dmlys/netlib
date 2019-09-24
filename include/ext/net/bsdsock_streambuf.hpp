@@ -231,38 +231,38 @@ namespace ext::net
 
 		/// вызов ::getpeername(handle(), addr, addrlen), + проверка результат
 		/// в случае ошибок кидает исключение system_error_type
-		void getpeername(sockaddr_type * addr, socklen_t * addrlen);
+		void getpeername(sockaddr_type * addr, socklen_t * addrlen) const;
 		/// вызов ::getsockname(handle(), addr, namelen), + проверка результат
 		/// в случае ошибок кидает исключение system_error_type
-		void getsockname(sockaddr_type * addr, socklen_t * addrlen);
+		void getsockname(sockaddr_type * addr, socklen_t * addrlen) const;
 
 		/// возвращает строку адреса подключения вида <addr:port>(функция getpeername)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		std::string peer_endpoint();
+		std::string peer_endpoint() const;
 		/// возвращает строку адреса и порт подключения (функция getpeername).
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		void peer_name(std::string & name, unsigned short & port);
-		auto peer_name() -> std::pair<std::string, unsigned short>;
+		void peer_name(std::string & name, unsigned short & port) const;
+		auto peer_name() const -> std::pair<std::string, unsigned short>;
 		/// возвращает строку адреса подключения (функция getpeername)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		std::string peer_address();
+		std::string peer_address() const;
 		/// возвращает порт подключения (функция getpeername)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		unsigned short peer_port();
+		unsigned short peer_port() const;
 
 		/// возвращает строку адреса подключения вида <addr:port>(функция getsockname)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		std::string sock_endpoint();
+		std::string sock_endpoint() const;
 		/// возвращает строку адреса и порт подключения (функция getsockname).
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		void sock_name(std::string & name, unsigned short & port);
-		auto sock_name() -> std::pair<std::string, unsigned short>;
+		void sock_name(std::string & name, unsigned short & port) const;
+		auto sock_name() const -> std::pair<std::string, unsigned short>;
 		/// возвращает строку адреса подключения (функция getsockname)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		std::string sock_address();
+		std::string sock_address() const;
 		/// возвращает порт подключения (функция getsockname)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-		unsigned short sock_port();
+		unsigned short sock_port() const;
 
 		/************************************************************************/
 		/*                    управление подключением                           */

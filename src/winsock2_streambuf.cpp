@@ -1097,7 +1097,7 @@ namespace ext::net
 		m_lasterror_context = context;
 	}
 
-	void winsock2_streambuf::getpeername(sockaddr_type * addr, int * addrlen)
+	void winsock2_streambuf::getpeername(sockaddr_type * addr, int * addrlen) const
 	{
 		if (!is_open())
 			throw std::runtime_error("winsock2_streambuf::getpeername: bad socket");
@@ -1109,7 +1109,7 @@ namespace ext::net
 		}
 	}
 
-	void winsock2_streambuf::getsockname(sockaddr_type * addr, int * addrlen)
+	void winsock2_streambuf::getsockname(sockaddr_type * addr, int * addrlen) const
 	{
 		if (!is_open())
 			throw std::runtime_error("winsock2_streambuf::getsockname: bad socket");
@@ -1121,7 +1121,7 @@ namespace ext::net
 		}
 	}
 
-	std::string winsock2_streambuf::peer_endpoint()
+	std::string winsock2_streambuf::peer_endpoint() const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1133,7 +1133,7 @@ namespace ext::net
 		return res;
 	}
 
-	std::string winsock2_streambuf::sock_endpoint()
+	std::string winsock2_streambuf::sock_endpoint() const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1145,7 +1145,7 @@ namespace ext::net
 		return res;
 	}
 
-	unsigned short winsock2_streambuf::peer_port()
+	unsigned short winsock2_streambuf::peer_port() const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1157,7 +1157,7 @@ namespace ext::net
 		return ::ntohs(port);
 	}
 
-	unsigned short winsock2_streambuf::sock_port()
+	unsigned short winsock2_streambuf::sock_port() const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1169,7 +1169,7 @@ namespace ext::net
 		return ::ntohs(port);
 	}
 
-	void winsock2_streambuf::peer_name(std::string & name, unsigned short & port)
+	void winsock2_streambuf::peer_name(std::string & name, unsigned short & port) const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1179,7 +1179,7 @@ namespace ext::net
 		inet_ntop(addr, name, port);
 	}
 
-	void winsock2_streambuf::sock_name(std::string & name, unsigned short & port)
+	void winsock2_streambuf::sock_name(std::string & name, unsigned short & port) const
 	{
 		sockaddr_storage addrstore;
 		int addrlen = sizeof(addrstore);
@@ -1189,28 +1189,28 @@ namespace ext::net
 		inet_ntop(addr, name, port);
 	}
 
-	auto winsock2_streambuf::peer_name() -> std::pair<std::string, unsigned short>
+	auto winsock2_streambuf::peer_name() const -> std::pair<std::string, unsigned short>
 	{
 		std::pair<std::string, unsigned short> res;
 		peer_name(res.first, res.second);
 		return res;
 	}
 
-	auto winsock2_streambuf::sock_name() -> std::pair<std::string, unsigned short>
+	auto winsock2_streambuf::sock_name() const -> std::pair<std::string, unsigned short>
 	{
 		std::pair<std::string, unsigned short> res;
 		sock_name(res.first, res.second);
 		return res;
 	}
 
-	std::string winsock2_streambuf::peer_address()
+	std::string winsock2_streambuf::peer_address() const
 	{
 		std::string addr; unsigned short port;
 		peer_name(addr, port);
 		return addr;
 	}
 
-	std::string winsock2_streambuf::sock_address()
+	std::string winsock2_streambuf::sock_address() const
 	{
 		std::string addr; unsigned short port;
 		sock_name(addr, port);
