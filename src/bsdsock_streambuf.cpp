@@ -448,7 +448,7 @@ namespace ext::net
 	/************************************************************************/
 	bool bsdsock_streambuf::is_valid() const noexcept
 	{
-		return m_sockhandle != -1 && !m_lasterror;
+		return m_sockhandle != -1 && m_lasterror != sock_errc::error;
 	}
 
 	bool bsdsock_streambuf::is_open() const noexcept

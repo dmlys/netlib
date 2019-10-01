@@ -467,7 +467,7 @@ namespace ext::net
 	/************************************************************************/
 	bool winsock2_streambuf::is_valid() const noexcept
 	{
-		return m_sockhandle != INVALID_SOCKET && !m_lasterror;
+		return m_sockhandle != INVALID_SOCKET && m_lasterror != sock_errc::error;
 	}
 
 	bool winsock2_streambuf::is_open() const noexcept
