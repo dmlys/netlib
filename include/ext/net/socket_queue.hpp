@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <atomic>
 #include <memory>
 #include <chrono>
@@ -32,8 +32,9 @@ namespace ext::net
 		/// result of wait operation
 		enum wait_status : unsigned
 		{
-			ready,         /// there is ready socket
+			ready,         /// there is ready socket, it can be ready, have error or timeout(ext::net::sock_errc::timeout
 			timeout,       /// no ready sockets for given timeout/until given time point(wait_for/wait_until)
+			               /// NOTE: this dos not mean that some socket timed out.
 			empty_queue,   /// queue is empty - there are no sockets and listeners
 			interrupted,   /// wait operation was interrupted via interrupt parallel call
 		};
@@ -86,9 +87,9 @@ namespace ext::net
 		/// manages object state after interrupt event, does some clean up and stuff
 		auto process_interrupted();
 
-		/// searches ready socket from m_socks list via socket_streambuf::in_avail( ::ioctl(..., FIONREAD, ...) syscall )
-		/// if there is no such returns m_socks.end()
-		auto find_ready_socket(time_point now) -> sock_list::iterator;
+		/// searches ready socket from [first, last) via socket_streambuf::in_avail( ::ioctl(..., FIONREAD, ...) syscall )
+		/// if there is no such returns last
+		auto find_ready_socket(sock_list::iterator first, sock_list::iterator last, time_point now) -> sock_list::iterator;
 		/// this is actually heart of this class, it searches for ready socket, if there are no such -
 		/// creates socket sets for select call - call it, process select result, accepts new incoming connections from listeners, etc
 		/// returns waiting result, and if there is ready socket - m_cur will point to it
@@ -111,7 +112,7 @@ namespace ext::net
 		void interrupt();
 
 	public:
-		/// waits until some socket becomes ready for read or write(depends on submission flag) and returns wait_status::ready with ready socket it.
+		/// waits until some socket becomes ready for read or write(depends on submission flag) or have error, timed out; returns wait_status::ready with ready socket.
 		/// with any other wait_status returned socket_streambuf will be empty: socket_streambuf::is_open == false
 		auto take() -> std::tuple<wait_status, socket_streambuf>;
 		/// submits socket_streambuf for waiting: readable, writable or both

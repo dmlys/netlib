@@ -1,4 +1,4 @@
-﻿#include <cstring>      // for std::memset and stuff
+#include <cstring>      // for std::memset and stuff
 #include <memory>
 
 #include <fmt/format.h>
@@ -169,11 +169,8 @@ namespace ext::net
 		}
 	};
 
-	auto socket_queue::find_ready_socket(time_point now) -> sock_list::iterator
+	auto socket_queue::find_ready_socket(sock_list::iterator first, sock_list::iterator last, time_point now) -> sock_list::iterator
 	{
-		auto first = m_cur;
-		auto last = m_socks.end();
-
 		for (; first != last; ++first)
 		{
 			auto & item = *first;
@@ -203,7 +200,7 @@ namespace ext::net
 		int res, err;
 		sockoptlen_t solen;
 		handle_type max_handle, listener_handle;
-		sock_list::iterator first, last;
+		sock_list::iterator first, last, it;
 
 		time_point now, sock_until;
 		timeval select_timeout;
@@ -215,14 +212,15 @@ namespace ext::net
 		if (m_listeners.empty() and m_socks.empty())
 			return empty_queue;
 
+    find_ready:
+		now = std::chrono::steady_clock::now();
 		first = m_socks.begin();
 		last  = m_socks.end();
 
-		m_cur = find_ready_socket(now);
+		m_cur = find_ready_socket(it = m_cur, last, now);
 		if (m_cur != last) return ready;
-
-		// restart queue
-		m_cur = m_socks.begin();
+		m_cur = find_ready_socket(first, it, now);
+		if (m_cur != it)   return ready;
 
     again:
 		if (m_interrupted.load(std::memory_order_relaxed))
@@ -232,14 +230,14 @@ namespace ext::net
 		if (now >= until) return timeout;
 
 		std::tie(max_handle, sock_until) = helper::fill_fdset(&readset, &writeset, *this, now);
-		make_timeval(std::min(sock_until, until) - time_point::clock::now(), select_timeout);
+		make_timeval(std::min(sock_until, until) - now, select_timeout);
 
 		LOG_TRACE("executing select with timeout {} seconds", select_timeout.tv_sec);
 		res = ::select(max_handle + 1, &readset, &writeset, nullptr, &select_timeout);
 		if (res == 0)
 		{
 			LOG_TRACE("select timed out, restarting");
-			goto again;
+			goto find_ready;
 		}
 
 		if (res == -1)
@@ -309,7 +307,7 @@ namespace ext::net
 			return ready;
 		}
 
-		// actually that should not happen. if select succeeded - there should readable socket or listener
+		// this can happen if select succeeded -> we got new socket from listener, but it's not ready yet
 		goto again;
 
     interrupted:
@@ -350,8 +348,7 @@ namespace ext::net
 	void socket_queue::submit(socket_streambuf buf, wait_type wtype)
 	{
 		LOG_TRACE("socket {} submitted", buf.handle());
-		//if (not (wtype & freadable) and not (wtype & fwritable))
-		//	throw std::logic_error("bad wait_type");
+		assert(wtype & readable or wtype & writable);
 
 		m_socks.push_back({
 		    std::move(buf),
