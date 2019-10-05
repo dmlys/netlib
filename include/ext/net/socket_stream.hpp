@@ -42,12 +42,14 @@ namespace ext::net
 		void getsockname(sockaddr_type * addr, socklen_t * addrlen) { m_streambuf.getsockname(addr, addrlen); }
 
 		std::string peer_endpoint() { return m_streambuf.peer_endpoint(); }
+		std::string peer_endpoint_noexcept() { return m_streambuf.peer_endpoint_noexcept(); }
 		void peer_name(std::string & name, unsigned short & port)  { return m_streambuf.peer_name(name, port); }
 		auto peer_name() -> std::pair<std::string, unsigned short> { return m_streambuf.peer_name(); }
 		std::string peer_address() { return m_streambuf.peer_address(); }
 		unsigned short peer_port() { return m_streambuf.peer_port(); }
 
 		std::string sock_endpoint() { return m_streambuf.sock_endpoint(); }
+		std::string sock_endpoint_noexcept() { return m_streambuf.sock_endpoint_noexcept(); }
 		void sock_name(std::string & name, unsigned short & port)  { return m_streambuf.sock_name(name, port); }
 		auto sock_name() -> std::pair<std::string, unsigned short> { return m_streambuf.sock_name(); }
 		std::string sock_address() { return m_streambuf.sock_address(); }

@@ -20,6 +20,72 @@ namespace ext::net
 {
 	const std::string bsdsock_streambuf::empty_str;
 	
+	static std::string make_addr_error_description(int err)
+	{
+		ext::itoa_buffer<int> buffer;
+		std::string errstr;
+		errstr.reserve(32);
+
+		errstr += '<';
+
+		switch (err)
+		{
+			case EBADF:        errstr += "EBADF"; break;
+			case EINVAL:       errstr += "EINVAL"; break;
+			case EFAULT:       errstr += "EFAULT"; break;
+			case ENOTCONN:     errstr += "ENOTCONN"; break;
+			case ENOTSOCK:     errstr += "ENOTSOCK"; break;
+			case EOPNOTSUPP:   errstr += "EOPNOTSUPP"; break;
+			case ENOBUFS:      errstr += "ENOBUFS"; break;
+			case EAFNOSUPPORT: errstr += "EAFNOSUPPORT"; break;
+			case ENOSPC:       errstr += "ENOSPC"; break;
+			default:           errstr += "unknown"; break;
+		}
+
+		errstr += ':';
+		errstr += ext::itoa(err, buffer);
+		errstr += '>';
+
+		return errstr;
+	}
+
+	static std::string endpoint_noexcept(const sockaddr * addr)
+	{
+		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
+		const int force_afinet = BOOST_OS_HPUX;
+
+		unsigned short port;
+		const char * host_ptr;
+		const socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[buflen];
+
+		if (addr->sa_family == AF_INET6)
+		{
+			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
+			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			port = ntohs(addr6->sin6_port);
+		}
+		else if (addr->sa_family == AF_INET || force_afinet)
+		{
+			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
+			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			port = ntohs(addr4->sin_port);
+		}
+		else
+		{
+			return make_addr_error_description(EAFNOSUPPORT);
+		}
+
+		if (not host_ptr) return make_addr_error_description(errno);
+
+		std::string host = host_ptr;
+		ext::itoa_buffer<unsigned short> port_buffer;
+		host += ':';
+		host += ext::itoa(port, port_buffer);
+
+		return host;
+	}
+
 	/************************************************************************/
 	/*                   connect/resolve helpers                            */
 	/************************************************************************/
@@ -71,9 +137,15 @@ namespace ext::net
 		auto res = ::shutdown(sock, how);
 		if (res == 0) return true;
 
+		int err = errno;
+		// EINVAL          - should never happen
+		// EBADF, ENOTSOCK - if this object is created from bad descriptor
+		// ENOTCONN        - socket not connected, other side closed it, not a error actually
+		if (err == ENOTCONN) return true;
+
 		m_lasterror_context = "socket_shutdown";
-		m_lasterror.assign(errno, std::generic_category());
-		return false;
+		m_lasterror.assign(err, std::generic_category());
+		return err != ENOTCONN;
 	}
 
 	bool bsdsock_streambuf::do_sockclose(handle_type sock) noexcept
@@ -81,9 +153,16 @@ namespace ext::net
 		auto res = ::close(sock);
 		if (res == 0) return true;
 
+		// EBADF - if this object is created from bad descriptor, but not a problem
+
+		// EINTR  The close() call was interrupted by a signal; see signal(7).
+		// EIO    An I/O error occurred.
+		// both this on most unix'es, with exception of HP-UX, will close descriptor
+
+		// ENOSPC, EDQUOT - who knows how to handle them
 		m_lasterror_context = "socket_close";
 		m_lasterror.assign(errno, std::generic_category());
-		return false;
+		return true;
 	}
 
 	bool bsdsock_streambuf::do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port) noexcept
@@ -1117,6 +1196,30 @@ namespace ext::net
 		host += ext::itoa(port, buffer);
 		
 		return host;
+	}
+
+	std::string bsdsock_streambuf::peer_endpoint_noexcept() const
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
+		if (res != 0) return make_addr_error_description(errno);
+
+		return endpoint_noexcept(addr);
+	}
+
+	std::string bsdsock_streambuf::sock_endpoint_noexcept() const
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
+		if (res != 0) return make_addr_error_description(errno);
+
+		return endpoint_noexcept(addr);
 	}
 
 	unsigned short bsdsock_streambuf::peer_port() const

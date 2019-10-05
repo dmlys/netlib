@@ -250,6 +250,9 @@ namespace ext::net
 		/// возвращает строку адреса подключения вида <addr:port>(функция getpeername)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
 		std::string peer_endpoint() const;
+		/// safe версия peer_endpoint - не кидает ошибок(за исключением std::bad_alloc),
+		/// в случае ошибки возвращает <ERR:code>. Например - <WSAENOTCONN:107>
+		std::string peer_endpoint_noexcept() const;
 		/// возвращает строку адреса и порт подключения (функция getpeername).
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
 		void peer_name(std::string & name, unsigned short & port) const;
@@ -264,6 +267,9 @@ namespace ext::net
 		/// возвращает строку адреса подключения вида <addr:port>(функция getsockname)
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
 		std::string sock_endpoint() const;
+		/// safe версия sock_endpoint - не кидает ошибок(за исключением std::bad_alloc),
+		/// в случае ошибки возвращает <ERR:code>. Например - <WSAENOTCONN:107>
+		std::string sock_endpoint_noexcept() const;
 		/// возвращает строку адреса и порт подключения (функция getsockname).
 		/// в случае ошибок кидает исключение std::runtime_error / std::system_error
 		void sock_name(std::string & name, unsigned short & port) const;

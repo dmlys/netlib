@@ -10,6 +10,7 @@
 #include <codecvt>
 #include <utility>
 
+#include <ext/itoa.hpp>
 #include <ext/config.hpp>  // for EXT_UNREACHABLE
 #include <ext/codecvt_conv.hpp>
 #include <ext/Errors.hpp>  // for ext::FormatError
@@ -29,6 +30,33 @@ namespace ext::net
 	const std::string  winsock2_streambuf::empty_str;
 	const std::wstring winsock2_streambuf::wempty_str;
 
+	static std::string make_addr_error_description(int err)
+	{
+		ext::itoa_buffer<int> buffer;
+		std::string errstr;
+		errstr.reserve(32);
+
+		errstr += '<';
+
+		switch (err)
+		{
+			case WSAEFAULT:         errstr += "WSAEFAULT"; break;
+			case WSAEINVAL:         errstr += "WSAEINVAL"; break;
+			case WSAENOBUFS:        errstr += "WSAENOBUFS"; break;
+			case WSANOTINITIALISED: errstr += "WSANOTINITIALISED"; break;
+			case WSAEINPROGRESS:    errstr += "WSAEINPROGRESS"; break;
+			case WSAENOTCONN:       errstr += "WSAENOTCONN"; break;
+			case WSAENOTSOCK:       errstr += "WSAENOTSOCK"; break;
+			case WSAENETDOWN:       errstr += "WSAENETDOWN"; break;
+			default:                errstr += "unknown"; break;
+		}
+
+		errstr += ':';
+		errstr += ext::itoa(err, buffer);
+		errstr += '>';
+
+		return errstr;
+	}
 
 	static void SockAddrToString(sockaddr * addr, int addrlen, std::string & out)
 	{
@@ -41,6 +69,18 @@ namespace ext::net
 		buflen -= 1; out.clear();
 		std::codecvt_utf8<wchar_t> cvt;
 		ext::codecvt_convert::to_bytes(cvt, boost::make_iterator_range_n(buffer, buflen), out);
+	}
+
+	static std::string endpoint_noexcept(sockaddr * addr, int addrlen)
+	{
+		wchar_t buffer[INET6_ADDRSTRLEN];
+		DWORD buflen = INET6_ADDRSTRLEN;
+		int res = WSAAddressToStringW(addr, addrlen, nullptr, buffer, &buflen);
+		if (res != 0) make_addr_error_description(::WSAGetLastError());
+
+		buflen -= 1;
+		std::codecvt_utf8<wchar_t> cvt;
+		return ext::codecvt_convert::to_bytes(cvt, boost::make_iterator_range_n(buffer, buflen));
 	}
 
 	/************************************************************************/
@@ -91,8 +131,24 @@ namespace ext::net
 		auto res = ::shutdown(sock, SD_BOTH);
 		if (res == 0) return true;
 
+		auto err = ::WSAGetLastError();
+		// According to MSDN next error codes can be returned
+		// WSAECONNABORTED   The virtual circuit was terminated due to a time-out or other failure. The application should close the socket as it is no longer usable.
+		//                   This error applies only to a connection-oriented socket.
+		// WSAECONNRESET     The virtual circuit was reset by the remote side executing a hard or abortive close. The application should close the socket as it is no longer usable.
+		//                   This error applies only to a connection-oriented socket.
+		// WSAEINPROGRESS    A blocking Windows Sockets 1.1 call is in progress, or the service provider is still processing a callback function.
+		// WSAEINVAL         The how parameter is not valid, or is not consistent with the socket type. For example, SD_SEND is used with a UNI_RECV socket type.
+		// WSAENETDOWN       network subsystem has failed.
+		// WSAENOTSOCK       Note  The descriptor is not a socket.
+		// WSANOTINITIALISED A successful WSAStartup call must occur before using this function. 
+		// WSAENOTCONN       The socket is not connected. This error applies only to a connection-oriented socket.
+		//   not a error
+
+		if (err == WSAENOTCONN || err == WSAECONNABORTED || err == WSAECONNRESET) return true;
+
 		m_lasterror_context = "socket_shutdown";
-		m_lasterror.assign(::WSAGetLastError(), std::system_category());
+		m_lasterror.assign(err, std::system_category());
 		return false;
 	}
 
@@ -101,9 +157,17 @@ namespace ext::net
 		auto res = ::closesocket(sock);
 		if (res == 0) return true;
 
+		// According to MSDN next error codes can be returned
+		// WSANOTINITIALISED  A successful WSAStartup call must occur before using this function.
+		// WSAENETDOWN		  The network subsystem has failed.
+		// WSAENOTSOCK		  The descriptor is not a socket.
+		// WSAEINPROGRESS	  A blocking Windows Sockets 1.1 call is in progress, or the service provider is still processing a callback function.
+		// WSAEINTR			  The (blocking) Windows Socket 1.1 call was canceled through WSACancelBlockingCall.
+		// WSAEWOULDBLOCK 	  The socket is marked as nonblocking, but the l_onoff member of the linger structure is set to nonzero and the l_linger member of the linger structure is set to a nonzero timeout value. 
+
 		m_lasterror_context = "socket_close";
 		m_lasterror.assign(::WSAGetLastError(), std::system_category());
-		return false;
+		return true;
 	}
 
 	bool winsock2_streambuf::do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port) noexcept
@@ -1143,6 +1207,30 @@ namespace ext::net
 		std::string res;
 		SockAddrToString(addr, addrlen, res);
 		return res;
+	}
+
+	std::string winsock2_streambuf::peer_endpoint_noexcept() const
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
+		if (res != 0) return make_addr_error_description(errno);
+
+		return endpoint_noexcept(addr, addrlen);
+	}
+
+	std::string winsock2_streambuf::sock_endpoint_noexcept() const
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
+		if (res != 0) return make_addr_error_description(errno);
+
+		return endpoint_noexcept(addr, addrlen);
 	}
 
 	unsigned short winsock2_streambuf::peer_port() const
