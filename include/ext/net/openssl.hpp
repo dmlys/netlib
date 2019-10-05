@@ -133,10 +133,10 @@ namespace ext::net::openssl
 	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_uptr & evp_pkey, x509_uptr & x509, stackof_x509_uptr & ca);
 	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd = "") -> std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr>;
 
-	/// creates SSL_CTX with given SSL method and sets given certificate and private key
-	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey);
-	/// creates SSL_CTX with SSLv23_server_method and sets given certificate and private key
-	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey);
+	/// creates SSL_CTX with given SSL method and sets given certificate and private key and CA chain(SSL_CTX_use_cert_and_key)
+	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
+	/// creates SSL_CTX with SSLv23_server_method and sets given certificate, private key and CA chain(SSL_CTX_use_cert_and_key)
+	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
 
 	/// creates SSL_CTX with given SSL method; sets cipher LIST to "aNULL,eNULL"
 	/// which is alias for "The cipher suites offering no authentication."

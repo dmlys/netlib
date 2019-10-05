@@ -12,6 +12,8 @@
 
 #if BOOST_OS_WINDOWS
 #include <windows.h>
+#include <codecvt>
+#include <ext/codecvt_conv.hpp>
 
 #ifdef _MSC_VER
 #pragma comment(lib, "crypt32.lib")
@@ -229,7 +231,14 @@ namespace ext::net::openssl
 
 	x509_uptr load_certificate_from_file(const char * path, std::string_view passwd)
 	{
+#if BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto wpath = ext::codecvt_convert::from_bytes(cvt, ext::str_view(path));
+		std::FILE * fp = ::_wfopen(wpath.c_str(), L"r");
+#else
 		std::FILE * fp = std::fopen(path, "r");
+#endif
+
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
@@ -245,7 +254,14 @@ namespace ext::net::openssl
 
 	evp_pkey_uptr load_private_key_from_file(const char * path, std::string_view passwd)
 	{
+#if BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto wpath = ext::codecvt_convert::from_bytes(cvt, ext::str_view(path));
+		std::FILE * fp = ::_wfopen(wpath.c_str(), L"r");
+#else
 		std::FILE * fp = std::fopen(path, "r");
+#endif
+
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
@@ -272,7 +288,14 @@ namespace ext::net::openssl
 
 	pkcs12_uptr load_pkcs12_from_file(const char * path)
 	{
+#if BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto wpath = ext::codecvt_convert::from_bytes(cvt, ext::str_view(path));
+		std::FILE * fp = ::_wfopen(wpath.c_str(), L"r");
+#else
 		std::FILE * fp = std::fopen(path, "r");
+#endif
+
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
@@ -308,29 +331,20 @@ namespace ext::net::openssl
 	}
 
 
-	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey)
+	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
 	{
 		auto * method = ::SSLv23_server_method();
-		return create_sslctx(method, cert, pkey);
+		return create_sslctx(method, cert, pkey, ca_chain);
 	}
 
-	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey)
+	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
 	{
 		auto * ctx = ::SSL_CTX_new(method);
 
 		ssl_ctx_uptr ssl_ctx_uptr(ctx);
 
-		if (cert != nullptr)
-		{
-			if (::SSL_CTX_use_certificate(ctx, cert) !=1)
-				throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_certificate failed");
-		}
-
-		if (pkey != nullptr)
-		{
-			if (::SSL_CTX_use_PrivateKey(ctx, pkey) != 1)
-				throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_PrivateKey failed");
-		}
+		if (::SSL_CTX_use_cert_and_key(ctx, cert, pkey, ca_chain, 1) != 1)
+			throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_cert_and_key failed");
 
 		return ssl_ctx_uptr;
 	}
