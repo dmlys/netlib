@@ -1,11 +1,28 @@
 ﻿#pragma once
 #include <memory>
 #include <string>
+#include <stdexcept>
+
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_stream.hpp>
 
 namespace ext::net
 {
+	/// exception thrown by listen and bind operations of ext::net::listener
+	class listener_exception : public std::system_error
+	{
+	protected:
+		std::string m_sock_endpoint;
+
+	public:
+		listener_exception(std::string sock_endpoint, std::error_code errc, std::string msg);
+
+	public:
+		const std::string & sock_endpoint() const noexcept { return m_sock_endpoint; }
+		      std::string & sock_endpoint()       noexcept { return m_sock_endpoint; }
+	};
+
+
 	/// simple socket listener class for use in very simple socket server applications,
 	/// for more complex ones - use more appropriate libraries, for example boost::asio
 	class listener

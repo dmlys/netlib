@@ -9,6 +9,17 @@
 
 namespace ext::net
 {
+	listener_exception::listener_exception(std::string sock_endpoint, std::error_code errc, std::string msg)
+	    : std::system_error(errc, std::move(msg) + ", sock_endpoint = " + sock_endpoint), m_sock_endpoint(std::move(sock_endpoint))
+	{
+
+	}
+
+	EXT_NORETURN static void throw_last_listener_error(std::string sock_endpoint, const char * errmsg)
+	{
+		throw listener_exception(std::move(sock_endpoint), last_socket_error_code(), errmsg);
+	}
+
 	bool listener::is_listening() const
 	{
 		if (not m_listening_socket) return false;
@@ -113,16 +124,20 @@ namespace ext::net
 		res = ::setsockopt(m_listening_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::setsockopt SO_REUSEADDR failed");
 
+		inet_ntop(addrres->ai_addr, ipaddr, port);
+		std::string sock_endpoint = ipaddr + ":" + service;
+
 		res = ::bind(m_listening_socket, addrres->ai_addr, addrres->ai_addrlen);
-		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::bind failed");
+		if (res != 0) throw_last_listener_error(sock_endpoint, "ext::net::listener::bind: ::bind failed");
 
 		freeaddrinfo(addrres);
 	}
 
 	void listener::listen(int backlog /* = 1 */)
 	{
+		auto endpoint = sock_endpoint();
 		int res = ::listen(m_listening_socket, backlog);
-		if (res < 0) throw_last_socket_error("ext::net::listener::listen: ::listen failed");
+		if (res < 0) throw_last_listener_error(endpoint, "ext::net::listener::listen: ::listen failed");
 	}
 
 	socket_streambuf listener::accept()
