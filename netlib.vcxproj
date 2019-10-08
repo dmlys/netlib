@@ -19,63 +19,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\http_parser.h.c" />
-    <ClCompile Include="src\listener.cpp" />
-    <ClCompile Include="src\mail_simple.cpp" />
-    <ClCompile Include="src\openssl.cpp" />
-    <ClCompile Include="src\smtp\smtp_protocol.cpp" />
-    <ClCompile Include="src\smtp\smtp_session.cpp" />
-    <ClCompile Include="src\socket_base.cpp" />
-    <ClCompile Include="src\socket_queue.cpp" />
-    <ClCompile Include="src\socket_rest_supervisor.cpp" />
-    <ClCompile Include="src\abstract_connection_controller.cpp" />
-    <ClCompile Include="src\abstract_subscription_controller.cpp" />
-    <ClCompile Include="src\encoding_tables.cpp" />
-    <ClCompile Include="src\http_parser.cpp" />
-    <ClCompile Include="src\http_stream.cpp" />
-    <ClCompile Include="src\parse_url.cpp" />
-    <ClCompile Include="src\socket_stream.cpp" />
-    <ClCompile Include="src\socket_streambuf_base.cpp" />
-    <ClCompile Include="src\winsock2_streambuf.cpp" />
+    <ClCompile Include="src\**\*.cpp" Exclude="src\bsdsock_streambuf.cpp" />
+	<ClCompile Include="src\http_parser.h.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\ext\net\abstract_connection_controller.hpp" />
-    <ClInclude Include="include\ext\net\abstract_subscription_controller.hpp" />
-    <ClInclude Include="include\ext\net\listener.hpp" />
-    <ClInclude Include="include\ext\net\mail\headers.hpp" />
-    <ClInclude Include="include\ext\net\mail\simple.hpp" />
-    <ClInclude Include="include\ext\net\mail\wellknown_headers.hpp" />
-    <ClInclude Include="include\ext\net\mime\bencode_header.hpp" />
-    <ClInclude Include="include\ext\net\mime\encode_header.hpp" />
-    <ClInclude Include="include\ext\net\mime\encode_header_parameter.hpp" />
-    <ClInclude Include="include\ext\net\mime\encode_mail_body.hpp" />
-    <ClInclude Include="include\ext\net\mime\mail_encoding.hpp" />
-    <ClInclude Include="include\ext\net\mime\qencode_header.hpp" />
-    <ClInclude Include="include\ext\net\mime\encode_quoted_utils.hpp" />
-    <ClInclude Include="include\ext\net\mime\encoding_tables.hpp" />
-    <ClInclude Include="include\ext\net\mime\url_encoding.hpp" />
-    <ClInclude Include="include\ext\net\connection_controller.hpp" />
-    <ClInclude Include="include\ext\net\openssl.hpp" />
-    <ClInclude Include="include\ext\net\smtp.hpp" />
-    <ClInclude Include="include\ext\net\smtp\smtp_extensions.hpp" />
-    <ClInclude Include="include\ext\net\smtp\smtp_protocol.hpp" />
-    <ClInclude Include="include\ext\net\smtp\smtp_session.hpp" />
-    <ClInclude Include="include\ext\net\socket_base.hpp" />
-    <ClInclude Include="include\ext\net\socket_fwd.hpp" />
-    <ClInclude Include="include\ext\net\socket_include.hpp" />
-    <ClInclude Include="include\ext\net\socket_queue.hpp" />
-    <ClInclude Include="include\ext\net\socket_streambuf.hpp" />
-    <ClInclude Include="include\ext\net\socket_streambuf_base.hpp" />
-    <ClInclude Include="include\ext\net\winsock2_streambuf.hpp" />
-    <ClInclude Include="include\ext\net\write_string.hpp" />
-    <ClInclude Include="src\http_parser.h" />
-    <ClInclude Include="include\ext\net\http_parser.hpp" />
-    <ClInclude Include="include\ext\net\http_stream.hpp" />
-    <ClInclude Include="include\ext\net\parse_url.hpp" />
-    <ClInclude Include="include\ext\net\socket_rest_supervisor.hpp" />
-    <ClInclude Include="include\ext\net\socket_stream.hpp" />
-    <ClInclude Include="include\ext\net\subscription_controller.hpp" />
-    <ClInclude Include="include\ext\net\subscription_handle.hpp" />
+    <ClInclude Include="include\ext\net\**" Exclude="**bsdsock_streambuf.hpp" />
+	<ClInclude Include="src\http_parser.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A0CF8DB4-824A-4C7B-98D5-77E83548AC1E}</ProjectGuid>
