@@ -38,12 +38,13 @@ namespace ext::net
 	{
 		switch (static_cast<sock_errc>(val))
 		{
-		    case sock_errc::eof:       return "end of stream";
-		    case sock_errc::timeout:   return "timeout";
-		    case sock_errc::regular:   return "regular, not a error";
-		    case sock_errc::error:     return "socket error";
+			case sock_errc::eof:       return "end of stream";
+			case sock_errc::timeout:   return "timeout";
+			case sock_errc::ssl_error: return "ssl error";
+			case sock_errc::regular:   return "regular, not a error";
+			case sock_errc::error:     return "socket error";
 
-		    default: return "unknown sock_errc code";
+			default: return "unknown sock_errc code";
 		}
 	}
 
@@ -52,17 +53,17 @@ namespace ext::net
 		switch (static_cast<sock_errc>(cond_val))
 		{
 #ifdef EXT_ENABLE_OPENSSL
-		    case sock_errc::eof:     return code == openssl_error::zero_return;
+			case sock_errc::eof:       return code == openssl_error::zero_return;
+			case sock_errc::ssl_error: return code != openssl_error::zero_return and (code.category() == openssl::openssl_err_category() or code.category() == openssl::openssl_ssl_category());
 #else
-		    case sock_errc::eof:     return false;
+			case sock_errc::eof:       return false;
+			case sock_errc::ssl_error: return false;
 #endif
-		    case sock_errc::regular:
-			    return code != sock_errc::error;
 
-		    case sock_errc::error:
-			    return code && code != sock_errc::eof;
+			case sock_errc::regular:   return code != sock_errc::error;
+			case sock_errc::error:     return code && code != sock_errc::eof;
 
-		    default: return false;
+			default: return false;
 		}
 	}
 

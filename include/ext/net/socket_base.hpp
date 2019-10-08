@@ -51,11 +51,11 @@ namespace ext::net
 	///  * if (ss.last_error() == sock_errc::regular) { ... process result ... }
 	enum class sock_errc
 	{
-		eof      = 1,   /// socket eof, for example recv return 0, or OpenSSL returned SSL_ERR_ZERO_RETURN
-		timeout  = 2,   /// operation(connect, read, write, shutdown) timeout
-		
-		regular  = 3,   /// no a error, code == 0 or some error which is not critical, like eof(currently only eof)
-		error    = 4,   /// opposite of regular, some bad unexpected error, which breaks normal flow, timeout, system error, etc
+		eof       = 1,   /// socket eof, for example recv return 0, or OpenSSL returned SSL_ERR_ZERO_RETURN
+		timeout   = 2,   /// operation(connect, read, write, shutdown) timeout
+		regular   = 3,   /// no a error, code == 0 or some error which is not critical, like eof(currently only eof)
+		error     = 4,   /// opposite of regular, some bad unexpected error, which breaks normal flow, timeout, system error, etc
+		ssl_error = 5,   /// ssl related error(but not openssl_error::zero_return)
 	};
 
 	const std::error_category & socket_condition_category() noexcept;
