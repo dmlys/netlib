@@ -1,13 +1,15 @@
 ﻿#include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <codecvt>
 #include <iostream>
+#include <limits>
+#include <algorithm>
 
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_include.hpp>
 
 #if BOOST_OS_WINDOWS
+#include <codecvt> // for std::codecvt_utf8<wchar_t>
 #include <ext/codecvt_conv.hpp>
 #include <ext/Errors.hpp>
 #endif
@@ -160,11 +162,14 @@ namespace ext::net
 
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
 	{
-		long micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
+		using rep_type = std::chrono::steady_clock::duration::rep;
+		using tv_limits = std::numeric_limits<decltype(tv.tv_sec)>;
+
+		rep_type micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
 		if (micro < 0) micro = 0;
 
-		tv.tv_sec = micro / 1000000;
-		tv.tv_usec = micro % 1000000;
+		tv.tv_sec  = std::min<rep_type>(micro / 1000000, tv_limits::max());
+		tv.tv_usec = std::min<rep_type>(micro % 1000000, tv_limits::max());
 	}
 
 	void inet_ntop(const sockaddr * addr, std::wstring & wstr, unsigned short & port)
@@ -463,11 +468,14 @@ namespace ext::net
 
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
 	{
-		long micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
+		using rep_type = std::chrono::steady_clock::duration::rep;
+		using tv_limits = std::numeric_limits<decltype(tv.tv_sec)>;
+
+		rep_type micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
 		if (micro < 0) micro = 0;
 
-		tv.tv_sec  = micro / 1000000;
-		tv.tv_usec = micro % 1000000;
+		tv.tv_sec  = std::min<rep_type>(micro / 1000000, tv_limits::max());
+		tv.tv_usec = std::min<rep_type>(micro % 1000000, tv_limits::max());
 	}
 
 	void inet_ntop(const sockaddr * addr, std::string & str, unsigned short & port)

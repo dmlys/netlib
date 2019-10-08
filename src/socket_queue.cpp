@@ -80,7 +80,7 @@ namespace ext::net
 		{
 #if BOOST_OS_WINDOWS
 			int res = close(m_interrupt_listen);
-			assert(res == 1); EXT_UNUSED(res);
+			assert(res == 0); EXT_UNUSED(res);
 #else
 			char dummy = 0;
 			int res = ::write(m_interrupt_write, &dummy, 1);
