@@ -1,4 +1,4 @@
-﻿#ifdef EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
@@ -102,11 +102,11 @@ namespace ext::net::openssl
 		return openssl_ssl_category_instance;
 	}
 
-	std::error_code openssl_geterror(int sslcode) noexcept
+	std::error_code openssl_geterror(int sslcode, error_retrieve rtype) noexcept
 	{
 		if (sslcode == SSL_ERROR_SSL || sslcode == SSL_ERROR_SYSCALL)
 		{
-			int err = ERR_get_error();
+			int err = rtype == error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error();
 			if (err) return {err, openssl_err_category()};
 			
 #if BOOST_OS_WINDOWS
@@ -120,15 +120,62 @@ namespace ext::net::openssl
 		return {sslcode, openssl_ssl_category()};
 	}
 
-	std::error_code last_error() noexcept
+	void openssl_clear_errors() noexcept
 	{
-		int err = ::ERR_get_error();
+		::ERR_clear_error();
+	}
+
+	std::error_code last_error(error_retrieve rtype) noexcept
+	{
+		int err = rtype == error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error();
 		return std::error_code(err, openssl_err_category());
 	}
 
-	[[noreturn]] void throw_last_error(const std::string & errmsg)
+	[[noreturn]] void throw_last_error(const std::string & errmsg, error_retrieve rtype)
 	{
-		throw std::system_error(last_error(), errmsg);
+		throw std::system_error(last_error(rtype), errmsg);
+	}
+
+	static int print_error_queue_string_cb(const char * data, std::size_t len, void * ptr)
+	{
+		auto * pstr = static_cast<std::string *>(ptr);
+		pstr->append(data, len);
+		return 1;
+	}
+
+	static int print_error_queue_streambuf_cb(const char * data, std::size_t len, void * ptr)
+	{
+		auto * pos = static_cast<std::streambuf *>(ptr);
+		return pos->sputn(data, len) == static_cast<std::streamsize>(len);
+	}
+
+	static int print_error_queue_ostream_cb(const char * data, std::size_t len, void * ptr)
+	{
+		auto * pos = static_cast<std::ostream *>(ptr);
+		pos->write(data, len);
+		return static_cast<bool>(*pos);
+	}
+
+	void print_error_queue(std::string & str)
+	{
+		::ERR_print_errors_cb(print_error_queue_string_cb, &str);
+	}
+
+	void print_error_queue(std::ostream & os)
+	{
+		::ERR_print_errors_cb(print_error_queue_ostream_cb, &os);
+	}
+
+	void print_error_queue(std::streambuf & os)
+	{
+		::ERR_print_errors_cb(print_error_queue_streambuf_cb, &os);
+	}
+
+	std::string print_error_queue()
+	{
+		std::string str;
+		print_error_queue(str);
+		return str;
 	}
 
 	/************************************************************************/

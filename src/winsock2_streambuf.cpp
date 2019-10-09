@@ -826,7 +826,7 @@ namespace ext::net
 			case SSL_ERROR_SSL:
 			case SSL_ERROR_SYSCALL:
 				// if it some generic SSL error
-				if ((wsaerr = ::ERR_get_error()))
+				if ((wsaerr = m_error_retrieve == openssl::error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error()))
 				{
 					err_code.assign(wsaerr, openssl_err_category());
 					return true;
@@ -865,7 +865,7 @@ namespace ext::net
 		if (ssl) return true;
 
 		m_lasterror_context = "createssl";
-		m_lasterror.assign(::ERR_get_error(), openssl_err_category());
+		m_lasterror = openssl::last_error(m_error_retrieve_type);
 		return false;
 	}
 
@@ -1058,7 +1058,7 @@ namespace ext::net
 		if (sslctx == nullptr)
 		{
 			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(::ERR_get_error(), openssl_err_category());
+			m_lasterror = openssl::last_error(m_error_retrieve_type);
 			return process_result(false);
 		}
 		

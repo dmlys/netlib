@@ -14,6 +14,7 @@
 
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_streambuf_base.hpp>
+#include <ext/net/openssl.hpp>
 
 //#ifndef WIN32_LEAN_AND_MEAN
 //#define WIN32_LEAN_AND_MEAN
@@ -50,7 +51,7 @@ namespace ext::net
 	class winsock2_streambuf : public socket_streambuf_base
 	{
 		typedef socket_streambuf_base  base_type;
-		typedef winsock2_streambuf          self_type;
+		typedef winsock2_streambuf     self_type;
 
 	public:
 		typedef std::error_code       error_code_type;
@@ -103,6 +104,7 @@ namespace ext::net
 
 #if EXT_ENABLE_OPENSSL
 		SSL * m_sslhandle = nullptr;
+		openssl::error_retrieve m_error_retrieve_type = openssl::error_retrieve::get;
 #endif
 
 	protected:
@@ -115,7 +117,7 @@ namespace ext::net
 		/// returns true в случае успеха, false если был запрос на прерывание
 		bool publish_opened(handle_type sock, StateType & expected) noexcept;
 		/// в зависимости от свойства throw_errors возвращает result как есть
-		/// или бросает system_error_type(lasterror())
+		/// или бросает system_error_type(last_error())
 		bool process_result(bool result);
 		
 		/// инициализирует объект заданным socket handle'ом.
@@ -306,6 +308,11 @@ namespace ext::net
 		bool connect(const std::string & host, unsigned short port);
 
 #ifdef EXT_ENABLE_OPENSSL
+		/// устанавливает способ получение openssl ошибок, смотри описание к openssl::error_retrieve_type,
+		/// по умолчанию всегда выставлен error_retrieve_get
+		auto ssl_error_retrieve() const noexcept { return m_error_retrieve_type; }
+		auto ssl_error_retrieve(openssl::error_retrieve_type retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
+
 		/// управление ssl сессией
 		/// есть ли активная ssl сессия
 		bool ssl_started() const noexcept;

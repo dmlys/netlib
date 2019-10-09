@@ -12,9 +12,9 @@
 #include <chrono>
 #include <system_error>
 
-#include <boost/config.hpp>
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_streambuf_base.hpp>
+#include <ext/net/openssl.hpp>
 
 namespace ext::net
 {
@@ -98,6 +98,7 @@ namespace ext::net
 
 #if EXT_ENABLE_OPENSSL
 		SSL * m_sslhandle = nullptr;
+		openssl::error_retrieve m_error_retrieve_type = openssl::error_retrieve::get;
 #endif
 
 	protected:
@@ -110,7 +111,7 @@ namespace ext::net
 		/// returns true в случае успеха, false если был запрос на прерывание
 		bool publish_opened(handle_type sock, StateType & expected) noexcept;
 		/// в зависимости от свойства throw_errors возвращает result как есть
-		/// или бросает system_error_type(lasterror())
+		/// или бросает system_error_type(last_error())
 		bool process_result(bool result);
 
 		/// выполняет resolve с помощью getaddrinfo
@@ -292,10 +293,15 @@ namespace ext::net
 		bool connect(const std::string & host, unsigned short port);
 
 #ifdef EXT_ENABLE_OPENSSL
+		/// устанавливает способ получение openssl ошибок, смотри описание к openssl::error_retrieve_type,
+		/// по умолчанию всегда выставлен error_retrieve_get
+		auto ssl_error_retrieve() const noexcept { return m_error_retrieve_type; }
+		auto ssl_error_retrieve(openssl::error_retrieve retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
+
 		/// управление ssl сессией
 		/// есть ли активная ssl сессия
 		bool ssl_started() const noexcept;
-		
+
 		/// возвращает текущую SSL сессию.
 		/// если вызова start_ssl еще не было - returns nullptr,
 		/// тем не менее stop_ssl останавливает ssl соединение, но не удаляет сессию,

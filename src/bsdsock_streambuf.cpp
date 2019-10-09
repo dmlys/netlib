@@ -1,4 +1,4 @@
-﻿// author: Dmitry Lysachenko
+// author: Dmitry Lysachenko
 // date: Saturday 20 april 2016
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
@@ -793,7 +793,7 @@ namespace ext::net
 			case SSL_ERROR_SSL:
 			case SSL_ERROR_SYSCALL:
 				// if it some generic SSL error
-				if ((err = ::ERR_get_error()))
+				if ((err = m_error_retrieve_type == openssl::error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error()))
 				{
 					err_code.assign(err, openssl_err_category());
 					return true;
@@ -838,7 +838,7 @@ namespace ext::net
 	bsdsock_streambuf::error_code_type bsdsock_streambuf::ssl_error(SSL * ssl, int error) noexcept
 	{
 		int ssl_err = ::SSL_get_error(ssl, error);
-		return openssl_geterror(ssl_err);
+		return openssl_geterror(ssl_err, m_error_retrieve_type);
 	}
 
 	bool bsdsock_streambuf::do_createssl(SSL *& ssl, SSL_CTX * sslctx) noexcept
@@ -847,7 +847,7 @@ namespace ext::net
 		if (ssl) return true;
 
 		m_lasterror_context = "createssl";
-		m_lasterror.assign(::ERR_get_error(), openssl_err_category());
+		m_lasterror = openssl::last_error(m_error_retrieve_type);
 		return false;
 	}
 
@@ -1040,7 +1040,7 @@ namespace ext::net
 		if (sslctx == nullptr)
 		{
 			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(::ERR_get_error(), openssl_err_category());
+			m_lasterror = openssl::last_error(m_error_retrieve_type);
 			return process_result(false);
 		}
 		

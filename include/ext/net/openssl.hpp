@@ -2,6 +2,7 @@
 #ifdef EXT_ENABLE_OPENSSL
 #include <memory>
 #include <tuple>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -34,6 +35,22 @@ typedef struct ssl_method_st SSL_METHOD;
 /// error category, startup/clean up routines, may be something other
 namespace ext::net::openssl
 {
+	/// OpenSSL stores it's errors into thread local queue.
+	/// If something bad happens more than one error can be pushed into that queue.
+	/// That sorta conflicts with last_error mechanism, which can only report one error.
+	/// Even more: error can have some associated runtime data, source file name and line number, std::error_code does not supports that even more.
+	/// print_error_queue(::ERR_print_errors) functions can print them just fine, whole queue with all data;
+	/// so logging/printing errors can be more convenient with those.
+	/// ERR_get_error, through, removes error from queue, and ::ERR_print_errors will miss that error
+	///
+	/// So some of this library functions and each ext::net::socket_streambuf object provide error_retrieve_type enum pointing how to take openssl error: get or peek
+	/// By default it's always get, but if you more comfortable with print_error_queue - you can change to peek, and than use one, just don't forget to call openssl_clear_errors
+	enum class error_retrieve : unsigned
+	{
+		get,  /// use ::ERR_get_error
+		peek, /// use ::ERR_peek_error, don't forget to call openssl_clear_errors after examining errors
+	};
+
 	// those can be used as err == ext::net::openssl_error::zero_return.
 	// also we do not include openssl/ssl.h, those definition are asserted in ext/openssl.cpp
 	enum class ssl_error
@@ -62,12 +79,28 @@ namespace ext::net::openssl
 	/// если sslcode == SSL_ERROR_SYSCALL, проверяет ERR_get_error() / system error,
 	/// если валидны - выставляет их и openssl_err_category,
 	/// иначе выставляет openssl_ssl_category
-	std::error_code openssl_geterror(int sslcode) noexcept;
+	std::error_code openssl_geterror(int sslcode, error_retrieve rtype = error_retrieve::get) noexcept;
+
+	/// cleans OpenSSL error queue, calls ERR_clear_error
+	void openssl_clear_errors() noexcept;
 
 	/// returns last SSL error via ::ERR_get_error()
-	std::error_code last_error() noexcept;
+	std::error_code last_error(error_retrieve rtype = error_retrieve::get) noexcept;
 	/// throws std::system_error with last_error error_code
-	[[noreturn]] void throw_last_error(const std::string & errmsg);
+	[[noreturn]] void throw_last_error(const std::string & errmsg, error_retrieve rtype = error_retrieve::get);
+
+	/// prints openssl error queue into string, see ::ERR_print_errors,
+	/// error queue will be empty after executing this function
+	void print_error_queue(std::string & str);
+	/// prints openssl error queue into ostream, see ::ERR_print_errors,
+	/// error queue will be empty after executing this function
+	void print_error_queue(std::ostream & os);
+	/// prints openssl error queue into streambuf, see ::ERR_print_errors,
+	/// error queue will be empty after executing this function
+	void print_error_queue(std::streambuf & os);
+	/// prints openssl error queue into string and returns it, see ::ERR_print_errors,
+	/// error queue will be empty after executing this function
+	std::string print_error_queue();
 
 	/// per process initialization
 	void openssl_init();

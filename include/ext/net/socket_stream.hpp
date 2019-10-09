@@ -81,6 +81,9 @@ namespace ext::net
 
 
 #ifdef EXT_ENABLE_OPENSSL
+		auto ssl_error_retrieve() const noexcept { return m_streambuf.ssl_error_retrieve(); }
+		auto ssl_error_retrieve(openssl::error_retrieve retrieve) noexcept { return m_streambuf.ssl_error_retrieve(retrieve); }
+
 		bool ssl_started() const { return m_streambuf.ssl_started(); }
 		SSL * ssl_handle() { return m_streambuf.ssl_handle(); }
 		void set_ssl(SSL * ssl) { return m_streambuf.set_ssl(ssl); }
