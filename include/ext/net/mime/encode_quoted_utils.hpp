@@ -19,11 +19,11 @@ namespace ext::net
 		extern const char hex_decoding_array[256];
 	}
 
-	/// helper functions for encoding chars using different encodings http
+	/// helper functions for encoding chars using different mime encodings.
 	/// those print some characters as is, others are quoted as <qchar><hex1><hex2>,
 	/// for example '=20'. Such encodings are qencoding, http percent encoding, etc.
 	/// 
-	/// functions take encoding table, describing what symbols should be quoted который описывают как кодировать символы
+	/// functions take encoding table, describing what symbols should be quoted.
 	/// if table element is < 0 - symbol should be quoted, otherwise printed by element value.
 	/// 
 	/// all input text is assumed utf-8.
@@ -55,7 +55,7 @@ namespace ext::net
 		constexpr std::size_t tmp_buffer_size = 256;
 
 		/// truncates count by minimum, considering utf-8.
-		/// if count > minimal - additionally truncates not full utf-8 sequnce
+		/// if count > minimal - additionally truncates not full utf-8 sequence
 		template <class RandomAccessIterator>
 		std::size_t utf8_trunc_count(std::size_t count, std::size_t minimum, RandomAccessIterator first)
 		{
@@ -135,8 +135,8 @@ namespace ext::net
 		OutIterator decode_quoted(char qchar, RandomAccessIterator first, RandomAccessIterator last, OutIterator out)
 		{
 			// first process all chars except 3 last,
-			// that way we can safely increment iterator 2 times,
-			// for quoted chars, without need to check if we are past last.
+			// that way we can safely increment iterator 2 times for quoted chars,
+			// without need to check if we are past last.
 			char ch;
 			for (auto end = last - 3; first < end; ++first, ++out)
 			{
@@ -153,10 +153,10 @@ namespace ext::net
 				if (last - first < 3) throw not_enough_input();
 
 				*out = unquote_char(first);
-				++out;
+				++out, ++first;
 			}
 
-			// process trailing last - first <= 3
+			// process trailing
 			assert(last - first <= 3);
 			for (; first != last; ++first, ++out)
 			{
