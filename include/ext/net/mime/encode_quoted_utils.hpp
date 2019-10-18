@@ -89,7 +89,10 @@ namespace ext::net
 		template <class Iterator>
 		inline char unquote_char(Iterator & it)
 		{
-			return decode_nibble(*++it) * 16 + decode_nibble(*++it);
+			char ch;
+			ch  = decode_nibble(*++it) * 16;
+			ch += decode_nibble(*++it);
+			return ch;
 		}
 
 
