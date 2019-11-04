@@ -35,7 +35,8 @@ namespace ext::net
 		/// internally calls ::getsockopt(..., SOL_SOCKET SO_ACCEPTCONN, ...).
 		/// Throws std::system_error in case or errors
 		bool is_listening() const;
-		explicit operator bool() const { return is_listening(); }
+		bool is_socket() const;
+		explicit operator bool() const { return is_socket(); }
 
 		/// underlying socket handle
 		socket_handle_type handle() const noexcept { return m_listening_socket; }
@@ -72,7 +73,7 @@ namespace ext::net
 		void bind(std::string ipaddr, unsigned short port);
 		/// calls ::listen and checks result,
 		/// throws std::system_error in case or errors
-		void listen(int backlog = 1);
+		void listen(int backlog);
 		/// calls ::accept and checks result,
 		/// throws std::system_error in case or errors
 		socket_streambuf accept();

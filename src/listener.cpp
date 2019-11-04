@@ -32,6 +32,11 @@ namespace ext::net
 		return enabled;
 	}
 
+	bool listener::is_socket() const
+	{
+		return m_listening_socket != -1;
+	}
+
 	void listener::getsockname(sockaddr_type * addr, socklen_t * addrlen) const
 	{
 		if (m_listening_socket == -1)
@@ -133,7 +138,7 @@ namespace ext::net
 		freeaddrinfo(addrres);
 	}
 
-	void listener::listen(int backlog /* = 1 */)
+	void listener::listen(int backlog)
 	{
 		auto endpoint = sock_endpoint();
 		int res = ::listen(m_listening_socket, backlog);
