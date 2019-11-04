@@ -232,7 +232,7 @@ namespace ext::net
 		std::tie(max_handle, sock_until) = helper::fill_fdset(&readset, &writeset, *this, now);
 		make_timeval(std::min(sock_until, until) - now, select_timeout);
 
-		LOG_TRACE("executing select with timeout {} seconds", select_timeout.tv_sec);
+		LOG_TRACE("executing select with timeout {} seconds, queue: {}l/{}s", select_timeout.tv_sec, m_listeners.size(), m_socks.size());
 		res = ::select(max_handle + 1, &readset, &writeset, nullptr, &select_timeout);
 		if (res == 0)
 		{
