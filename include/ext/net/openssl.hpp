@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <ext/intrusive_ptr.hpp>
 
 /// forward some openssl types
 struct bio_st;
@@ -29,6 +30,25 @@ struct ssl_method_st;
 typedef struct ssl_st        SSL;
 typedef struct ssl_ctx_st    SSL_CTX;
 typedef struct ssl_method_st SSL_METHOD;
+
+
+int  intrusive_ptr_add_ref(BIO * ptr);
+void intrusive_ptr_release(BIO * ptr);
+
+int  intrusive_ptr_add_ref(X509 * ptr);
+void intrusive_ptr_release(X509 * ptr);
+
+int  intrusive_ptr_add_ref(RSA * ptr);
+void intrusive_ptr_release(RSA * ptr);
+
+int  intrusive_ptr_add_ref(EVP_PKEY * ptr);
+void intrusive_ptr_release(EVP_PKEY * ptr);
+
+int  intrusive_ptr_add_ref(SSL * ptr);
+void intrusive_ptr_release(SSL * ptr);
+
+int  intrusive_ptr_add_ref(SSL_CTX * ptr);
+void intrusive_ptr_release(SSL_CTX * ptr);
 
 
 /// Simple openssl utilities, mostly for socket_stream implementations of ssl functionality.
@@ -132,22 +152,33 @@ namespace ext::net::openssl
 	using stackof_x509_uptr = std::unique_ptr<stack_st_X509, stackof_x509_deleter>;
 
 
+
+	using ssl_iptr      = ext::intrusive_ptr<SSL>;
+	using ssl_ctx_iptr  = ext::intrusive_ptr<SSL_CTX>;
+	using x509_iptr     = ext::intrusive_ptr<X509>;
+
+	using bio_iptr      = ext::intrusive_ptr<BIO>;
+	using x509_iptr     = ext::intrusive_ptr<X509>;
+	using rsa_iptr      = ext::intrusive_ptr<RSA>;
+	using evp_pkey_iptr = ext::intrusive_ptr<EVP_PKEY>;
+
+
 	/// Loads X509 certificate from given memory location and with optional password(password probably will never be used.
 	/// Throws std::system_error in case of errors
-	x509_uptr     load_certificate(const char * data, std::size_t len, std::string_view passwd = "");
+	x509_iptr     load_certificate(const char * data, std::size_t len, std::string_view passwd = "");
 	// loads private key from given memory location and with optional password
 	/// Throws std::system_error in case of errors
-	evp_pkey_uptr load_private_key(const char * data, std::size_t len, std::string_view passwd = "");
+	evp_pkey_iptr load_private_key(const char * data, std::size_t len, std::string_view passwd = "");
 
-	inline x509_uptr     load_certificate(std::string_view str, std::string_view passwd = "") { return load_certificate(str.data(), str.size(), passwd); }
-	inline evp_pkey_uptr load_private_key(std::string_view str, std::string_view passwd = "") { return load_private_key(str.data(), str.size(), passwd); }
+	inline x509_iptr     load_certificate(std::string_view str, std::string_view passwd = "") { return load_certificate(str.data(), str.size(), passwd); }
+	inline evp_pkey_iptr load_private_key(std::string_view str, std::string_view passwd = "") { return load_private_key(str.data(), str.size(), passwd); }
 
 	/// Loads X509 certificate from given path and with optional password
 	/// Throws std::system_error in case of errors
-	x509_uptr     load_certificate_from_file(const char * path, std::string_view passwd = "");
+	x509_iptr     load_certificate_from_file(const char * path, std::string_view passwd = "");
 	/// loads private key from given given path and with optional password
 	/// Throws std::system_error in case of errors
-	evp_pkey_uptr load_private_key_from_file(const char * path, std::string_view passwd = "");
+	evp_pkey_iptr load_private_key_from_file(const char * path, std::string_view passwd = "");
 
 	/// Loads PKCS12 file from given memory location.
 	/// Throws std::system_error in case of errors
@@ -157,19 +188,19 @@ namespace ext::net::openssl
 	pkcs12_uptr load_pkcs12_from_file(const char * path);
 	inline pkcs12_uptr load_pkcs12(std::string_view str) { return load_pkcs12(str.data(), str.size()); }
 
-	inline x509_uptr     load_certificate_from_file(const std::string & path, std::string_view passwd = "") { return load_certificate_from_file(path.c_str(), passwd); }
-	inline evp_pkey_uptr load_private_key_from_file(const std::string & path, std::string_view passwd = "") { return load_private_key_from_file(path.c_str(), passwd); }
+	inline x509_iptr     load_certificate_from_file(const std::string & path, std::string_view passwd = "") { return load_certificate_from_file(path.c_str(), passwd); }
+	inline evp_pkey_iptr load_private_key_from_file(const std::string & path, std::string_view passwd = "") { return load_private_key_from_file(path.c_str(), passwd); }
 	inline pkcs12_uptr   load_pkcs12_from_file(const std::string & path) { return load_pkcs12_from_file(path.c_str()); }
 
 	/// Parses PKCS12 into private key, x509 certificate and certificate authorities
 	/// Throws std::system_error in case of errors
-	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_uptr & evp_pkey, x509_uptr & x509, stackof_x509_uptr & ca);
-	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd = "") -> std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr>;
+	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_iptr & evp_pkey, x509_iptr & x509, stackof_x509_uptr & ca);
+	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd = "") -> std::tuple<evp_pkey_iptr, x509_iptr, stackof_x509_uptr>;
 
 	/// creates SSL_CTX with given SSL method and sets given certificate and private key and CA chain(SSL_CTX_use_cert_and_key)
-	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
+	ssl_ctx_iptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
 	/// creates SSL_CTX with SSLv23_server_method and sets given certificate, private key and CA chain(SSL_CTX_use_cert_and_key)
-	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
+	ssl_ctx_iptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain = nullptr);
 
 	/// creates SSL_CTX with given SSL method; sets cipher LIST to "aNULL,eNULL"
 	/// which is alias for "The cipher suites offering no authentication."
@@ -179,9 +210,9 @@ namespace ext::net::openssl
 	/// NOTE: this is insecure and should not be used at all,
 	///       but allows establishing connection without certificates.
 	///       most clients have those ciphers disabled by default
-	ssl_ctx_uptr create_anonymous_sslctx(const SSL_METHOD * method);
+	ssl_ctx_iptr create_anonymous_sslctx(const SSL_METHOD * method);
 	///	same as above with SSLv23_server_method
-	ssl_ctx_uptr create_anonymous_sslctx();
+	ssl_ctx_iptr create_anonymous_sslctx();
 
 	/// signs email(msg_body) with given private key, x509 certificate and ca's
 	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * ca, std::string_view msg_body, bool detached);

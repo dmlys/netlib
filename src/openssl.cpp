@@ -21,6 +21,27 @@
 
 #endif // BOOST_OS_WINDOWS
 
+
+int  intrusive_ptr_add_ref(BIO * ptr)  { return ::BIO_up_ref(ptr); }
+void intrusive_ptr_release(BIO * ptr)  { return ::BIO_vfree(ptr);   }
+
+int  intrusive_ptr_add_ref(X509 * ptr) { return ::X509_up_ref(ptr); }
+void intrusive_ptr_release(X509 * ptr) { return ::X509_free(ptr);   }
+
+int  intrusive_ptr_add_ref(RSA * ptr)  { return ::RSA_up_ref(ptr);  }
+void intrusive_ptr_release(RSA * ptr)  { return ::RSA_free(ptr);    }
+
+int  intrusive_ptr_add_ref(EVP_PKEY * ptr) { return ::EVP_PKEY_up_ref(ptr); }
+void intrusive_ptr_release(EVP_PKEY * ptr) { return ::EVP_PKEY_free(ptr);   }
+
+int  intrusive_ptr_add_ref(SSL * ptr) { return ::SSL_up_ref(ptr); }
+void intrusive_ptr_release(SSL * ptr) { return ::SSL_free(ptr);   }
+
+int  intrusive_ptr_add_ref(SSL_CTX * ptr) { return ::SSL_CTX_up_ref(ptr); }
+void intrusive_ptr_release(SSL_CTX * ptr) { return ::SSL_CTX_free(ptr);   }
+
+
+
 namespace ext::net::openssl
 {
 	BOOST_STATIC_ASSERT(static_cast<int>(ssl_error::none)              == SSL_ERROR_NONE);
@@ -250,7 +271,7 @@ namespace ext::net::openssl
 		return 0;
 	}
 
-	x509_uptr load_certificate(const char * data, std::size_t len, std::string_view passwd)
+	x509_iptr load_certificate(const char * data, std::size_t len, std::string_view passwd)
 	{
 		bio_uptr bio_uptr;
 
@@ -260,10 +281,10 @@ namespace ext::net::openssl
 
 		X509 * cert = ::PEM_read_bio_X509(bio, nullptr, password_callback, &passwd);
 		if (not cert) throw_last_error("ext::net::openssl::load_certificate: ::PEM_read_bio_X509 failed");
-		return x509_uptr(cert);
+		return x509_iptr(cert, ext::noaddref);
 	}
 
-	evp_pkey_uptr load_private_key(const char * data, std::size_t len, std::string_view passwd)
+	evp_pkey_iptr load_private_key(const char * data, std::size_t len, std::string_view passwd)
 	{
 		bio_uptr bio_uptr;
 
@@ -273,10 +294,10 @@ namespace ext::net::openssl
 
 		EVP_PKEY * pkey = ::PEM_read_bio_PrivateKey(bio, nullptr, password_callback, &passwd);
 		if (not bio) throw_last_error("ext::net::openssl::load_private_key: ::PEM_read_bio_PrivateKey failed");
-		return evp_pkey_uptr(pkey);
+		return evp_pkey_iptr(pkey, ext::noaddref);
 	}
 
-	x509_uptr load_certificate_from_file(const char * path, std::string_view passwd)
+	x509_iptr load_certificate_from_file(const char * path, std::string_view passwd)
 	{
 #if BOOST_OS_WINDOWS
 		std::codecvt_utf8<wchar_t> cvt;
@@ -296,10 +317,10 @@ namespace ext::net::openssl
 		std::fclose(fp);
 
 		if (not cert) throw_last_error("ext::net::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
-		return x509_uptr(cert);
+		return x509_iptr(cert, ext::noaddref);
 	}
 
-	evp_pkey_uptr load_private_key_from_file(const char * path, std::string_view passwd)
+	evp_pkey_iptr load_private_key_from_file(const char * path, std::string_view passwd)
 	{
 #if BOOST_OS_WINDOWS
 		std::codecvt_utf8<wchar_t> cvt;
@@ -320,7 +341,7 @@ namespace ext::net::openssl
 		std::fclose(fp);
 
 		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
-		return evp_pkey_uptr(pkey);
+		return evp_pkey_iptr(pkey, ext::noaddref);
 	}
 
 	pkcs12_uptr load_pkcs12(const char * data, std::size_t len)
@@ -356,7 +377,7 @@ namespace ext::net::openssl
 		return pkcs12;
 	}
 
-	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_uptr & evp_pkey, x509_uptr & x509, stackof_x509_uptr & ca)
+	void parse_pkcs12(PKCS12 * pkcs12, std::string passwd, evp_pkey_iptr & evp_pkey, x509_iptr & x509, stackof_x509_uptr & ca)
 	{
 		X509 * raw_cert = nullptr;
 		EVP_PKEY * raw_pkey = nullptr;
@@ -365,48 +386,48 @@ namespace ext::net::openssl
 		int res = ::PKCS12_parse(pkcs12, passwd.c_str(), &raw_pkey, &raw_cert, &raw_ca);
 		if (res <= 0) throw_last_error("ext::net::openssl::parse_pkcs12: ::PKCS12_parse failed");
 
-		evp_pkey.reset(raw_pkey);
-		x509.reset(raw_cert);
+		evp_pkey.reset(raw_pkey, ext::noaddref);
+		x509.reset(raw_cert, ext::noaddref);
 		ca.reset(raw_ca);
 	}
 
-	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd) -> std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr>
+	auto parse_pkcs12(PKCS12 * pkcs12, std::string passwd) -> std::tuple<evp_pkey_iptr, x509_iptr, stackof_x509_uptr>
 	{
-		std::tuple<evp_pkey_uptr, x509_uptr, stackof_x509_uptr> result;
+		std::tuple<evp_pkey_iptr, x509_iptr, stackof_x509_uptr> result;
 		parse_pkcs12(pkcs12, passwd, std::get<0>(result), std::get<1>(result), std::get<2>(result));
 		return result;
 	}
 
 
-	ssl_ctx_uptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
+	ssl_ctx_iptr create_sslctx(X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
 	{
 		auto * method = ::SSLv23_server_method();
 		return create_sslctx(method, cert, pkey, ca_chain);
 	}
 
-	ssl_ctx_uptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
+	ssl_ctx_iptr create_sslctx(const SSL_METHOD * method, X509 * cert, EVP_PKEY * pkey, stack_st_X509 * ca_chain)
 	{
 		auto * ctx = ::SSL_CTX_new(method);
 
-		ssl_ctx_uptr ssl_ctx_uptr(ctx);
+		ssl_ctx_iptr ssl_ctx_iptr(ctx, ext::noaddref);
 
 		if (::SSL_CTX_use_cert_and_key(ctx, cert, pkey, ca_chain, 1) != 1)
 			throw_last_error("ext::net::openssl::create_sslctx: ::SSL_CTX_use_cert_and_key failed");
 
-		return ssl_ctx_uptr;
+		return ssl_ctx_iptr;
 	}
 
-	ssl_ctx_uptr create_anonymous_sslctx()
+	ssl_ctx_iptr create_anonymous_sslctx()
 	{
 		auto * method = ::SSLv23_server_method();
 		return create_anonymous_sslctx(method);
 	}
 
-	ssl_ctx_uptr create_anonymous_sslctx(const SSL_METHOD * method)
+	ssl_ctx_iptr create_anonymous_sslctx(const SSL_METHOD * method)
 	{
 		auto * ctx = ::SSL_CTX_new(method);
 
-		ssl_ctx_uptr ssl_ctx_uptr(ctx);
+		ssl_ctx_iptr ssl_ctx_iptr(ctx, ext::noaddref);
 		if (::SSL_CTX_set_cipher_list(ctx, "aNULL:eNULL") != 1)
 			throw_last_error("ext::net::openssl::create_anonymous_sslctx: ::SSL_CTX_set_cipher_list failed");
 
@@ -414,7 +435,7 @@ namespace ext::net::openssl
 		::SSL_CTX_set_tmp_dh(ctx, dh);
 		::DH_free(dh);
 
-		return ssl_ctx_uptr;
+		return ssl_ctx_iptr;
 	}
 
 	struct cms_contentinfo_deleter { void operator()(CMS_ContentInfo * info) { CMS_ContentInfo_free(info); } };
@@ -422,21 +443,21 @@ namespace ext::net::openssl
 
 	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * ca, std::string_view msg_body, bool detached)
 	{
-		openssl::bio_uptr bio_input_ptr, bio_output_ptr;
+		bio_uptr bio_input_ptr, bio_output_ptr;
 		bio_input_ptr.reset( ::BIO_new_mem_buf(msg_body.data(), static_cast<int>(msg_body.size())) );
 		bio_output_ptr.reset( ::BIO_new(::BIO_s_mem()) );
 
-		if (not bio_input_ptr)  openssl::throw_last_error("ext::net::openssl::sign_mail: input  BIO_mem fail(::BIO_new_mem_buf)");
-		if (not bio_output_ptr) openssl::throw_last_error("ext::net::openssl::sign_mail: output BIO_mem fail(::BIO_new(::BIO_s_mem()))");
+		if (not bio_input_ptr)  throw_last_error("ext::net::openssl::sign_mail: input  BIO_mem fail(::BIO_new_mem_buf)");
+		if (not bio_output_ptr) throw_last_error("ext::net::openssl::sign_mail: output BIO_mem fail(::BIO_new(::BIO_s_mem()))");
 
 		int flags = CMS_STREAM | CMS_CRLFEOL;
 		if (detached) flags |= CMS_DETACHED;
 
 		cms_contentinfo_ptr cms_info(::CMS_sign(x509, pkey, ca, bio_input_ptr.get(), flags));
-		if (not cms_info) openssl::throw_last_error("ext::net::openssl::sign_mail: CMS_sign call failure");
+		if (not cms_info) throw_last_error("ext::net::openssl::sign_mail: CMS_sign call failure");
 
 		int res = ::SMIME_write_CMS(bio_output_ptr.get(), cms_info.get(), bio_input_ptr.get(), flags);
-		if (res <= 0) openssl::throw_last_error("ext::net::openssl::sign_mail: SMIME_write_CMS call failure");
+		if (res <= 0) throw_last_error("ext::net::openssl::sign_mail: SMIME_write_CMS call failure");
 
 		char * data;
 		int len = BIO_get_mem_data(bio_output_ptr.get(), &data);
