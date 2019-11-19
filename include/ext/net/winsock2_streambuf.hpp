@@ -311,7 +311,7 @@ namespace ext::net
 		/// устанавливает способ получение openssl ошибок, смотри описание к openssl::error_retrieve_type,
 		/// по умолчанию всегда выставлен error_retrieve_get
 		auto ssl_error_retrieve() const noexcept { return m_error_retrieve_type; }
-		auto ssl_error_retrieve(openssl::error_retrieve_type retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
+		auto ssl_error_retrieve(openssl::error_retrieve retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
 
 		/// управление ssl сессией
 		/// есть ли активная ssl сессия

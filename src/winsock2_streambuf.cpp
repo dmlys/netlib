@@ -826,7 +826,7 @@ namespace ext::net
 			case SSL_ERROR_SSL:
 			case SSL_ERROR_SYSCALL:
 				// if it some generic SSL error
-				if ((wsaerr = m_error_retrieve == openssl::error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error()))
+				if ((wsaerr = m_error_retrieve_type == openssl::error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error()))
 				{
 					err_code.assign(wsaerr, openssl_err_category());
 					return true;
