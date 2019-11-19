@@ -1,4 +1,4 @@
-#define BOOST_TEST_MODULE "net test"
+#define BOOST_TEST_MODULE "netlib tests"
 //#define BOOST_TEST_MAIN
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
