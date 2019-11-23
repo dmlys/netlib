@@ -5,7 +5,7 @@
 
 #include <ext/net/socket_rest_supervisor.hpp>
 #include <ext/library_logger/logging_macros.hpp>
-#include <ext/Errors.hpp>
+#include <ext/errors.hpp>
 
 #include <boost/scope_exit.hpp>
 
@@ -145,7 +145,7 @@ namespace ext::net
 		errmsg = "socket_rest_supervisor error. ";
 		errmsg += ex.what();
 		errmsg += "; socket_state - ";
-		errmsg += ext::FormatError(ec);
+		errmsg += ext::format_error(ec);
 
 		EXTLL_ERROR(m_logger, errmsg);
 
@@ -163,7 +163,7 @@ namespace ext::net
 	{
 		assert(ex.code() == m_sock_streambuf.last_error());
 
-		std::string errmsg = "socket_rest_supervisor connection error. " + ext::FormatError(ex);
+		std::string errmsg = "socket_rest_supervisor connection error. " + ext::format_error(ex);
 
 		EXTLL_ERROR(m_logger, errmsg);
 

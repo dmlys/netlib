@@ -13,7 +13,7 @@
 #include <ext/itoa.hpp>
 #include <ext/config.hpp>  // for EXT_UNREACHABLE
 #include <ext/codecvt_conv.hpp>
-#include <ext/Errors.hpp>  // for ext::FormatError
+#include <ext/errors.hpp>  // for ext::format_error
 
 #include <ext/net/winsock2_streambuf.hpp>
 #include <ext/net/socket_include.hpp>

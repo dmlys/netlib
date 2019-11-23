@@ -11,7 +11,7 @@
 
 #include <ext/itoa.hpp>
 #include <ext/config.hpp>  // for EXT_UNREACHABLE
-#include <ext/Errors.hpp>  // for ext::FormatError
+#include <ext/errors.hpp>  // for ext::format_error
 
 #include <ext/net/bsdsock_streambuf.hpp>
 #include <ext/net/socket_include.hpp>

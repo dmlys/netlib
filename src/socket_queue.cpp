@@ -5,7 +5,7 @@
 
 #include <ext/config.hpp>
 #include <ext/utility.hpp>
-#include <ext/Errors.hpp>
+#include <ext/errors.hpp>
 #include <ext/net/socket_queue.hpp>
 #include <ext/net/socket_include.hpp>
 
@@ -249,7 +249,7 @@ namespace ext::net
 			if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) goto again;
 
 			auto errc = std::error_code(err, std::system_category());
-			LOG_ERROR("got error while executing select: {}", ext::FormatError(errc));
+			LOG_ERROR("got error while executing select: {}", ext::format_error(errc));
 
 			throw std::system_error(errc, "ext::net::socket_queue::wait_ready: ::select failed");
 		}
@@ -302,7 +302,7 @@ namespace ext::net
 			auto errc = std::error_code(err, std::system_category());
 			sock.set_last_error(errc, "socket_queue");
 
-			LOG_INFO("socket {} has error", handle, ext::FormatError(errc));
+			LOG_INFO("socket {} has error", handle, ext::format_error(errc));
 			m_cur = it;
 			return ready;
 		}

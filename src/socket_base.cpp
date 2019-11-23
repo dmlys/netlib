@@ -11,7 +11,7 @@
 #if BOOST_OS_WINDOWS
 #include <codecvt> // for std::codecvt_utf8<wchar_t>
 #include <ext/codecvt_conv.hpp>
-#include <ext/Errors.hpp>
+#include <ext/errors.hpp>
 #endif
 
 #ifdef _MSC_VER
@@ -97,7 +97,7 @@ namespace ext::net
 
 		std::cerr
 		    << "Failed to initialize winsock version 2.2 library. "
-		    << ext::FormatError(std::error_code(res, std::system_category()))
+		    << ext::format_error(std::error_code(res, std::system_category()))
 		    << std::endl;
 
 		std::exit(EXIT_FAILURE);
@@ -369,7 +369,7 @@ namespace ext::net
 			wservice = wservicestr.c_str();
 		}
 
-		return getaddrinfo(whost, wservicestr, err);
+		return getaddrinfo(whost, wservice, err);
 	}
 
 	addrinfo_ptr getaddrinfo(const char * host, const char * service)
@@ -395,7 +395,7 @@ namespace ext::net
 			wservice = wservicestr.c_str();
 		}
 
-		return getaddrinfo(whost, wservicestr);
+		return getaddrinfo(whost, wservice);
 	}
 
 #else

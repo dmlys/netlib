@@ -7,7 +7,7 @@
 #include <ext/net/mime/encode_mail_body.hpp>
 #include <ext/net/mail/wellknown_headers.hpp>
 
-#include <ext/Errors.hpp>
+#include <ext/errors.hpp>
 #include <ext/library_logger/logging_macros.hpp>
 
 #include <boost/uuid/uuid.hpp> // for mime boundaries
@@ -30,7 +30,7 @@ namespace ext::net::mail::simple
 		if (not sock)
 		{
 			auto err_msg = "SMTP connection(" + sp.smtp_addr + ":" + sp.smtp_service + ") failure: ";
-			err_msg += ext::FormatError(sock.last_error());
+			err_msg += ext::format_error(sock.last_error());
 			ses.throw_smtp_exception(err_msg);
 		}
 
