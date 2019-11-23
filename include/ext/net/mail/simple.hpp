@@ -43,9 +43,10 @@ namespace ext::net::mail::simple
 
 #if EXT_ENABLE_OPENSSL
 		// certificate and private key for signing
-		openssl::evp_pkey_uptr private_key;
-		openssl::x509_uptr     x509;
-		openssl::stackof_x509_uptr ca;
+		openssl::evp_pkey_iptr private_key;
+		openssl::x509_iptr     x509;
+		// additional certificates to include into signature
+		openssl::stackof_x509_uptr additional_certs;
 		bool sign_detached = true;
 #endif
 

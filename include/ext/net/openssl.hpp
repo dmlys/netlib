@@ -226,8 +226,8 @@ namespace ext::net::openssl
 	///	same as above with SSLv23_server_method
 	ssl_ctx_iptr create_anonymous_sslctx();
 
-	/// signs email(msg_body) with given private key, x509 certificate and ca's
-	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * ca, std::string_view msg_body, bool detached);
+	/// signs email(msg_body) with given private key, x509 certificate and with additional certificates to be included into signature
+	std::string sign_mail(EVP_PKEY * pkey, X509 * x509, stack_st_X509 * additional_certs, std::string_view msg_body, bool detached);
 }
 
 namespace ext::net

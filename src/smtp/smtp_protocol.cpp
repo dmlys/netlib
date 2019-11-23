@@ -194,19 +194,21 @@ namespace ext::net::smtp
 
 	void authenticate_simple(smtp_session & ses, std::string_view user, std::string_view pass)
 	{
-		std::string encoded;
 		auto & sock = ses.sock();
 
 		if (ses.extensions()[login_auth])
 		{
+			std::string encoded;
 			ses.send("auth login", 334);
 
+			encoded.clear();
 			ext::encode_base64(user, encoded);
 			ses.log_send("<base64 encoded login>");
 
 			sock << encoded << "\r\n";
 			ses.process_answer(334);
 
+			encoded.clear();
 			ext::encode_base64(pass, encoded);
 			ses.log_send("<base64 encoded password>");
 
@@ -224,7 +226,7 @@ namespace ext::net::smtp
 			str += '\0';
 			str += pass;
 
-			ext::encode_base64(str, encoded);
+			auto encoded = ext::encode_base64(str);
 			ses.log_send("auth plain <base64 encoded loginpassword>");
 
 			sock << "auth plain " << encoded << "\r\n";
