@@ -6,14 +6,17 @@
 #include <openssl/pkcs12.h>
 #include <openssl/cms.h>
 
-#include <ext/net/openssl.hpp>
+#include <codecvt>
+#include <ext/codecvt_conv.hpp>
+
 #include <boost/predef.h> // for BOOST_OS_WINDOWS
 #include <boost/static_assert.hpp>
 
+#include <ext/net/openssl.hpp>
+
 #if BOOST_OS_WINDOWS
 #include <windows.h>
-#include <codecvt>
-#include <ext/codecvt_conv.hpp>
+#include <winsock2.h>
 
 #ifdef _MSC_VER
 #pragma comment(lib, "crypt32.lib")
@@ -306,7 +309,6 @@ namespace ext::net::openssl
 #else
 		std::FILE * fp = std::fopen(path, "r");
 #endif
-
 		if (fp == nullptr)
 		{
 			std::error_code errc(errno, std::generic_category());
@@ -319,6 +321,38 @@ namespace ext::net::openssl
 		if (not cert) throw_last_error("ext::net::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
 		return x509_iptr(cert, ext::noaddref);
 	}
+
+	x509_iptr load_certificate_from_file(const wchar_t * wpath, std::string_view passwd)
+	{
+#if not BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto path = ext::codecvt_convert::to_bytes(cvt, ext::str_view(wpath));
+		std::FILE * fp = std::fopen(path.c_str(), "r");
+#else
+		std::FILE * fp = ::_wfopen(wpath, L"r");
+#endif
+		if (fp == nullptr)
+		{
+			std::error_code errc(errno, std::generic_category());
+			throw std::system_error(errc, "ext::net::openssl::load_certificate_from_file: std::fopen failed");
+		}
+
+		X509 * cert = ::PEM_read_X509(fp, nullptr, password_callback, &passwd);
+		std::fclose(fp);
+
+		if (not cert) throw_last_error("ext::net::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
+		return x509_iptr(cert, ext::noaddref);
+	}
+
+	x509_iptr load_certificate_from_file(std::FILE * file, std::string_view passwd)
+	{
+		assert(file);
+		X509 * cert = ::PEM_read_X509(file, nullptr, password_callback, &passwd);
+
+		if (not cert) throw_last_error("ext::net::openssl::load_certificate_from_file: ::PEM_read_X509 failed");
+		return x509_iptr(cert, ext::noaddref);
+	}
+
 
 	evp_pkey_iptr load_private_key_from_file(const char * path, std::string_view passwd)
 	{
@@ -339,6 +373,40 @@ namespace ext::net::openssl
 		//                  traditional or PKCS#8 format
 		EVP_PKEY * pkey = ::PEM_read_PrivateKey(fp, nullptr, password_callback, &passwd);
 		std::fclose(fp);
+
+		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
+		return evp_pkey_iptr(pkey, ext::noaddref);
+	}
+
+	evp_pkey_iptr load_private_key_from_file(const wchar_t * wpath, std::string_view passwd)
+	{
+#if not BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto path = ext::codecvt_convert::to_bytes(cvt, ext::str_view(wpath));
+		std::FILE * fp = std::fopen(path.c_str(), "r");
+#else
+		std::FILE * fp = ::_wfopen(wpath, L"r");
+#endif
+
+		if (fp == nullptr)
+		{
+			std::error_code errc(errno, std::generic_category());
+			throw std::system_error(errc, "ext::net::openssl::load_private_key_from_file: std::fopen failed");
+		}
+
+		//                  traditional or PKCS#8 format
+		EVP_PKEY * pkey = ::PEM_read_PrivateKey(fp, nullptr, password_callback, &passwd);
+		std::fclose(fp);
+
+		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
+		return evp_pkey_iptr(pkey, ext::noaddref);
+	}
+
+	evp_pkey_iptr load_private_key_from_file(std::FILE * file, std::string_view passwd)
+	{
+		assert(file);
+		//                  traditional or PKCS#8 format
+		EVP_PKEY * pkey = ::PEM_read_PrivateKey(file, nullptr, password_callback, &passwd);
 
 		if (not pkey) throw_last_error("ext::net::openssl::load_private_key_from_file: ::PEM_read_PrivateKey failed");
 		return evp_pkey_iptr(pkey, ext::noaddref);
@@ -372,6 +440,38 @@ namespace ext::net::openssl
 
 		pkcs12_uptr pkcs12(::d2i_PKCS12_fp(fp, nullptr));
 		std::fclose(fp);
+
+		if (not pkcs12) throw_last_error("ext::net::openssl::load_pkcs12_from_file: ::d2i_PKCS12_fp failed");
+		return pkcs12;
+	}
+
+	pkcs12_uptr load_pkcs12_from_file(const wchar_t * wpath)
+	{
+#if not BOOST_OS_WINDOWS
+		std::codecvt_utf8<wchar_t> cvt;
+		auto path = ext::codecvt_convert::to_bytes(cvt, ext::str_view(wpath));
+		std::FILE * fp = std::fopen(path.c_str(), "r");
+#else
+		std::FILE * fp = ::_wfopen(wpath, L"r");
+#endif
+
+		if (fp == nullptr)
+		{
+			std::error_code errc(errno, std::generic_category());
+			throw std::system_error(errc, "ext::net::openssl::load_pkcs12_from_file: std::fopen failed");
+		}
+
+		pkcs12_uptr pkcs12(::d2i_PKCS12_fp(fp, nullptr));
+		std::fclose(fp);
+
+		if (not pkcs12) throw_last_error("ext::net::openssl::load_pkcs12_from_file: ::d2i_PKCS12_fp failed");
+		return pkcs12;
+	}
+
+	pkcs12_uptr load_pkcs12_from_file(std::FILE * file)
+	{
+		assert(file);
+		pkcs12_uptr pkcs12(::d2i_PKCS12_fp(file, nullptr));
 
 		if (not pkcs12) throw_last_error("ext::net::openssl::load_pkcs12_from_file: ::d2i_PKCS12_fp failed");
 		return pkcs12;

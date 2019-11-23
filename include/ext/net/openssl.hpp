@@ -176,9 +176,14 @@ namespace ext::net::openssl
 	/// Loads X509 certificate from given path and with optional password
 	/// Throws std::system_error in case of errors
 	x509_iptr     load_certificate_from_file(const char * path, std::string_view passwd = "");
+	x509_iptr     load_certificate_from_file(const wchar_t * path, std::string_view passwd = "");
+	x509_iptr     load_certificate_from_file(std::FILE * file, std::string_view passwd = "");
+
 	/// loads private key from given given path and with optional password
 	/// Throws std::system_error in case of errors
 	evp_pkey_iptr load_private_key_from_file(const char * path, std::string_view passwd = "");
+	evp_pkey_iptr load_private_key_from_file(const wchar_t * path, std::string_view passwd = "");
+	evp_pkey_iptr load_private_key_from_file(std::FILE * path, std::string_view passwd = "");
 
 	/// Loads PKCS12 file from given memory location.
 	/// Throws std::system_error in case of errors
@@ -186,11 +191,18 @@ namespace ext::net::openssl
 	/// Loads PKCS12 file from given path.
 	/// Throws std::system_error in case of errors
 	pkcs12_uptr load_pkcs12_from_file(const char * path);
+	pkcs12_uptr load_pkcs12_from_file(const wchar_t * path);
+	pkcs12_uptr load_pkcs12_from_file(std::FILE * file);
+
 	inline pkcs12_uptr load_pkcs12(std::string_view str) { return load_pkcs12(str.data(), str.size()); }
 
 	inline x509_iptr     load_certificate_from_file(const std::string & path, std::string_view passwd = "") { return load_certificate_from_file(path.c_str(), passwd); }
 	inline evp_pkey_iptr load_private_key_from_file(const std::string & path, std::string_view passwd = "") { return load_private_key_from_file(path.c_str(), passwd); }
 	inline pkcs12_uptr   load_pkcs12_from_file(const std::string & path) { return load_pkcs12_from_file(path.c_str()); }
+
+	inline x509_iptr     load_certificate_from_file(const std::wstring & path, std::string_view passwd = "") { return load_certificate_from_file(path.c_str(), passwd); }
+	inline evp_pkey_iptr load_private_key_from_file(const std::wstring & path, std::string_view passwd = "") { return load_private_key_from_file(path.c_str(), passwd); }
+	inline pkcs12_uptr   load_pkcs12_from_file(const std::wstring & path) { return load_pkcs12_from_file(path.c_str()); }
 
 	/// Parses PKCS12 into private key, x509 certificate and certificate authorities
 	/// Throws std::system_error in case of errors
