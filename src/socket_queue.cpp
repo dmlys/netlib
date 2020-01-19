@@ -392,7 +392,18 @@ namespace ext::net
 		}
 
 		return {};
-	}	
+	}
+
+	auto socket_queue::take_sockets() -> std::vector<socket_streambuf>
+	{
+		std::vector<socket_streambuf> result;
+		for (auto & item : m_socks)
+			result.push_back(std::move(item.sock));
+		m_socks.clear();
+
+		return result;
+	}
+
 
 	socket_queue::socket_queue()
 	{

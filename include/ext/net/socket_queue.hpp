@@ -137,6 +137,7 @@ namespace ext::net
 		auto get_listeners() const -> const listener_list & { return m_listeners; }
 		auto get_listeners()       ->       listener_list & { return m_listeners; }
 		auto take_listeners()      ->       listener_list   { return std::move(m_listeners); }
+		auto take_sockets()        ->       std::vector<socket_streambuf>;
 
 	public:
 		/// sets/gets default timeout for newly accepted sockets from listeners

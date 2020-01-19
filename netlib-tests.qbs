@@ -28,6 +28,6 @@ CppApplication
 	]
 
 	files: [
-		"tests/**"
-    ]
+		"tests/**",
+	]
 }

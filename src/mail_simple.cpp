@@ -1,4 +1,4 @@
-﻿#include <ext/net/mail/simple.hpp>
+#include <ext/net/mail/simple.hpp>
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/smtp.hpp>
 

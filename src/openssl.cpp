@@ -15,8 +15,8 @@
 #include <ext/net/openssl.hpp>
 
 #if BOOST_OS_WINDOWS
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 
 #ifdef _MSC_VER
 #pragma comment(lib, "crypt32.lib")
