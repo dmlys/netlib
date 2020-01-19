@@ -1,6 +1,9 @@
+#include <cstddef>
+#include <climits> // for CHAR_BIT
 #include <cassert>
 #include <cstring> // for std::memcpy
-#include <vector>
+#include <string>
+#include <string_view>
 #include <algorithm>
 
 #include <ext/config.hpp>
@@ -310,8 +313,7 @@ namespace net
 
 	void http_parser::on_parsed_header(const std::string & name, const std::string & value)
 	{
-		m_deflated |= name == "Content-Encoding" &&
-			(value == "gzip" || value == "deflate");
+
 	}
 
 	bool http_parser::parse_body(std::streambuf & sb, const char *& buffer, std::size_t & buff_size)
@@ -396,8 +398,8 @@ namespace net
 
 		m_buffer = nullptr;
 		m_buffer_size = 0;
-		m_deflated = false;
 		m_type = type;
+		m_flags = 0;
 
 		auto * parser = &get_parser();
 		auto * settings = &get_settings();
@@ -408,7 +410,7 @@ namespace net
 	{
 		m_state = other.m_state;
 		m_type = other.m_type;
-		m_deflated = other.m_deflated;
+		m_flags = other.m_flags;
 		
 		m_buffer = other.m_buffer;
 		m_buffer_size = other.m_buffer_size;
@@ -458,6 +460,32 @@ namespace net
 		return parse_body(*is.rdbuf(), buffer, buff_size);
 	}
 
+	void http_parser::parse_body(std::streambuf & sb, std::string & body)
+	{
+		const char * buffer;
+		std::size_t bufsize;
+		while (parse_body(sb, buffer, bufsize))
+			ext::append(body, buffer, buffer + bufsize);
+	}
+
+	void http_parser::parse_body(std::streambuf & sb, std::vector<char> & body)
+	{
+		const char * buffer;
+		std::size_t bufsize;
+		while (parse_body(sb, buffer, bufsize))
+			ext::append(body, buffer, buffer + bufsize);
+	}
+
+	void http_parser::parse_body(std::istream & is, std::string & body)
+	{
+		return parse_body(*is.rdbuf(), body);
+	}
+
+	void http_parser::parse_body(std::istream & is, std::vector<char> & body)
+	{
+		return parse_body(*is.rdbuf(), body);
+	}
+
 	void http_parser::parse_trailing(std::streambuf & sb)
 	{
 		const char * buf;
@@ -474,7 +502,7 @@ namespace net
 
 	int parse_http_response(http_parser & parser, std::streambuf & sb, std::string & response_body)
 	{
-		parser.parse_http_body(sb, response_body);
+		parse_http_body(parser, sb, response_body);
 		return parser.http_code();
 	}
 	
@@ -497,7 +525,7 @@ namespace net
 
 	void parse_http_request(http_parser & parser, std::streambuf & sb, std::string & method, std::string & url, std::string & request_body)
 	{
-		parser.parse_http_body(sb, request_body, &url);
+		parse_http_body(parser, sb, request_body, &url);
 		method = parser.http_method();
 	}
 
@@ -520,8 +548,8 @@ namespace net
 
 #include <ext/net/http_parser_impl.hpp>
 
-template void ext::net::http_parser::parse_http_body<std::string>(std::streambuf & sb, std::string & body, std::string * status_or_url);
-template void ext::net::http_parser::parse_http_body<std::string>(std::istream   & is, std::string & body, std::string * status_or_url);
+template void ext::net::parse_http_body<std::string>(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url);
+template void ext::net::parse_http_body<std::string>(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url);
 
-template void ext::net::http_parser::parse_http_body<std::vector<char>>(std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
-template void ext::net::http_parser::parse_http_body<std::vector<char>>(std::istream   & is, std::vector<char> & body, std::string * status_or_url);
+template void ext::net::parse_http_body<std::vector<char>>(http_parser & parser, std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
+template void ext::net::parse_http_body<std::vector<char>>(http_parser & parser, std::istream   & is, std::vector<char> & body, std::string * status_or_url);

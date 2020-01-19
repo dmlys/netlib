@@ -81,11 +81,20 @@ namespace net
 	
 	void http_streambuf::init()
 	{
-		std::string name, val;
-		while (m_parser.parse_status(*m_source, m_url_or_status));
-		while (m_parser.parse_header(*m_source, name, val));
+		std::string name, value;
+		bool deflated = m_parser.deflated();
 
-		if (m_parser.deflated())
+		while (m_parser.parse_status(*m_source, m_url_or_status))
+			continue;
+
+		while (m_parser.parse_header(*m_source, name, value))
+		{
+			if (not deflated and name == "Content-Encoding")
+				deflated = value == "gzip" or value == "deflate";
+		}
+
+		m_parser.deflated(deflated);
+		if (deflated)
 		{
 			m_buffer = std::make_unique<char[]>(m_buffer_size);
 			m_reader = &http_streambuf::underflow_deflated;

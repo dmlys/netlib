@@ -3,6 +3,7 @@
 #include <climits> // for CHAR_BIT
 #include <string>
 #include <string_view>
+#include <vector>
 #include <tuple>
 
 #include <streambuf>
@@ -38,8 +39,8 @@ namespace net
 
 	private:
 		state_type m_state;
-		unsigned m_deflated : 1;
 		unsigned m_type     : 2;
+		unsigned m_flags    : sizeof(unsigned) * CHAR_BIT - 2;
 
 		// Including http_parser.h is somewhat unwanted - it's a C source with no namespace at all.
 		// Instead we declare byte array of same size and reinterpret_cast it were necessary.
@@ -125,8 +126,14 @@ namespace net
 		bool headers_parsed() const noexcept { return m_state >= body_state; }
 		bool message_parsed() const noexcept { return m_state == finished; }
 
-		bool deflated()       const noexcept { return m_deflated; }
-		void force_defalted()       noexcept { m_deflated = true; }
+		bool get_flag(unsigned n) const noexcept { return m_flags & (1u << n); }
+		void set_flag(unsigned n)       noexcept { m_flags |=   1u << n; }
+		void reset_flag(unsigned n)     noexcept { m_flags &= ~(1u << n); }
+		void flip_flag(unsigned n)      noexcept { m_flags ^=   1u << n; }
+		void set_flag(unsigned n, bool value) noexcept { m_flags ^= (-static_cast<unsigned>(value) ^ m_flags) & (1u << n); }
+
+		inline bool deflated() const noexcept { return get_flag(1); }
+		inline void deflated(bool value) noexcept { return set_flag(1, value); }
 
 		bool parse_status(std::streambuf & sb, std::string & str);
 		bool parse_url(std::streambuf & sb, std::string & str);
@@ -138,13 +145,10 @@ namespace net
 		bool parse_header(std::istream & is, std::string & name, std::string & value);
 		bool parse_body(std::istream & is, const char *& buffer, std::size_t & buff_size);
 
-	public:
-		/// parses http body, similar to parse_body, but already does loop internally and also supports zlib, inflating if needed
-		template <class Container> void parse_http_body(std::streambuf & sb, Container & body, std::string * status_or_url = nullptr);
-		template <class Container> void parse_http_body(std::istream   & is, Container & body, std::string * status_or_url = nullptr);
-		// parse_http_body implementation is defined http_parser_impl.hpp.
-		// This library provides explicit instantiations or std::string and std::vector<char>,
-		// others can be explicitly instantiated by hand
+		void parse_body(std::streambuf & sb, std::string & body);
+		void parse_body(std::streambuf & sb, std::vector<char> & body);
+		void parse_body(std::istream & is, std::string & body);
+		void parse_body(std::istream & is, std::vector<char> & body);
 
 	public:
 		/// parses http data: headers, body; until whole http request/response is fully parsed,
@@ -178,6 +182,14 @@ namespace net
 		http_parser(const http_parser &) = delete;
 		http_parser & operator =(const http_parser &) = delete;
 	};
+
+
+	/// parses http body, similar to parse_body, but already does loop internally and also supports zlib, inflating if needed
+	template <class Container> void parse_http_body(http_parser & parser, std::streambuf & sb, Container & body, std::string * status_or_url = nullptr);
+	template <class Container> void parse_http_body(http_parser & parser, std::istream   & is, Container & body, std::string * status_or_url = nullptr);
+	// parse_http_body implementation is defined http_parser_impl.hpp.
+	// This library provides explicit instantiations for std::string and std::vector<char>,
+	// others can be explicitly instantiated by hand
 
 
 	int parse_http_response(std::streambuf & sb, std::string & response_body);
