@@ -140,8 +140,11 @@ namespace net
 
 	public:
 		/// parses http body, similar to parse_body, but already does loop internally and also supports zlib, inflating if needed
-		void parse_http_body(std::streambuf & sb, std::string & body, std::string * status_or_url = nullptr);
-		void parse_http_body(std::istream   & is, std::string & body, std::string * status_or_url = nullptr);
+		template <class Container> void parse_http_body(std::streambuf & sb, Container & body, std::string * status_or_url = nullptr);
+		template <class Container> void parse_http_body(std::istream   & is, Container & body, std::string * status_or_url = nullptr);
+		// parse_http_body implementation is defined http_parser_impl.hpp.
+		// This library provides explicit instantiations or std::string and std::vector<char>,
+		// others can be explicitly instantiated by hand
 
 	public:
 		/// parses http data: headers, body; until whole http request/response is fully parsed,
@@ -177,7 +180,6 @@ namespace net
 	};
 
 
-
 	int parse_http_response(std::streambuf & sb, std::string & response_body);
 	int parse_http_response(std::istream   & is, std::string & response_body);
 	int parse_http_response(http_parser & parser, std::streambuf & is, std::string & response_body);
@@ -200,21 +202,6 @@ namespace net
 	std::tuple<std::string, std::string, std::string> parse_http_request(http_parser & parser, std::streambuf & is);
 	std::tuple<std::string, std::string, std::string> parse_http_request(http_parser & parser, std::istream   & is);
 
-	/// parses regular HTTP header(MIME headers not supported). Understands HTTP header parameters.
-	/// returns true if header_str has more input, false if header_str depleted.
-	/// parsing examples:
-	///   Content-Type: text/xml  -> [("Content-Type", "text/xml")]
-	///   some string             -> [("", "some string")]
-	///   some string; name=test  -> [("", "some string"), ("name", "test")]
-	///   name: value; par=val    -> [("name", "value"), ("par", "val")]
-	///
-	/// Typical usage:
-	///   while(parse_http_header(header_str, name, val))
-	///   {
-	///       do something with name and val
-	///   }
-	bool parse_http_header(std::string & header_str, std::string & name, std::string & value); // can throw bad_alloc on string assignment
-	bool parse_http_header(std::string_view & header_str, std::string_view & name, std::string_view & value) noexcept;
 
 	/************************************************************************/
 	/*                     inline response impl                             */

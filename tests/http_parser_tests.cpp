@@ -1,4 +1,5 @@
 #include <ext/net/http_parser.hpp>
+#include <ext/net/http/parse_header.hpp>
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
 
@@ -16,38 +17,37 @@ BOOST_AUTO_TEST_CASE(http_parser_response_test)
 	BOOST_CHECK(body   == "licenseID=string&content=string&/paramsXML=string");
 }
 
-using string_map = std::unordered_map<std::string, std::string>;
-static string_map parse_http_header(std::string_view text)
+BOOST_AUTO_TEST_CASE(http_parse_header_test)
 {
-	string_map result;
-	std::string_view name, value;
-	while (ext::net::parse_http_header(text, name, value))
-		result[std::string(name)] = std::string(value);
-
-	return result;
-}
-
-BOOST_AUTO_TEST_CASE(parse_http_header_test)
-{
+	using namespace ext::net::http;
 	std::string_view text;
-	string_map result;
+	std::string_view value, parstr, parval;
 
-	text = "Content-Type: text/xml";
-	result = parse_http_header(text);
-	BOOST_CHECK_EQUAL(result["Content-Type"], "text/xml");
+	text = "value1, value2";
+	parse_header_value(text, value, parstr);
+	BOOST_CHECK_EQUAL(value, "value1");
+	BOOST_CHECK_EQUAL(parstr, "");
+	parse_header_value(text, value, parstr);
+	BOOST_CHECK_EQUAL(value, "value2");
+	BOOST_CHECK_EQUAL(parstr, "");
 
-	text = "some string";
-	result = parse_http_header(text);
-	BOOST_CHECK_EQUAL(result[""], "some string");
 
-	text = "some string; name=test";
-	result = parse_http_header(text);
-	BOOST_CHECK_EQUAL(result[""], "some string");
-	BOOST_CHECK_EQUAL(result["name"], "test");
+	text = "deflate ; q=0.5 , gzip;q=1";
 
-	text = "name: value; par=val";
-	result = parse_http_header(text);
-	BOOST_CHECK_EQUAL(result.count(""), 0 );
-	BOOST_CHECK_EQUAL(result["name"], "value");
-	BOOST_CHECK_EQUAL(result["par"], "val");	
+	parse_header_value(text, value, parstr);
+	BOOST_CHECK_EQUAL(value, "deflate");
+	BOOST_CHECK_EQUAL(parstr, "q=0.5");
+	parse_header_value(text, value, parstr);
+	BOOST_CHECK_EQUAL(value, "gzip");
+	BOOST_CHECK_EQUAL(parstr, "q=1");
+
+	text = "deflate ; q=0.5 , gzip;q=1";
+	BOOST_CHECK(not extract_header_value(text, "def", parstr));
+	BOOST_CHECK(extract_header_value(text, "deflate", parstr));
+	BOOST_CHECK_EQUAL(parstr, "q=0.5");
+
+	text = "deflate ; q=0.5 , gzip;q=1";
+	BOOST_CHECK(extract_header_value(text, "gzip", parstr));
+	BOOST_CHECK(extract_header_parameter(parstr, "q", parval));
+	BOOST_CHECK_EQUAL(parval, "1");
 }

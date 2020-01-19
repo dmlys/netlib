@@ -1,9 +1,9 @@
 #include <cassert>
 #include <cstring> // for std::memcpy
+#include <vector>
 #include <algorithm>
 
 #include <ext/config.hpp>
-#include <ext/cppzlib.hpp>
 #include <ext/range.hpp>
 #include <ext/iostreams/streambuf.hpp>
 #include <ext/net/http_parser.hpp>
@@ -472,87 +472,6 @@ namespace net
 	}
 
 
-	void http_parser::parse_http_body(std::streambuf & sb, std::string & body, std::string * pstatus_url /* = nullptr */)
-	{
-		std::string name, value;
-		const char * buffer;
-		std::size_t len;
-		std::string & status_url = pstatus_url ? *pstatus_url : value;
-
-		while (parse_status(sb, status_url))
-			continue;
-		
-		while (parse_header(sb, name, value))
-			continue;
-
-		if (deflated())
-		{
-#ifdef EXT_ENABLE_CPPZLIB
-			std::size_t sz = std::max<std::size_t>(1024, body.capacity());
-			sz = std::min<std::size_t>(10 * 1024, sz);
-			sz = std::max<std::size_t>(sz, body.size());
-			body.resize(sz);
-
-			zlib::inflate_stream inflator {MAX_WBITS + 32};
-			inflator.set_out(ext::data(body), body.size());
-
-			while (parse_body(sb, buffer, len))
-			{
-				inflator.set_in(buffer, len);
-				do {
-					if (not inflator.avail_out())
-					{
-						auto newsz = sz * 3 / 2;
-						body.resize(newsz);
-						inflator.set_out(ext::data(body) + sz, newsz - sz);
-						sz = newsz;
-					}
-
-					int res = ::inflate(inflator, Z_NO_FLUSH);
-					switch (res)
-					{
-						case Z_OK: break;
-
-						case Z_STREAM_END:
-							assert(not inflator.avail_in());
-							if (parse_body(sb, buffer, len))
-								throw std::runtime_error("inconsistent deflated stream, trailing data after Z_STREAM_END");
-
-							goto finished;
-
-						case Z_NEED_DICT:
-						case Z_BUF_ERROR:
-						case Z_ERRNO:
-						case Z_STREAM_ERROR:
-						case Z_DATA_ERROR:
-						case Z_MEM_ERROR:
-						case Z_VERSION_ERROR:
-						default:
-							zlib::throw_zlib_error(res, inflator);
-					}
-				} while (inflator.avail_in());
-			}
-
-		finished:
-			body.resize(inflator.total_out());
-#else
-			throw std::runtime_error("can't inflate compressed stream, ext::net::http_parser built without zlib support");
-#endif
-		}
-		else
-		{
-			while (parse_body(sb, buffer, len))
-				body.append(buffer, len);
-		}
-	}
-
-	void http_parser::parse_http_body(std::istream & is, std::string & body, std::string * status_or_url)
-	{
-		return parse_http_body(*is.rdbuf(), body, status_or_url);
-	}
-
-
-
 	int parse_http_response(http_parser & parser, std::streambuf & sb, std::string & response_body)
 	{
 		parser.parse_http_body(sb, response_body);
@@ -597,118 +516,12 @@ namespace net
 	{
 		return parse_http_request(*is.rdbuf(), method, url, request_body);
 	}
-
-
-	/************************************************************************/
-	/*                   parse_http_header impl                             */
-	/************************************************************************/
-	static std::string & trim(std::string & view)
-	{
-		auto first = view.data();
-		auto last  = first + view.size();
-		auto notspace = [](char ch) { return ch != ' '; };
-
-		// trim left
-		first = std::find_if(first, last, notspace);
-		// trim right
-		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
-
-		return view.assign(first, last);
-	}
-
-	static std::string_view & trim(std::string_view & view) noexcept
-	{
-		auto first = view.data();
-		auto last  = first + view.size();
-		auto notspace = [](char ch) { return ch != ' '; };
-
-		// trim left
-		first = std::find_if(first, last, notspace);
-		// trim right
-		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
-
-		return view = std::string_view(first, last - first);
-	}
-
-	bool parse_http_header(std::string & header_str, std::string & name, std::string & value)
-	{
-		auto first = header_str.data();
-		auto last  = first + header_str.size();
-		if (first == last) return false;
-
-		const auto sep = ext::str_view(";=");
-		last = std::find(first, last, ';');
-
-		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
-		if (middle != last)
-		{
-			name.assign(first, middle);
-			value.assign(middle + 1, last);
-		}
-		else
-		{
-			middle = std::find(first, last, ':');
-			if (middle == last)
-			{
-				name = "";
-				value.assign(first, last);
-			}
-			else
-			{
-				name.assign(first, middle);
-				value.assign(middle + 1, last);
-			}
-		}
-
-		first = last;
-		last = header_str.data() + header_str.size();
-		if (first != last) ++first;
-		header_str.assign(first, last);
-
-		trim(name);
-		trim(value);
-
-		return true;
-	}
-
-	bool parse_http_header(std::string_view & header_str, std::string_view & name, std::string_view & value) noexcept
-	{
-		auto first = header_str.data();
-		auto last  = first + header_str.size();
-		if (first == last) return false;
-
-		last = std::find(first, last, ';');
-
-		const auto sep = ext::str_view(":=");
-		auto middle = std::find_first_of(first, last, sep.begin(), sep.end());
-		if (middle != last)
-		{
-			name  = std::string_view(first, middle - first);
-			value = std::string_view(middle + 1, last - middle - 1);
-		}
-		else
-		{
-			middle = std::find(first, last, ':');
-			if (middle == last)
-			{
-				name  = "";
-				value = std::string_view(first, middle - first);
-			}
-			else
-			{
-				name  = std::string_view(first, middle - first);
-				value = std::string_view(middle + 1, last - middle - 1);
-			}
-		}
-
-		first = last;
-		last = header_str.data() + header_str.size();
-		if (first != last) ++first;
-		header_str = std::string_view(first, last - first);
-
-		trim(name);
-		trim(value);
-
-		return true;
-	}
 }}
+
+#include <ext/net/http_parser_impl.hpp>
+
+template void ext::net::http_parser::parse_http_body<std::string>(std::streambuf & sb, std::string & body, std::string * status_or_url);
+template void ext::net::http_parser::parse_http_body<std::string>(std::istream   & is, std::string & body, std::string * status_or_url);
+
+template void ext::net::http_parser::parse_http_body<std::vector<char>>(std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
+template void ext::net::http_parser::parse_http_body<std::vector<char>>(std::istream   & is, std::vector<char> & body, std::string * status_or_url);
