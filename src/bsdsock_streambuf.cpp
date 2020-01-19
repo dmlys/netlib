@@ -392,11 +392,6 @@ namespace ext::net
 		// try flush
 		if (sync() == -1) return false;
 
-#ifdef EXT_ENABLE_OPENSSL
-		// try stop ssl
-		if (!stop_ssl()) return false;
-#endif //EXT_ENABLE_OPENSSL
-
 		// делаем shutdown
 		bool result = do_shutdown();
 		return process_result(result);
@@ -411,9 +406,16 @@ namespace ext::net
 		{
 			// делаем shutdown, после чего в любом случае закрываем сокет
 			bool old_throw = std::exchange(m_throw_errors, false);
-			result = shutdown();
+			m_closing = true;
+			result = sync();
+#ifdef EXT_ENABLE_OPENSSL
+			if (ssl_started())
+				result &= do_sslshutdown(m_sslhandle);
+#endif //EXT_ENABLE_OPENSSL
+			result &= do_shutdown();
 			result &= do_close();
 			m_throw_errors = old_throw;
+			m_closing = false;
 		}
 
 		// если закрытие успешно, очищаем последнюю ошибку
@@ -948,6 +950,7 @@ namespace ext::net
 			if (res == 0) break;
 
 			if (ssl_rw_error(res, m_lasterror)) goto error;
+			if (m_closing) break; // if closing - do not wait
 
 			fstate = fstate_from_ssl_result(res);
 		} while (wait_state(until, fstate));
@@ -959,6 +962,7 @@ namespace ext::net
 			if (res > 0) goto success;
 
 			if (ssl_rw_error(res, m_lasterror)) break;
+			if (m_closing) break; // if closing - do not wait
 
 			fstate = fstate_from_ssl_result(res);
 		} while (wait_state(until, fstate));

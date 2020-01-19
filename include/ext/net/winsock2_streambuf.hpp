@@ -98,6 +98,7 @@ namespace ext::net
 
 		duration_type m_timeout = std::chrono::seconds(10);
 
+		bool m_closing = false;
 		bool m_throw_errors = true;
 		error_code_type m_lasterror;
 		const char * m_lasterror_context = nullptr;
