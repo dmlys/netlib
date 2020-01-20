@@ -179,6 +179,7 @@ namespace ext::net::http
 		{
 			EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
 			req.body = inflate(req.body);
+			req.headers.erase("Content-Encoding");
 		}
 
 		return std::nullopt;
