@@ -21,9 +21,11 @@
 #include <ext/net/socket_queue.hpp>
 #include <ext/net/openssl.hpp>
 
+#include <ext/net/http_parser.hpp>
 #include <ext/net/http/http_types.hpp>
 #include <ext/net/http/http_server_handler.hpp>
 #include <ext/net/http/http_server_filter.hpp>
+
 
 namespace ext::net::http
 {

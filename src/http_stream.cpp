@@ -1,7 +1,6 @@
 #include <ext/net/http_stream.hpp>
 
-namespace ext {
-namespace net
+namespace ext::net
 {
 	auto http_streambuf::underflow() -> int_type
 	{
@@ -172,4 +171,4 @@ namespace net
 
 		return *this;
 	}
-}}
+}

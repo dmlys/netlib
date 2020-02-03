@@ -9,7 +9,6 @@
 #include <boost/iterator/transform_iterator.hpp>
 
 #include <ext/net/socket_include.hpp>
-#include <ext/net/http_parser.hpp>
 #include <ext/net/http/http_server.hpp>
 #include <ext/net/http/http_server_ext.hpp>
 

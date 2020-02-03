@@ -4,7 +4,6 @@
 #include <ext/range.hpp>
 #include <ext/iostreams/streambuf.hpp>
 #include <ext/net/http_parser.hpp>
-#include <ext/net/http/parse_header.hpp>
 
 namespace ext::net
 {

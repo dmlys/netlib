@@ -10,8 +10,7 @@
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/http_parser.hpp>
 
-namespace ext {
-namespace net
+namespace ext::net
 {
 	/************************************************************************/
 	/*                       http_streambuf                                 */
@@ -78,4 +77,4 @@ namespace net
 		http_stream(http_stream && other) noexcept;
 		http_stream & operator =(http_stream && other) noexcept;
 	};
-}}
+}

@@ -48,3 +48,9 @@ namespace ext::net::http
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
 }
+
+namespace ext::net
+{
+	using http::http_request;
+	using http::http_response;
+}
