@@ -61,7 +61,7 @@ namespace ext::net
 		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
 		/// Если buffer == nullptr - откатывается на дефолтный внутренний буффер.
 		/// Если or size < 128 - бросает std::logic_error
-		/// Таким образаом класс всегда буферезирован.
+		/// Таким образом класс всегда буферезирован.
 		///
 		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
 		/// Заданный буфер делиться попалам между input и output областей.
@@ -72,7 +72,7 @@ namespace ext::net
 		/// Если or input_size < 64 or output_size < 64 - бросает std::logic_error
 		///
 		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
-		/// Заданный буфер делиться между input и output областей в соотвествии с input_size и output_size.
+		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
 		/// Подразумевается что общий размер буфера - input_size + output_size
 		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize input_size, std::streamsize output_size);
 
@@ -80,7 +80,7 @@ namespace ext::net
 		/// Если input_buffer or output_buffer == nullptr or input_size < 64 or output_size < 64 - бросает std::logic_error
 		///
 		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
-		/// Заданный буфер делиться между input и output областей в соотвествии с input_size и output_size.
+		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
 		/// Подразумевается что общий размер буфера - input_size + output_size
 		virtual std::streambuf * setbuf(char_type * input_buffer, std::streamsize input_size,
 		                                char_type * output_buffer, std::streamsize output_size);
@@ -88,6 +88,13 @@ namespace ext::net
 	protected:
 		virtual std::size_t read_some(char_type * data, std::size_t count) = 0;
 		virtual std::size_t write_some(const char_type * data, std::size_t count) = 0;
+
+	public:
+		auto getbuf() noexcept -> std::pair<char *, char *>                    { return {m_input_buffer, m_input_buffer + m_input_buffer_size}; }
+		auto getbuf() const noexcept -> std::pair<const char *, const char *>  { return {m_input_buffer, m_input_buffer + m_input_buffer_size}; }
+
+		auto putbuf() noexcept -> std::pair<char *, char *>                    { return {m_output_buffer, m_output_buffer + m_output_buffer_size}; }
+		auto putbuf() const noexcept -> std::pair<const char *, const char *>  { return {m_output_buffer, m_output_buffer + m_output_buffer_size}; }
 
 	public:
 		/// синхронизация входящего потока с исходящим, по умолчанию включена

@@ -53,7 +53,7 @@ namespace ext::net
 	{
 #if BOOST_OS_WINDOWS
 		auto handle = ::socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-		if (handle < 0) throw_last_socket_error("ext::net::socket_queue: failed to create interrupt UDP socket");
+		if (handle == -1) throw_last_socket_error("ext::net::socket_queue: failed to create interrupt UDP socket");
 
 		return std::make_tuple(handle, INVALID_SOCKET);
 #else

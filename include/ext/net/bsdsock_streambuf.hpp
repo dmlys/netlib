@@ -216,6 +216,10 @@ namespace ext::net
 		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
 		/// возвращает имя данного класса, для логирования
 		static const char * class_name() noexcept { return "bsdsock_streambuf"; }
+		/// Бросает исключение с последней ошибкой
+		EXT_NORETURN void throw_last_error();
+		/// Устанавливает последную ошибку и бросает ее
+		EXT_NORETURN void throw_last_error(error_code_type errc, const char * context = nullptr) { set_last_error(errc, context); throw_last_error(); }
 
 		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависиммые от первых
 		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщеаться через return значение.

@@ -5,8 +5,8 @@
 #include <system_error>
 
 #include <boost/predef.h>
-#include <boost/config.hpp>
 
+#include <ext/config.hpp>
 #include <ext/net/socket_fwd.hpp>
 
 namespace ext::net

@@ -339,14 +339,7 @@ namespace ext::net
 	{
 		if (not m_throw_errors or result) return result;
 
-		std::string err_msg;
-		err_msg.reserve(256);
-		err_msg += class_name();
-		err_msg += "::";
-		err_msg += m_lasterror_context;
-		err_msg += " failure";
-
-		throw system_error_type(m_lasterror, err_msg);
+		throw_last_error();
 	}
 
 	bool bsdsock_streambuf::do_shutdown() noexcept
@@ -1138,6 +1131,18 @@ namespace ext::net
 	{
 		m_lasterror = errc;
 		m_lasterror_context = context;
+	}
+
+	void bsdsock_streambuf::throw_last_error()
+	{
+		std::string err_msg;
+		err_msg.reserve(256);
+		err_msg += class_name();
+		err_msg += "::";
+		err_msg += m_lasterror_context;
+		err_msg += " failure";
+
+		throw system_error_type(m_lasterror, err_msg);
 	}
 
 	void bsdsock_streambuf::getpeername(sockaddr_type * addr, socklen_t * addrlen) const
