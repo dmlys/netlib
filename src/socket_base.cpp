@@ -38,11 +38,12 @@ namespace ext::net
 	{
 		switch (static_cast<sock_errc>(val))
 		{
-			case sock_errc::eof:       return "end of stream";
-			case sock_errc::timeout:   return "timeout";
-			case sock_errc::ssl_error: return "ssl error";
-			case sock_errc::regular:   return "regular, not a error";
-			case sock_errc::error:     return "socket error";
+			case sock_errc::eof:         return "end of stream";
+			case sock_errc::would_block: return "would block";
+			case sock_errc::timeout:     return "timeout";
+			case sock_errc::ssl_error:   return "ssl error";
+			case sock_errc::regular:     return "regular, not a error";
+			case sock_errc::error:       return "socket error";
 
 			default: return "unknown sock_errc code";
 		}
@@ -53,15 +54,29 @@ namespace ext::net
 		switch (static_cast<sock_errc>(cond_val))
 		{
 #ifdef EXT_ENABLE_OPENSSL
-			case sock_errc::eof:       return code == openssl_error::zero_return;
-			case sock_errc::ssl_error: return code != openssl_error::zero_return and (code.category() == openssl::openssl_err_category() or code.category() == openssl::openssl_ssl_category());
+			case sock_errc::eof:          return code == openssl_error::zero_return;
+			case sock_errc::ssl_error:    return code != openssl_error::zero_return and (code.category() == openssl::openssl_err_category() or code.category() == openssl::openssl_ssl_category());
 #else
-			case sock_errc::eof:       return false;
-			case sock_errc::ssl_error: return false;
+			case sock_errc::eof:          return false;
+			case sock_errc::ssl_error:    return false;
 #endif
 
-			case sock_errc::regular:   return code != sock_errc::error;
-			case sock_errc::error:     return code && code != sock_errc::eof;
+			case sock_errc::would_block:
+#if BOOST_OS_WINDOWS
+				if (code.category() == std::system_category() and code.value() == WSAEWOULDBLOCK)
+					return true;
+#else
+				if (code.category() == std::generic_category() and (code.value() == EWOULDBLOCK or code.value() == EAGAIN))
+				    return true;
+#endif
+#ifdef EXT_ENABLE_OPENSSL
+				if (code.category() == openssl::openssl_ssl_category() and (code.value() == SSL_ERROR_WANT_READ or code.value() == SSL_ERROR_WANT_READ))
+					return true;
+#endif
+				return false;
+
+			case sock_errc::regular:      return code != sock_errc::error;
+			case sock_errc::error:        return code && code != sock_errc::eof && code != sock_errc::would_block;
 
 			default: return false;
 		}
@@ -146,6 +161,89 @@ namespace ext::net
 	{
 		throw std::system_error(last_socket_error_code(), errmsg);
 	}
+
+	std::error_code socket_rw_error(int res, int last_error)
+	{
+		// it was eof
+		if (res >= 0)
+			return make_error_code(sock_errc::eof);;
+
+		if (last_error == WSAEINTR) return make_error_code(std::errc::interrupted);
+
+		if (last_error == WSAEWOULDBLOCK)
+			return make_error_code(sock_errc::would_block);
+
+		return std::error_code(last_error, std::system_category());
+	}
+
+#ifdef EXT_ENABLE_OPENSSL
+	std::error_code socket_ssl_rw_error(int res, SSL * ssl)
+	{
+		int err, ssl_err;
+		std::error_code errc;
+		ssl_err = ::SSL_get_error(ssl, res);
+		switch (ssl_err)
+		{
+			// can this happen? just try to handle as SSL_ERROR_SYSCALL
+			// according to doc, this can happen if res > 0
+			case SSL_ERROR_NONE:
+
+			case SSL_ERROR_SSL:
+			case SSL_ERROR_SYSCALL:
+				// if it some generic SSL error
+				if ((err = ::ERR_peek_error()))
+				{
+					errc.assign(err, openssl_err_category());
+					break;
+				}
+
+				if ((err = ::WSAGetLastError()))
+				{
+					if (err == WSAEINTR)
+					{
+						errc = std::make_error_code(std::errc::interrupted);
+						break;
+					}
+
+					// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
+					// also select allowed return EAGAIN instead of ENOMEM -> repeat either
+					// NOTE: this should not happen, SSL_ERROR_WANT_{READ/WRITE} should shadow this case
+					if (err == WSAEWOULDBLOCK)
+					{
+						errc = make_error_code(sock_errc::would_block);
+						break;
+					}
+
+					errc.assign(err, std::system_category());
+					break;
+				}
+
+				// it was unexpected eof
+				if (ssl_err == 0)
+				{
+					errc = make_error_code(sock_errc::eof);
+					break;
+				}
+
+				[[fallthrough]];
+
+			// if it's SSL_ERROR_WANT_{WRITE,READ}
+			// errno can be EAGAIN or EINTR - repeat operation
+			case SSL_ERROR_WANT_READ:
+			case SSL_ERROR_WANT_WRITE:
+
+			case SSL_ERROR_ZERO_RETURN:
+			case SSL_ERROR_WANT_X509_LOOKUP:
+			case SSL_ERROR_WANT_CONNECT:
+			case SSL_ERROR_WANT_ACCEPT:
+			default:
+			    errc.assign(ssl_err, openssl_ssl_category());
+				break;
+		}
+
+		return errc;
+	}
+#endif
 
 	void set_port(addrinfo_type * addr, unsigned short port)
 	{
@@ -452,6 +550,91 @@ namespace ext::net
 	{
 		throw std::system_error(last_socket_error_code(), errmsg);
 	}
+
+	std::error_code socket_rw_error(int res, int last_error)
+	{
+		// it was eof
+		if (res >= 0)
+			return make_error_code(sock_errc::eof);;
+
+		if (last_error == EINTR) return make_error_code(std::errc::interrupted);
+
+		// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
+		// also select allowed return EAGAIN instead of ENOMEM -> repeat either
+		if (last_error == EAGAIN or last_error == EWOULDBLOCK)
+			return make_error_code(sock_errc::would_block);
+
+		return std::error_code(last_error, std::generic_category());
+	}
+
+#ifdef EXT_ENABLE_OPENSSL
+	std::error_code socket_ssl_rw_error(int res, SSL * ssl)
+	{
+		int err, ssl_err;
+		std::error_code errc;
+		ssl_err = ::SSL_get_error(ssl, res);
+		switch (ssl_err)
+		{
+			// can this happen? just try to handle as SSL_ERROR_SYSCALL
+			// according to doc, this can happen if res > 0
+			case SSL_ERROR_NONE:
+
+			case SSL_ERROR_SSL:
+			case SSL_ERROR_SYSCALL:
+				// if it some generic SSL error
+				if ((err = ::ERR_peek_error()))
+				{
+					errc.assign(err, openssl_err_category());
+					break;
+				}
+
+				if ((err = errno))
+				{
+					if (err == EINTR)
+					{
+						errc = std::make_error_code(std::errc::interrupted);
+						break;
+					}
+
+					// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
+					// also select allowed return EAGAIN instead of ENOMEM -> repeat either
+					// NOTE: this should not happen, SSL_ERROR_WANT_{READ/WRITE} should shadow this case
+					if (err == EAGAIN or err == EWOULDBLOCK)
+					{
+						errc = make_error_code(sock_errc::would_block);
+						break;
+					}
+
+					errc.assign(err, std::generic_category());
+					break;
+				}
+
+				// it was unexpected eof
+				if (ssl_err == 0)
+				{
+					errc = make_error_code(sock_errc::eof);
+					break;
+				}
+
+				[[fallthrough]];
+
+			// if it's SSL_ERROR_WANT_{WRITE,READ}
+			// errno can be EAGAIN or EINTR - repeat operation
+			case SSL_ERROR_WANT_READ:
+			case SSL_ERROR_WANT_WRITE:
+
+			case SSL_ERROR_ZERO_RETURN:
+			case SSL_ERROR_WANT_X509_LOOKUP:
+			case SSL_ERROR_WANT_CONNECT:
+			case SSL_ERROR_WANT_ACCEPT:
+			default:
+			    errc.assign(ssl_err, openssl_ssl_category());
+				break;
+		}
+
+		return errc;
+	}
+#endif
 
 	void set_port(addrinfo_type * addr, unsigned short port)
 	{

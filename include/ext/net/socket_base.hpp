@@ -51,11 +51,12 @@ namespace ext::net
 	///  * if (ss.last_error() == sock_errc::regular) { ... process result ... }
 	enum class sock_errc
 	{
-		eof       = 1,   /// socket eof, for example recv return 0, or OpenSSL returned SSL_ERR_ZERO_RETURN
-		timeout   = 2,   /// operation(connect, read, write, shutdown) timeout
-		regular   = 3,   /// no a error, code == 0 or some error which is not critical, like eof(currently only eof)
-		error     = 4,   /// opposite of regular, some bad unexpected error, which breaks normal flow, timeout, system error, etc
-		ssl_error = 5,   /// ssl related error(but not openssl_error::zero_return)
+		eof         = 1,   /// socket eof, for example recv return 0, or OpenSSL returned SSL_ERR_ZERO_RETURN
+		would_block = 2,   /// operation would block, not a error
+		timeout     = 3,   /// operation(connect, read, write, shutdown) timeout
+		regular     = 4,   /// no a error, code == 0 or some error which is not critical, like eof(currently only eof, would_block)
+		error       = 5,   /// opposite of regular, some bad unexpected error, which breaks normal flow, timeout, system error, etc
+		ssl_error   = 6,   /// ssl related error(but not openssl_error::zero_return)
 	};
 
 	const std::error_category & socket_condition_category() noexcept;
@@ -95,6 +96,12 @@ namespace ext::net
 	BOOST_NORETURN void throw_socket_error(int code, const std::string & errmsg);
 	BOOST_NORETURN void throw_last_socket_error(const std::string & errmsg);
 	BOOST_NORETURN void throw_last_socket_error(const char * errmsg);
+
+	std::error_code socket_rw_error(int res, int last_error = last_socket_error());
+
+#ifdef EXT_ENABLE_OPENSSL
+	std::error_code socket_ssl_rw_error(int res, SSL * ssl);
+#endif
 
 	void set_port(addrinfo_type * addr, unsigned short port);
 	auto get_port(addrinfo_type * addr) -> unsigned short;
