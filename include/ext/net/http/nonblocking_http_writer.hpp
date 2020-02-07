@@ -36,9 +36,12 @@ namespace ext::net::http
 		void reset(const http_response * resp);
 		/// initialises writer for writing http request, after that write_some can be called
 		void reset(const http_request  * req );
+		/// deinitialises writer to default constructed state, should not be used until another reset method is called
+		void reset(std::nullptr_t);
 
 	public:
 		nonblocking_http_writer() = default;
+		nonblocking_http_writer(std::nullptr_t)                 { reset(nullptr); }
 		nonblocking_http_writer(const http_response * response) { reset(response); }
 		nonblocking_http_writer(const http_request  * request ) { reset(request ); }
 

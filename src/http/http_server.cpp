@@ -57,12 +57,12 @@ namespace ext::net::http
 
 			if (not executor)
 			{
-				auto task = std::bind(&http_server::executor_method_runner, owner, std::move(m_method), m_context);
+				auto task = std::bind(&http_server::executor_handle_runner, owner, std::move(m_method), m_context);
 				owner->submit_task(lk, std::move(task));
 			}
 			else
 			{
-				auto fres = executor->submit(&http_server::executor_method_runner, owner, std::move(m_method), m_context);
+				auto fres = executor->submit(&http_server::executor_handle_runner, owner, std::move(m_method), m_context);
 				auto handle = fres.handle();
 				auto old = m_context->m_executor_state.exchange(handle.release(), std::memory_order_relaxed);
 				if (old) old->release();
@@ -150,6 +150,7 @@ namespace ext::net::http
 		for (auto * context : m_processing_contexts)
 			destruct_context(context), delete context;
 
+		m_pending_contexts.clear();
 		m_processing_contexts.clear();
 		m_free_contexts.clear();
 		m_state_ver = 0;
@@ -374,36 +375,20 @@ namespace ext::net::http
 				    break;
 			}
 
-			bool inserted;
-			std::tie(std::ignore, inserted) = m_sock_handles.insert(sock.handle());
 			// check if socket become ready because of error
 			if (sock.last_error())
 			{
+				release_context(sock);
 				close_connection(std::move(sock));
 				continue;
-			}
-
-			if (inserted)
-			{
-				LOG_INFO("got connection(sock={}): peer {} <-> sock {}", sock.handle(), sock.peer_endpoint_noexcept(), sock.sock_endpoint_noexcept());
 			}
 
 			// set socket operation timeout, while in sock_queue socket have m_keep_alive_timeout
 			sock.timeout(m_socket_timeout);
 
-			auto * context = acquire_context();
-			if (not context)
+			auto * context = acquire_context(std::move(sock));
+			if (context)
 			{
-				auto response = create_server_busy_response(sock);
-				postprocess_response(response);
-				write_response(sock, response);
-				close_connection(std::move(sock));
-				continue;
-			}
-			else
-			{
-				prepare_context(context, std::move(sock), inserted);
-
 				// run_socket will do full handling of socket, asyncly if needed:
 				// * parse request
 				// * process request
@@ -412,23 +397,36 @@ namespace ext::net::http
 				run_socket(context);
 				continue;
 			}
+			else
+			{
+				// This is blocking, but normally answer should fit output socket buffer,
+				// so in fact blocking should not occur
+				auto response = create_server_busy_response(sock);
+				postprocess_response(response);
+				write_response(sock, response);
+				close_connection(std::move(sock));
+				continue;
+			}
 		}
 	}
 
 	void http_server::run_socket(processing_context * context)
 	{
+		auto next_method = std::exchange(context->next_method, nullptr);
+		if (not next_method) next_method = &http_server::handle_start;
+
 		if (not m_processing_executor)
-			executor_method_runner(&http_server::handle_request, std::move(context));
+			executor_handle_runner(next_method, std::move(context));
 		else
 		{
-			auto fres = m_processing_executor->submit(&http_server::executor_method_runner, this, &http_server::handle_request, context);
+			auto fres = m_processing_executor->submit(&http_server::executor_handle_runner, this, next_method, context);
 			auto handle = fres.handle();
 			auto old = context->m_executor_state.exchange(handle.release(), std::memory_order_relaxed);
 			if (old) old->release();
 		}
 	}
 
-	void http_server::executor_method_runner(handle_method_type next_method, processing_context * context)
+	void http_server::executor_handle_runner(handle_method_type next_method, processing_context * context)
 	{
 		try
 		{
@@ -436,9 +434,14 @@ namespace ext::net::http
 			{
 				default: EXT_UNREACHABLE();
 
-				case handle_method_type::method: next_method = (this->*next_method.regular_ptr())(std::move(context)); goto again;
+				case handle_method_type::method:
+					context->cur_method = next_method.regular_ptr();
+					next_method = (this->*context->cur_method)(std::move(context));
+					goto again;
+
 				case handle_method_type::final: break;
 				case handle_method_type::async:
+				{
 					auto ptr = next_method.future();
 					if (ptr->is_pending())
 						return submit_async_executor_task(std::move(ptr), std::move(next_method), std::move(context));
@@ -447,6 +450,21 @@ namespace ext::net::http
 						next_method = (this->*next_method.async_ptr())(context, std::move(ptr));
 						goto again;
 					}
+				}
+
+				case handle_method_type::wait_socket:
+					context->next_method = next_method.regular_ptr();
+					context->wait_type = next_method.socket_wait_type();
+
+					if (m_threadid == std::this_thread::get_id())
+						wait_connection(context);
+					else
+					{
+						auto task = std::bind(&http_server::wait_connection, this, context);
+						submit_task(std::move(task));
+					}
+
+					return;
 			}
 		}
 		catch (std::exception & ex)
@@ -480,39 +498,411 @@ namespace ext::net::http
 		handle->add_continuation(cont.get());
 	}
 
+	static bool pending_ssl_hanshake(socket_streambuf & sock)
+	{
+		auto handle = sock.handle();
+		char ch;
+
+		int read = ::recv(handle, &ch, 1, MSG_PEEK);
+		if (read <= 0) return false;
+
+		// SSL handshake packet starts with character 22(0x16)
+		// https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-socket-layer-ssl/116181-technote-product-00.html
+		return ch == 0x16;
+	}
+
+	auto http_server::peek(processing_context * context, char * data, int len, int & read) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto handle = sock.handle();
+		assert(not sock.throw_errors());
+		std::error_code errc;
+	#ifdef EXT_ENABLE_OPENSSL
+		auto * ssl = sock.ssl_handle();
+	#endif
+
+	again:
+	#ifdef EXT_ENABLE_OPENSSL
+		if (ssl)
+		{
+			SOCK_LOG_TRACE("calling SSL_read");
+			read = ::SSL_peek(ssl, data, len);
+			if (read > 0) return nullptr;
+			errc = socket_ssl_rw_error(read, ssl);
+		}
+		else
+	#endif
+		{
+			SOCK_LOG_TRACE("calling recv");
+			read = ::recv(handle, data, len, MSG_PEEK);
+			if (read > 0) return nullptr;
+			errc = socket_rw_error(read, last_socket_error());
+		}
+
+		if (errc == std::errc::interrupted) goto again;
+	#ifdef EXT_ENABLE_OPENSSL
+		if (errc == openssl::ssl_error::want_read)
+		{
+			SOCK_LOG_TRACE("SSL_read: got WANT_READ, scheduling socket waiting");
+			return async_method(socket_queue::readable, context->cur_method);
+		}
+		if (errc == openssl::ssl_error::want_write)
+		{
+			SOCK_LOG_TRACE("SSL_read: got WANT_WRITE, scheduling socket waiting");
+			return async_method(socket_queue::writable, context->cur_method);
+		}
+	#endif
+		if (errc == sock_errc::would_block)
+		{
+			SOCK_LOG_TRACE("recv: got would_block, scheduling socket waiting");
+			return async_method(socket_queue::readable, context->cur_method);
+		}
+
+		if (errc != sock_errc::eof)
+		{
+			LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
+	#ifdef EXT_ENABLE_OPENSSL
+			openssl::openssl_clear_errors();
+	#endif
+			//sock.set_last_error(errc);
+			context->conn_action = close;
+			return &http_server::handle_finish;
+		}
+
+		assert(read == 0 and errc == sock_errc::eof);
+		//sock.set_last_error(errc);
+		return nullptr;
+	}
+
+	auto http_server::recv(processing_context * context, char * data, int len, int & read) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto handle = sock.handle();
+		assert(not sock.throw_errors());
+		std::error_code errc;
+	#ifdef EXT_ENABLE_OPENSSL
+		auto * ssl = sock.ssl_handle();
+	#endif
+
+	again:
+	#ifdef EXT_ENABLE_OPENSSL
+		if (ssl)
+		{
+			SOCK_LOG_TRACE("calling SSL_read");
+			read = ::SSL_read(ssl, data, len);
+			if (read > 0) return nullptr;
+			errc = socket_ssl_rw_error(read, ssl);
+		}
+		else
+	#endif
+		{
+			SOCK_LOG_TRACE("calling recv");
+			read = ::recv(handle, data, len, 0);
+			if (read > 0) return nullptr;
+			errc = socket_rw_error(read, last_socket_error());
+		}
+
+		if (errc == std::errc::interrupted) goto again;
+	#ifdef EXT_ENABLE_OPENSSL
+		if (errc == openssl::ssl_error::want_read)
+		{
+			SOCK_LOG_TRACE("SSL_read: got WANT_READ, scheduling socket waiting");
+			return async_method(socket_queue::readable, context->cur_method);
+		}
+		if (errc == openssl::ssl_error::want_write)
+		{
+			SOCK_LOG_TRACE("SSL_read: got WANT_WRITE, scheduling socket waiting");
+			return async_method(socket_queue::writable, context->cur_method);
+		}
+	#endif
+		if (errc == sock_errc::would_block)
+		{
+			SOCK_LOG_TRACE("recv: got would_block, scheduling socket waiting");
+			return async_method(socket_queue::readable, context->cur_method);
+		}
+
+		if (errc != sock_errc::eof)
+		{
+			LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
+	#ifdef EXT_ENABLE_OPENSSL
+			openssl::openssl_clear_errors();
+	#endif
+			//sock.set_last_error(errc);
+			context->conn_action = close;
+			return &http_server::handle_finish;
+		}
+
+		assert(read == 0 and errc == sock_errc::eof);
+		//sock.set_last_error(errc);
+		return nullptr;
+	}
+
+	auto http_server::send(processing_context * context, const char * data, int len, int & written) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto handle = sock.handle();
+		assert(not sock.throw_errors());
+		std::error_code errc;
+	#ifdef EXT_ENABLE_OPENSSL
+		auto * ssl = sock.ssl_handle();
+	#endif
+
+	again:
+	#ifdef EXT_ENABLE_OPENSSL
+		if (ssl)
+		{
+			SOCK_LOG_TRACE("calling SSL_write");
+			written = ::SSL_write(ssl, data, len);
+			if (written >= 0) return nullptr;
+			errc = socket_ssl_rw_error(written, ssl);
+		}
+		else
+	#endif
+		{
+			SOCK_LOG_TRACE("calling send");
+			written = ::send(handle, data, len, 0);
+			if (written >= 0) return nullptr;
+			errc = socket_rw_error(written, last_socket_error());
+		}
+
+		if (errc == std::errc::interrupted) goto again;
+	#ifdef EXT_ENABLE_OPENSSL
+		if (errc == openssl::ssl_error::want_read)
+		{
+			SOCK_LOG_TRACE("SSL_write: got WANT_READ, scheduling socket waiting");
+			return async_method(socket_queue::readable, context->cur_method);
+		}
+		if (errc == openssl::ssl_error::want_write)
+		{
+			SOCK_LOG_TRACE("SSL_write: got WANT_WRITE, scheduling socket waiting");
+			return async_method(socket_queue::writable, context->cur_method);
+		}
+	#endif
+		if (errc == sock_errc::would_block)
+		{
+			SOCK_LOG_TRACE("send: got would_block, scheduling socket waiting");
+			return async_method(socket_queue::writable, context->cur_method);
+		}
+
+		assert(errc == sock_errc::error);
+		LOG_WARN("got system error while writting response(send to socket): {}", format_error(errc));
+	#ifdef EXT_ENABLE_OPENSSL
+		openssl::openssl_clear_errors();
+	#endif
+		//sock.set_last_error(errc);
+		context->conn_action = close;
+		return &http_server::handle_finish;
+	}
+
+	auto http_server::handle_start(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		// we should check for EOF, it's not a error at this point. We should just close this socket in this case.
+		// sock.in_avail() will use ioctl(..., FIONREAD, &avail) or SSL_pending.
+		if (not sock.in_avail())
+		{
+			// it's possible that select/poll notifies socket is readable/writable, but in fact it's not.
+			// We should check for error/would_block if socket does not have pending characters
+			char ch; int len;
+			if (auto next = peek(context, &ch, 1, len))
+				return next;
+
+			if (len > 0) goto success;
+
+			// no error and no data -> EOF -> no request, just close it quitly
+			return &http_server::handle_finish;
+		}
+
+	success:
+		if (context->ssl_ptr)
+			return &http_server::handle_ssl_configuration;
+
+		return &http_server::handle_request_parsing;
+	}
+
+	auto http_server::handle_ssl_configuration(processing_context * context) -> handle_method_type
+	{
+	#ifdef EXT_ENABLE_OPENSSL
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+		auto & ssl_ptr = context->ssl_ptr;
+
+		if (pending_ssl_hanshake(sock))
+		{
+			if (ssl_ptr)
+			{
+				return &http_server::handle_ssl_start_handshake;
+			}
+			else
+			{
+				SOCK_LOG_WARN("peer requested SSL session, but server is not configured to serve SSL on that listener, closing connection");
+				return &http_server::handle_finish;
+			}
+		}
+		else
+		{
+			if (ssl_ptr)
+			{
+				SOCK_LOG_WARN("peer does not requested SSL session, but server is configured to serve SSL on that listener, closing connection");
+				return &http_server::handle_finish;
+			}
+			else
+			{
+				return &http_server::handle_request_parsing;
+			}
+		}
+	#else
+		assert(false);
+		std::terminate();
+	#endif
+	}
+
+	auto http_server::handle_ssl_start_handshake(processing_context * context) -> handle_method_type
+	{
+	#ifdef EXT_ENABLE_OPENSSL
+		auto & sock = context->sock;
+		auto & ssl_ptr = context->ssl_ptr;
+		assert(not sock.throw_errors() and ssl_ptr);
+
+		sock.ssl_error_retrieve(openssl::error_retrieve::peek);
+		auto sockhandle = sock.handle();
+		auto * ssl = ssl_ptr.get();
+
+		::SSL_set_mode(ssl, ::SSL_get_mode(ssl) | SSL_MODE_AUTO_RETRY);
+		int res = ::SSL_set_fd(ssl, sockhandle);
+		if (res) return &http_server::handle_ssl_continue_handshake;
+
+		// SSL_set_fd will fail when it will not be able to create some intenal objects, probably because of insufficient memory
+		auto sslerr = ::SSL_get_error(ssl, res);
+		SOCK_LOG_ERROR("::SSL_set_fd failure: {}", format_error(openssl::openssl_geterror(sslerr)));
+		return &http_server::handle_finish;
+	#else
+		assert(false);
+		std::terminate();
+	#endif
+	}
+
+	auto http_server::handle_ssl_continue_handshake(processing_context * context) -> handle_method_type
+	{
+	#ifdef EXT_ENABLE_OPENSSL
+		auto & sock = context->sock;
+		auto & ssl_ptr = context->ssl_ptr;
+		assert(not sock.throw_errors() and ssl_ptr);
+
+		std::error_code errc;
+		int res;
+
+	again:
+		SOCK_LOG_TRACE("calling SSL_accept");
+		res = ::SSL_accept(ssl_ptr.get());
+		if (res > 0)
+		{
+			SOCK_LOG_INFO("accepted SSL connection");
+			return &http_server::handle_ssl_finish_handshake;
+		}
+
+		errc = socket_ssl_rw_error(res, ssl_ptr.get());
+		if (errc == std::errc::interrupted) goto again;
+
+		if (errc == openssl::ssl_error::want_read)
+		{
+			SOCK_LOG_TRACE("SSL handshake: got WANT_READ, scheduling socket waiting");
+			return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
+		}
+
+		if (errc == openssl::ssl_error::want_write)
+		{
+			SOCK_LOG_TRACE("SSL handshake: got WANT_WRITE, scheduling socket waiting");
+			return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
+		}
+
+		// this should not happen
+		if (errc == sock_errc::would_block)
+		{
+			SOCK_LOG_TRACE("SSL handshake: got EWOUDLBLOCK/EAGAIN, scheduling socket waiting");
+			return async_method(socket_queue::both, &http_server::handle_ssl_continue_handshake);
+		}
+
+		SOCK_LOG_WARN("SSL failure: {}", format_error(errc));
+		openssl::openssl_clear_errors();
+
+		return &http_server::handle_finish;
+	#else
+		assert(false);
+		std::terminate();
+	#endif
+	}
+
+	auto http_server::handle_ssl_finish_handshake(processing_context * context) -> handle_method_type
+	{
+	#ifdef EXT_ENABLE_OPENSSL
+		auto & sock = context->sock;
+		auto & ssl_ptr = context->ssl_ptr;
+		assert(not sock.throw_errors() and ssl_ptr);
+
+		sock.set_ssl(ssl_ptr.release());
+		return &http_server::handle_start;
+	#else
+		assert(false);
+		std::terminate();
+	#endif
+	}
+
+	auto http_server::handle_request_parsing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & request = context->request;
+		auto & response = context->response;
+		auto & parser = context->parser;
+
+		SOCK_LOG_TRACE("parsing http request");
+
+		try
+		{
+			char * first = sock.gptr();
+			char * last  = sock.egptr();
+			int len = last - first;
+
+			if (first != last) goto parse;
+
+			do
+			{
+				std::tie(first, last) = sock.getbuf();
+				if (auto next = recv(context, first, last - first, len))
+					return next;
+
+				sock.setg(first, first, first + len);
+			parse:
+				auto read = parser.parse_message(first, len);
+				sock.gbump(static_cast<int>(read));
+
+			} while (not parser.message_parsed());
+
+			request.method = parser.http_method();
+			request.http_version = parser.http_version();
+			return &http_server::handle_request;
+		}
+		catch (std::runtime_error & ex)
+		{
+			LOG_WARN("got parsing error while processing request: {}", ex.what());
+			response = create_bad_request_response(sock, connection_action_type::close);
+			return &http_server::handle_response;
+		}
+	}
+
 	auto http_server::handle_request(processing_context * context) -> handle_method_type
 	{
-		if (context->ssl_ctx and not configure_accepted_socket(context->sock, std::move(context->ssl_ctx)))
-			return &http_server::handle_finish;
-
 		auto & sock = context->sock;
-		{	// check if EOF
-			sock.throw_errors(false);
-			int next = sock.sgetc();
-			sock.throw_errors(true);
-
-			if (next == EOF) return &http_server::handle_finish;
-		}
-
-		http_parse_result parse_result;
-		auto & response = context->response;
 		auto & request = context->request;
+		auto & parser = context->parser;
 
-		std::tie(parse_result, request) = parse_request(sock);
-		// parse request will not throw exception, except some critical one, like out of memory
-		switch (parse_result)
-		{
-		    case http_parse_result::success:
-				context->conn_action = request.conn_action;
-				break;
-
-			case http_parse_result::parse_error:
-				response = create_bad_request_response(sock, connection_action_type::close);
-				return &http_server::handle_response;
-
-		    case http_parse_result::socket_error:
-		    default: return &http_server::handle_finish;
-		}
+		SOCK_LOG_TRACE("http request succesfully parsed");
+		static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
+		context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 
 		log_request(request);
 		return &http_server::handle_prefilters;
@@ -572,6 +962,7 @@ namespace ext::net::http
 	{
 		auto & sock = context->sock;
 		auto & response = context->response;
+
 		if (not std::holds_alternative<http_response>(response))
 		{
 			assert(std::holds_alternative<async_process_result>(response));
@@ -625,15 +1016,63 @@ namespace ext::net::http
 
 	auto http_server::handle_response(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
-		auto response = std::get<http_response>(std::move(context->response));
+		auto & response = std::get<http_response>(context->response);
 			response.conn_action = context->conn_action;
 		
 		postprocess_response(response);
 		log_response(response);
+		context->writer.reset(&response);
+		context->output_buffer.reserve(1024);
 
-		context->conn_action = write_response(sock, response) ? response.conn_action : close;
-		return &http_server::handle_finish;
+		return &http_server::handle_response_writting;
+	}
+
+	auto http_server::handle_response_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & writer = context->writer;
+		auto & output_buffer = context->output_buffer;
+
+		SOCK_LOG_TRACE("writting http request");
+
+		try
+		{
+			char * first, * last;
+			int len = output_buffer.size();
+			if (len) goto write;
+
+			do {
+				assert(output_buffer.capacity() > 0);
+				output_buffer.resize(output_buffer.capacity());
+
+				len = writer.write_some(output_buffer.data(), output_buffer.size());
+				output_buffer.resize(len);
+
+			write:
+				first = output_buffer.data();
+				last = first + len;
+
+				if (auto next = send(context, first, last - first, len))
+					return next;
+
+				output_buffer.erase(0, len);
+				if (first + len < last)
+				{
+					SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+					return async_method(socket_queue::writable, &http_server::handle_response_writting);
+				}
+
+			} while(not writer.finished());
+
+			return &http_server::handle_finish;
+		}
+		catch (std::runtime_error & ex)
+		{
+			LOG_WARN("got writting error while processing response: {}", ex.what());
+			return &http_server::handle_finish;
+		}
 	}
 
 	void http_server::handle_finish(processing_context * context)
@@ -694,6 +1133,8 @@ namespace ext::net::http
 	{
 		context->sock = std::move(sock);
 		context->conn_action = close;
+		context->next_method = nullptr;
+		context->parser.reset(&context->request);
 
 		if (m_state_ver != context->state_ver)
 		{
@@ -701,6 +1142,7 @@ namespace ext::net::http
 
 			using boost::make_transform_iterator;
 			auto get = [](const auto & sptr) { return sptr.get(); };
+			auto handler_sorter = [](const http_server_handler * ptr1, const http_server_handler * ptr2) noexcept { return ptr1->order() < ptr2->order(); };
 			auto pre_sorter = [](const http_pre_filter * ptr1, const http_pre_filter * ptr2) noexcept { return ptr1->preorder() < ptr2->preorder(); };
 			auto post_sorter = [](const http_post_filter * ptr1, const http_post_filter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
 
@@ -708,22 +1150,79 @@ namespace ext::net::http
 			context->prefilters.assign(make_transform_iterator(m_prefilters.begin(), get), make_transform_iterator(m_prefilters.end(), get));
 			context->postfilters.assign(make_transform_iterator(m_postfilters.begin(), get), make_transform_iterator(m_postfilters.end(), get));
 
+			std::stable_sort(context->handlers.begin(), context->handlers.end(), handler_sorter);
 			std::stable_sort(context->prefilters.begin(), context->prefilters.end(), pre_sorter);
 			std::stable_sort(context->postfilters.begin(), context->postfilters.end(), post_sorter);
 			std::reverse(context->postfilters.begin(), context->postfilters.end());
 		}
 
-
+		#ifdef EXT_ENABLE_OPENSSL
 		if (newconn)
 		{
 			const auto & listener_context = get_listener_context(context->sock);
-			context->ssl_ctx = listener_context.ssl_ctx;
+			if (listener_context.ssl_ctx)
+			{
+				auto * ssl = ::SSL_new(listener_context.ssl_ctx.get());
+				context->ssl_ptr.reset(ssl, ext::noaddref);
+
+				if (not ssl)
+				{
+					auto err = openssl::last_error(openssl::error_retrieve::peek);
+					LOG_ERROR("Failed to create SSL object: {}", format_error(err));
+					openssl::openssl_clear_errors();
+				}
+			}
 		}
+		#endif
 	}
 
 	void http_server::construct_context(processing_context * context) {}
 	void http_server::destruct_context(processing_context * context) {}
 
+	auto http_server::acquire_context(socket_streambuf sock) -> processing_context *
+	{
+		auto it = m_pending_contexts.find(sock.handle());
+		if (it != m_pending_contexts.end())
+		{
+			auto * context = it->second;
+			context->sock = std::move(sock);
+			m_pending_contexts.erase(it);
+			return context;
+		}
+		else
+		{
+			bool inserted;
+			std::tie(std::ignore, inserted) = m_sock_handles.insert(sock.handle());
+
+			if (inserted)
+			{
+				sock.throw_errors(false);
+				LOG_INFO("got connection(sock={}): peer {} <-> sock {}", sock.handle(), sock.peer_endpoint_noexcept(), sock.sock_endpoint_noexcept());
+			}
+
+			auto * context = acquire_context();
+			if (context) prepare_context(context, std::move(sock), inserted);
+			return context;
+		}
+	}
+
+	void http_server::release_context(socket_streambuf & sock)
+	{
+		auto it = m_pending_contexts.find(sock.handle());
+		if (it == m_pending_contexts.end()) return;
+
+		auto * context = it->second;
+		m_pending_contexts.erase(it);
+		return release_context(context);
+	}
+
+	void http_server::wait_connection(processing_context * context)
+	{
+		assert(std::this_thread::get_id() == m_threadid);
+
+		m_pending_contexts.emplace(context->sock.handle(), context);
+		m_sock_queue.submit(std::move(context->sock), context->wait_type);
+	}
 
 	void http_server::submit_connection(socket_streambuf sock)
 	{
@@ -750,107 +1249,14 @@ namespace ext::net::http
 		sock.close();
 	}
 
-	static bool pending_ssl_hanshake(socket_streambuf & sock)
-	{
-		auto handle = sock.handle();
-		char ch;
-
-		int read = ::recv(handle, &ch, 1, MSG_PEEK);
-		if (read <= 0) return false;
-
-		// SSL handshake packet starts with character 21(0x16)
-		// https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-socket-layer-ssl/116181-technote-product-00.html
-		return ch == 0x16;
-	}
-
-	bool http_server::configure_accepted_socket(socket_streambuf & sock, ssl_ctx_iptr ssl_ctx) const
-	{
-#ifdef EXT_ENABLE_OPENSSL
-		if (pending_ssl_hanshake(sock))
-		{
-			if (ssl_ctx)
-			{
-				sock.ssl_error_retrieve(openssl::error_retrieve::peek);
-				sock.throw_errors(false);
-				bool accepted = sock.accept_ssl(ssl_ctx.get());
-				sock.throw_errors(true);
-
-				if (accepted)
-				{
-					SOCK_LOG_INFO("accepted SSL connection");
-					return true;
-				}
-				else
-				{
-					SOCK_LOG_WARN("SSL failure: {}", format_error(sock.last_error()));
-					return false;
-				}
-			}
-			else
-			{
-				SOCK_LOG_WARN("peer requested SSL session, but server is not configured to serve SSL on that listener, closing connection");
-				return false;
-			}
-		}
-		else
-		{
-			if (ssl_ctx)
-			{
-				SOCK_LOG_WARN("peer does not requested SSL session, but server is configured to serve SSL on that listener, closing connection");
-				return false;
-			}
-			else
-			{
-				return true;
-			}
-		}
-#else
-		return true;
-#endif
-	}
-
-	auto http_server::parse_request(socket_streambuf & sock) const -> std::tuple<http_parse_result, http_request>
-	{
-		http_request request;
-
-		try
-		{
-			http_parser parser(http_parser::request);
-			parser.parse_url(sock, request.url);
-			request.method = parser.http_method();
-			request.http_version = parser.http_version();
-
-			std::string name, value;
-			while (parser.parse_header(sock, name, value))
-				request.headers.push_back({std::move(name), std::move(value)});
-
-			static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
-			request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
-			parser.parse_body(sock, request.body);
-			return std::make_tuple(success, std::move(request));
-		}
-		catch (std::system_error & ex)
-		{
-			LOG_WARN("got system error while processing request: {}", format_error(ex.code()));
-			return std::make_tuple(socket_error, std::move(request));
-		}
-		catch (std::runtime_error & ex)
-		{
-			LOG_WARN("got parsing error while processing request: {}; socket status: {}",
-			         ex.what(), format_error(sock.last_error()));
-
-			return std::make_tuple(parse_error, std::move(request));
-		}
-	}
-
 	bool http_server::write_response(socket_streambuf & sock, const http_response & resp) const
 	{
 		try
 		{
-			assert(sock.throw_errors());
-
+			sock.throw_errors(true);
 			write_http_response(sock, resp, true);
 			sock.pubsync();
+			sock.throw_errors(false);
 
 			assert(sock.is_valid());
 			return resp.conn_action == keep_alive;
@@ -859,6 +1265,7 @@ namespace ext::net::http
 		{
 			assert(ex.code() == sock.last_error());
 			LOG_WARN("response sending failure: {}", format_error(sock.last_error()));
+			sock.throw_errors(false);
 			return false;
 		}
 	}
@@ -1004,7 +1411,7 @@ namespace ext::net::http
 
 	std::string http_server::format_error(std::error_code errc) const
 	{
-#ifdef EXT_ENABLE_OPENSSL
+	#ifdef EXT_ENABLE_OPENSSL
 		if (errc != sock_errc::ssl_error)
 			return ext::format_error(errc);
 		else
@@ -1021,9 +1428,9 @@ namespace ext::net::http
 
 			return output;
 		}
-#else
+	#else
 		return ext::format_error(errc);
-#endif
+	#endif
 	}
 
 	http_response http_server::create_bad_request_response(socket_streambuf &sock, connection_action_type conn /*= close*/) const
@@ -1179,6 +1586,7 @@ namespace ext::net::http
 
 	void http_server::do_add_handler(std::unique_ptr<const http_server_handler> handler)
 	{
+		ext::unconst(handler.get())->set_logger(m_logger);
 		m_handlers.push_back(std::move(handler));
 		m_state_ver += 1;
 	}

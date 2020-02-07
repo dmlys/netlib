@@ -20,6 +20,26 @@ namespace ext::net::http
 		};
 	}
 
+	void clear(http_request & request) noexcept
+	{
+		request.http_version = 11;
+		request.method.clear();
+		request.url.clear();
+		request.body.clear();
+		request.headers.clear();
+		request.conn_action = def;
+	}
+
+	void clear(http_response & response) noexcept
+	{
+		response.http_version = 11;
+		response.http_code = 404;
+		response.status.clear();
+		response.body.clear();
+		response.headers.clear();
+		response.conn_action = def;
+	}
+
 
 	inline static std::streambuf & operator <<(std::streambuf & streambuf, char ch)
 	{

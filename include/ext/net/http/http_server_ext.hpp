@@ -58,10 +58,11 @@ namespace ext::net::http
 	class http_server::handle_method_type
 	{
 	public:
-		enum method_type : unsigned { method, final, async };
+		enum method_type : unsigned { method, final, async, wait_socket };
 
 	private:
 		unsigned m_type;
+		socket_queue::wait_type m_wait_type;
 
 		union
 		{
@@ -80,10 +81,16 @@ namespace ext::net::http
 		handle_method_type(ext::intrusive_ptr<ext::shared_state_basic> future_handle, async_handle_method ptr) noexcept
 		    : m_type(async),  m_async_ptr(ptr), m_future(std::move(future_handle)) {}
 
+		handle_method_type(socket_queue::wait_type wait_type, regular_handle_methed ptr) noexcept
+		    : m_type(wait_socket), m_wait_type(wait_type), m_regular_ptr(ptr) {}
+
+		explicit operator bool() const noexcept { return m_regular_ptr; }
+
 		auto type() const noexcept { return m_type; }
 		bool is_method() const noexcept { return m_type == method; }
 		bool is_final() const noexcept { return m_type == final; }
 		bool is_async() const noexcept { return m_type == async; }
+		bool is_wait_socket() const noexcept { return m_type == wait_socket; }
 
 		auto regular_ptr() const noexcept { return m_regular_ptr; }
 		auto finalizer_ptr() const noexcept { return m_final_ptr; }
@@ -91,11 +98,18 @@ namespace ext::net::http
 
 		auto & future() noexcept { return m_future; }
 		const auto & future() const noexcept { return m_future; }
+
+		auto socket_wait_type() const noexcept { return m_wait_type; }
 	};
 
 	inline auto http_server::async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, async_handle_method async_method) -> handle_method_type
 	{
 		return handle_method_type(std::move(future_handle), async_method);
+	}
+
+	inline auto http_server::async_method(socket_queue::wait_type wait_type, regular_handle_methed async_method) -> handle_method_type
+	{
+		return handle_method_type(std::move(wait_type), async_method);
 	}
 
 

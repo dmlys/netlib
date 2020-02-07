@@ -103,6 +103,7 @@ namespace ext::net::http
 		/// resets state of a parser and prepares it for parsing a message
 		void reset(http_request  * request);
 		void reset(http_response * response);
+		void reset(std::nullptr_t) { m_request = nullptr; }
 
 		bool status_parsed()  const noexcept { return m_state >  status_state; }
 		bool url_parsed()     const noexcept { return m_state >  url_state; }

@@ -22,11 +22,11 @@ namespace ext::net::http
 
 		switch (m_state)
 		{
-			case 0: // ver
+			case 0:
 				m_string_first = "HTTP/1.1 ";
 				m_string_last = m_string_first + std::strlen(m_string_first);
 				m_state = 1;
-			case 1:
+			case 1: // ver
 				if (not write_string(first, last)) return first - buffer;
 
 				assert(m_resp->http_code < 999);
@@ -206,6 +206,11 @@ namespace ext::net::http
 		m_string_last = m_string_first = nullptr;
 		std::memset(m_respcode, 0, 4);
 		m_cur_header = {};
+	}
+
+	void nonblocking_http_writer::reset(std::nullptr_t)
+	{
+		m_method = nullptr;
 	}
 
 	nonblocking_http_writer::nonblocking_http_writer(nonblocking_http_writer && other)

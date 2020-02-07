@@ -153,9 +153,7 @@ namespace ext::net::http
 		auto & body = *p.m_body;
 		body.assign(data, len);
 
-		if (p.m_state >= p.m_stop_state)
-			::http_parser_pause(parser, 1);
-
+		::http_parser_pause(parser, 1);
 		return 0;
 	}
 
@@ -182,9 +180,7 @@ namespace ext::net::http
 		auto & body = *p.m_body;
 		body.assign(data, len);
 
-		if (p.m_state >= p.m_stop_state)
-			::http_parser_pause(parser, 1);
-
+		::http_parser_pause(parser, 1);
 		return 0;
 	}
 
@@ -280,21 +276,27 @@ namespace ext::net::http
 	{
 		if (m_state >= until) return 0;
 
-		auto * parser   = &get_parser();
-		auto * settings = &get_settings();
-
 		m_stop_state = until;
-		auto parsed = http_parser_execute(parser, settings, data, len);
+		std::size_t parsed = 0;
+		std::size_t consumed;
 
-		auto err = HTTP_PARSER_ERRNO(parser);
-		if (err == HPE_PAUSED)
+		do
 		{
-			http_parser_pause(parser, 0);
-			return parsed;
-		}
+			auto * parser   = &get_parser();
+			auto * settings = &get_settings();
 
-		if (parsed != len)
-			throw_parser_error(parser);
+			consumed = http_parser_execute(parser, settings, data, len);
+			auto err = HTTP_PARSER_ERRNO(parser);
+			if (err != HPE_OK and err != HPE_PAUSED)
+				throw_parser_error(parser);
+
+			http_parser_pause(parser, 0);
+
+			parsed += consumed;
+			data += consumed;
+			len -= consumed;
+
+		} while (m_state < m_stop_state and len);
 
 		return parsed;
 	}
@@ -345,10 +347,7 @@ namespace ext::net::http
 		m_body = &request->body;
 		m_headers = &request->headers;
 
-		request->method.clear();
-		request->url.clear();
-		request->headers.clear();
-		request->body.clear();
+		clear(*request);
 
 		init_parser_internals();
 	}
@@ -364,9 +363,7 @@ namespace ext::net::http
 		m_body = &response->body;
 		m_headers = &response->headers;
 
-		response->status.clear();
-		response->headers.clear();
-		response->body.clear();
+		clear(*response);
 
 		init_parser_internals();
 	}

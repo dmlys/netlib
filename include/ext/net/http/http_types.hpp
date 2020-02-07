@@ -22,7 +22,7 @@ namespace ext::net::http
 		std::string_view value;
 
 		operator http_header() const;
-		operator bool() const noexcept { return name.empty(); }
+		operator bool() const noexcept { return not name.empty(); }
 	};
 
 	struct http_header
@@ -31,7 +31,7 @@ namespace ext::net::http
 		std::string value;
 
 		operator http_header_view () const noexcept;
-		operator bool() const noexcept { return name.empty(); }
+		operator bool() const noexcept { return not name.empty(); }
 	};
 
 	using http_headers_vector = std::vector<http_header>;
@@ -61,14 +61,28 @@ namespace ext::net::http
 
 	struct http_response
 	{
-		int http_version;
-		int http_code;
+		int http_version = 11;
+		int http_code = 404;
 		std::string status;
 		std::string body;
 		http_headers_vector headers;
 
 		connection_action_type conn_action = def;
 	};
+
+
+	void clear(http_request  & request) noexcept;
+	void clear(http_response & request) noexcept;
+
+	void write_http_request (std::streambuf & os, const http_request  & request,  bool with_body = true);
+	void write_http_response(std::streambuf & os, const http_response & response, bool with_body = true);
+
+	inline void write_http_request (std::ostream & os, const http_request  & request,  bool with_body = true) { return write_http_request(*os.rdbuf(), request, with_body);   }
+	inline void write_http_response(std::ostream & os, const http_response & response, bool with_body = true) { return write_http_response(*os.rdbuf(), response, with_body); }
+
+	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
+	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
+
 
 
 	template <class HeaderRange>
@@ -206,16 +220,6 @@ namespace ext::net::http
 			newhdr.value = hdr.value;
 		}
 	}
-
-
-	void write_http_request (std::streambuf & os, const http_request  & request,  bool with_body = true);
-	void write_http_response(std::streambuf & os, const http_response & response, bool with_body = true);
-
-	inline void write_http_request (std::ostream & os, const http_request  & request,  bool with_body = true) { return write_http_request(*os.rdbuf(), request, with_body);   }
-	inline void write_http_response(std::ostream & os, const http_response & response, bool with_body = true) { return write_http_response(*os.rdbuf(), response, with_body); }
-
-	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
-	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
 }
 
 namespace ext::net
