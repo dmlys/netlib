@@ -81,6 +81,7 @@ namespace ext::net
 	};
 
 	using addrinfo_ptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
+	constexpr socket_handle_type invalid_socket = -1;
 
 	/// on POSIX systems - return ::close(sock)
 	/// on WINDOWS       - return ::closesocket(sock);
@@ -90,8 +91,14 @@ namespace ext::net
 	/// EAI_* codes, gai_strerror
 	const std::error_category & gai_error_category();
 
+	/// returns last socket error
 	int last_socket_error() noexcept;
+	/// returns socket error category:
+	/// on POSIX systems it's std::generic_category(), or windows - std::system_category
+	const std::error_category & socket_error_category() noexcept;
+	/// returns last socket error
 	std::error_code last_socket_error_code() noexcept;
+
 	BOOST_NORETURN void throw_socket_error(int code, const char * errmsg);
 	BOOST_NORETURN void throw_socket_error(int code, const std::string & errmsg);
 	BOOST_NORETURN void throw_last_socket_error(const std::string & errmsg);
@@ -106,6 +113,7 @@ namespace ext::net
 	void set_port(addrinfo_type * addr, unsigned short port);
 	auto get_port(addrinfo_type * addr) -> unsigned short;
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv);
+	int poll_mktimeout(std::chrono::steady_clock::duration val);
 
 	/// ::inet_ntop wrapper, все строки в utf8
 	/// @Throws std::system_error в случае системной ошибки

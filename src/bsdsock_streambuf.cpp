@@ -196,7 +196,45 @@ namespace ext::net
 	again:
 		pubres = publish_connecting(pipefd[1]);
 		if (!pubres) goto intrreq;
-	
+
+#if EXT_NET_USE_POLL
+		int timeout;
+		timeout = poll_mktimeout(until - time_point::clock::now());
+
+		pollfd fds[2];
+		fds[0].fd = sock;
+		fds[0].events = POLLOUT;
+		fds[1].fd = pipefd[0];
+		fds[1].events = POLLIN;
+
+		prevstate = Connecting;
+		res = poll(fds, 2, timeout);
+		if (res == 0) // timeout
+		{
+			err = ETIMEDOUT;
+			goto error;
+		}
+
+		if (res < 0) goto sockerror;
+		assert(res >= 1);
+
+		if (fds[1].revents) goto intrreq;
+		assert(fds[0].revents);
+
+		if (fds[0].revents & POLLERR)
+		{
+			solen = sizeof(err);
+			res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &solen);
+			if (res != 0) goto sockerror;
+			if (err != 0) goto error;
+		}
+
+		assert(fds[0].revents & POLLOUT or fds[0].revents & POLLHUP);
+		// can POLLHUP occur while connect? if it occured - socket was disconnected, while connected
+		// process as opened, next read/write will report FD_CLOSE condition
+		//goto connected;
+
+#else // EXT_NET_USE_POLL
 		struct timeval timeout;
 		make_timeval(until - time_point::clock::now(), timeout);
 
@@ -216,11 +254,12 @@ namespace ext::net
 
 		if (res == -1) goto sockerror;
 		assert(res >= 1);
-		
+
 		solen = sizeof(err);
 		res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &solen);
 		if (res != 0) goto sockerror;
 		if (err != 0) goto error;
+#endif // EXT_NET_USE_POLL
 		
 	connected:
 		pubres = publish_opened(sock, prevstate);
@@ -535,6 +574,43 @@ namespace ext::net
 		int err;
 		sockoptlen_t solen;
 
+#if EXT_NET_USE_POLL
+	again:
+		pollfd fd;
+		fd.events = 0;
+		fd.fd = m_sockhandle;
+		if (fstate & readable)
+			fd.events |= POLLIN;
+		if (fstate & writable)
+			fd.events |= POLLOUT;
+
+		int timeout = poll_mktimeout(until - time_point::clock::now());;
+		int res = poll(&fd, 1, timeout);
+		if (res == 0) // timeout
+		{
+			m_lasterror = make_error_code(sock_errc::timeout);
+			return false;
+		}
+
+		if (res < 0) goto sockerror;
+
+		if (fd.revents & POLLERR)
+		{
+			solen = sizeof(err);
+			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, &err, &solen);
+			if (res != 0) goto sockerror;
+			if (err != 0) goto error;
+		}
+
+		assert(fd.revents & (fd.events | POLLHUP));
+		return true;
+
+	sockerror:
+		err = errno;
+	error:
+		if (rw_error(-1, err, m_lasterror)) return false;
+		goto again;
+#else // EXT_NET_USE_POLL
 	again:
 		struct timeval timeout;
 		make_timeval(until - time_point::clock::now(), timeout);
@@ -578,6 +654,7 @@ namespace ext::net
 	error:
 		if (rw_error(-1, err, m_lasterror)) return false;
 		goto again;
+#endif // EXT_NET_USE_POLL
 	}
 
 	std::streamsize bsdsock_streambuf::showmanyc()
@@ -1001,7 +1078,7 @@ namespace ext::net
 		if (!is_open())
 		{
 			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(ENOTSOCK, std::system_category());
+			m_lasterror.assign(ENOTSOCK, std::generic_category());
 			return process_result(false);
 		}
 
@@ -1026,7 +1103,7 @@ namespace ext::net
 		if (!is_open())
 		{
 			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(ENOTSOCK, std::system_category());
+			m_lasterror.assign(ENOTSOCK, std::generic_category());
 			return process_result(false);
 		}
 
@@ -1077,7 +1154,7 @@ namespace ext::net
 		if (!is_open())
 		{
 			m_lasterror_context = "accept_ssl";
-			m_lasterror.assign(ENOTSOCK, std::system_category());
+			m_lasterror.assign(ENOTSOCK, std::generic_category());
 			return process_result(false);
 		}
 

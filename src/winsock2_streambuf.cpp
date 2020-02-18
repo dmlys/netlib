@@ -198,6 +198,39 @@ namespace ext::net
 		pubres = publish_connecting(sock);
 		if (!pubres) goto intrreq;
 
+#if EXT_NET_USE_POLL
+		int timeout;
+		timeout = poll_mktimeout(until - time_point::clock::now());
+
+		WSAPOLLFD fds[1];
+		fds[0].fd = sock;
+		fds[0].events = POLLOUT | POLLOUT;
+
+		prevstate = Connecting;
+		res = WSAPoll(fds, 1, timeout);
+		if (res == 0) // timeout
+		{
+			wsaerr = WSAETIMEDOUT;
+			goto wsaerror;
+		}
+
+		if (res == SOCKET_ERROR) goto sockerror;
+		assert(res == 1);
+		assert(fds[0].revents);
+
+		if (fds[0].revents & POLLERR)
+		{
+			solen = sizeof(wsaerr);
+			res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
+			if (res != 0)    goto sockerror;
+			if (wsaerr != 0) goto wsaerror;
+		}
+
+		assert(fds[0].revents & (POLLOUT | POLLIN | POLLHUP));
+		// can POLLHUP occur while connect? if it occured - socket was disconnected, while connected
+		// process as opened, next read/write will report FD_CLOSE condition
+		//goto connected;
+#else // EXT_NET_USE_POLL
 		timeval timeout;
 		make_timeval(until - time_point::clock::now(), timeout);
 
@@ -222,7 +255,8 @@ namespace ext::net
 		res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
 		if (res != 0)    goto sockerror;
 		if (wsaerr != 0) goto wsaerror;
-		
+		//goto connected;
+#endif // EXT_NET_USE_POLL
 	connected:
 		pubres = publish_opened(sock, prevstate);
 		if (!pubres) goto intrreq;
@@ -540,6 +574,44 @@ namespace ext::net
 		int wsaerr;
 		int solen;
 
+#if EXT_NET_USE_POLL
+	again:
+		WSAPOLLFD fd;
+		fd.events = 0;
+		fd.fd = m_sockhandle;
+		if (fstate & readable)
+			fd.events |= POLLIN;
+		if (fstate & writable)
+			fd.events |= POLLOUT;
+
+		int timeout = poll_mktimeout(until - time_point::clock::now());
+		int res = WSAPoll(&fd, 1, timeout);
+		if (res == 0) // timeout
+		{
+			m_lasterror = make_error_code(sock_errc::timeout);
+			return false;
+		}
+
+		if (res < 0) goto sockerror;
+		assert(res >= 1);
+
+		if (fd.revents & POLLERR)
+		{
+			solen = sizeof(wsaerr);
+			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
+			if (res != 0)    goto sockerror;
+			if (wsaerr != 0) goto wsaerror;
+		}
+
+		assert(fd.revents & (fd.events | POLLHUP));
+		return true;
+
+	sockerror:
+		wsaerr = ::WSAGetLastError();
+	wsaerror:
+		if (rw_error(-1, wsaerr, m_lasterror)) return false;
+		goto again;
+#else // EXT_NET_USE_POLL
 	again:
 		struct timeval timeout;
 		make_timeval(until - time_point::clock::now(), timeout);
@@ -587,6 +659,7 @@ namespace ext::net
 	wsaerror:
 		if (rw_error(-1, wsaerr, m_lasterror)) return false;
 		goto again;
+#endif // EXT_NET_USE_POLL
 	}
 
 	std::streamsize winsock2_streambuf::showmanyc()

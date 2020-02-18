@@ -2,7 +2,7 @@
 // date: Tuesday 17 May 2016
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
-//          
+//
 
 #include <cstdint>
 #include <boost/predef.h>
@@ -17,7 +17,7 @@
 /// * socklen_t
 /// * sockoptlen_t - type that setsockopt accepts as len parameter,
 ///                  normally it should same as socklen_t but on some platforms can be different
-/// 
+///
 
 #if   BOOST_OS_WINDOWS
 
@@ -30,15 +30,11 @@
     typedef int              socklen_t;
     typedef socklen_t        sockoptlen_t;
 
-#elif BOOST_OS_LINUX
-
-	struct addrinfo;
-	struct sockaddr;
-	struct timeval;
-
-	typedef int              socket_handle_type;
-	typedef unsigned int     socklen_t;
-	typedef socklen_t        sockoptlen_t;
+	//#if _WIN32_WINNT >= 0x0600 // Starting from Windows Vista WSAPoll is availiable
+	//#define EXT_NET_POLL_AVAILIABLE 1
+	//#else
+	//#define EXT_NET_POLL_AVAILIABLE 0
+	//#endif
 
 #elif BOOST_OS_CYGWIN
 
@@ -49,7 +45,9 @@
 	typedef int              socket_handle_type;
 	typedef int              socklen_t;
 	typedef socklen_t        sockoptlen_t;
-	
+
+	#define EXT_NET_POLL_AVAILIABLE 0
+
 #elif BOOST_OS_HPUX
 
 	// hp-ux have 2 net libraries, standard libc and libxnet
@@ -67,7 +65,10 @@
 	    typedef int          sockoptlen_t;
 	#endif
 
-#else
+	// should be tested
+	#define EXT_NET_POLL_AVAILIABLE 0
+
+#elif BOOST_OS_UNIX
 
     struct addrinfo;
 	struct sockaddr;
@@ -77,8 +78,21 @@
 	typedef unsigned int     socklen_t;
 	typedef socklen_t        sockoptlen_t;
 
+	#if _POSIX_C_SOURCE >= 200112L
+	#define EXT_NET_POLL_AVAILIABLE 1
+	#else
+	#define EXT_NET_POLL_AVAILIABLE 0
+	#endif
+
 #endif
 
+#ifndef EXT_NET_USE_POLL
+    #if BOOST_OS_WINDOWS
+    #define EXT_NET_USE_POLL 0
+    #else
+    #define EXT_NET_USE_POLL EXT_NET_POLL_AVAILIABLE
+    #endif
+#endif // EXT_NET_USE_POLL
 
 #ifdef EXT_ENABLE_OPENSSL
 /// forward some openssl types

@@ -20,11 +20,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\**\*.cpp" Exclude="src\bsdsock_streambuf.cpp" />
-	<ClCompile Include="src\http_parser.h.c" />
+	<ClCompile Include="src\http\http_parser.h.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\ext\net\**" Exclude="**bsdsock_streambuf.hpp" />
-	<ClInclude Include="src\http_parser.h" />
+	<ClInclude Include="src\http\http_parser.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A0CF8DB4-824A-4C7B-98D5-77E83548AC1E}</ProjectGuid>

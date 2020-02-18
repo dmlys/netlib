@@ -34,7 +34,7 @@ namespace ext::net
 		{
 			ready,         /// there is ready socket, it can be ready, have error or timeout(ext::net::sock_errc::timeout
 			timeout,       /// no ready sockets for given timeout/until given time point(wait_for/wait_until)
-			               /// NOTE: this dos not mean that some socket timed out.
+			               /// NOTE: this does not mean that some socket timed out.
 			empty_queue,   /// queue is empty - there are no sockets and listeners
 			interrupted,   /// wait operation was interrupted via interrupt parallel call
 		};
@@ -55,8 +55,11 @@ namespace ext::net
 		struct item
 		{
 			socket_streambuf sock;   /// pending socket
-			wait_type  wtype;        /// socket wait type: readable, writable or both
 			time_point submit_time;  /// time point of socket submission into this queue
+			wait_type  wtype;        /// socket wait type: readable, writable or both
+
+			unsigned ready        : 1; /// ready status flag
+			unsigned ready_status : 2; /// ready status wait_status::ready or wait_status::timeout
 		};
 
 		using sock_list = std::list<item>;
@@ -86,10 +89,8 @@ namespace ext::net
 		void consume_all_input(handle_type sock);
 		/// manages object state after interrupt event, does some clean up and stuff
 		auto process_interrupted();
-
-		/// searches ready socket from [first, last) via socket_streambuf::in_avail( ::ioctl(..., FIONREAD, ...) syscall )
-		/// if there is no such returns last
-		auto find_ready_socket(sock_list::iterator first, sock_list::iterator last, time_point now) -> sock_list::iterator;
+		/// finds ready socket in given range, returns iterator to it
+		auto find_ready_socket(sock_list::iterator first, sock_list::iterator last) -> sock_list::iterator;
 		/// this is actually heart of this class, it searches for ready socket, if there are no such -
 		/// creates socket sets for select call - call it, process select result, accepts new incoming connections from listeners, etc
 		/// returns waiting result, and if there is ready socket - m_cur will point to it

@@ -137,6 +137,11 @@ namespace ext::net
 		return ::WSAGetLastError();
 	}
 
+	const std::error_category & socket_error_category() noexcept
+	{
+		return std::system_category();
+	}
+
 	std::error_code last_socket_error_code() noexcept
 	{
 		return std::error_code(::WSAGetLastError(), std::system_category());
@@ -261,14 +266,26 @@ namespace ext::net
 
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
 	{
-		using rep_type = std::chrono::steady_clock::duration::rep;
-		using tv_limits = std::numeric_limits<decltype(tv.tv_sec)>;
+		using rep_type = std::chrono::microseconds::duration::rep;
+		using result_type = decltype(tv.tv_sec);
+		using tv_limits = std::numeric_limits<result_type>;
 
 		rep_type micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
 		if (micro < 0) micro = 0;
 
-		tv.tv_sec  = std::min<rep_type>(micro / 1000000, tv_limits::max());
-		tv.tv_usec = std::min<rep_type>(micro % 1000000, tv_limits::max());
+		tv.tv_sec  = std::min<std::common_type_t<rep_type, result_type>>(micro / 1000000, tv_limits::max());
+		tv.tv_usec = std::min<std::common_type_t<rep_type, result_type>>(micro % 1000000, tv_limits::max());
+	}
+
+	int poll_mktimeout(std::chrono::steady_clock::duration val)
+	{
+		using rep_type = std::chrono::milliseconds::duration::rep;
+		using int_limits = std::numeric_limits<int>;
+
+		rep_type milli = std::chrono::duration_cast<std::chrono::milliseconds>(val).count();
+		if (milli < 0) return 0;
+
+		return std::min<std::common_type_t<rep_type, int>>(milli, int_limits::max());
 	}
 
 	void inet_ntop(const sockaddr * addr, std::wstring & wstr, unsigned short & port)
@@ -526,6 +543,11 @@ namespace ext::net
 		return errno;
 	}
 
+	const std::error_category & socket_error_category() noexcept
+	{
+		return std::generic_category();
+	}
+
 	std::error_code last_socket_error_code() noexcept
 	{
 		return std::error_code(errno, std::generic_category());
@@ -652,14 +674,26 @@ namespace ext::net
 
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
 	{
-		using rep_type = std::chrono::steady_clock::duration::rep;
-		using tv_limits = std::numeric_limits<decltype(tv.tv_sec)>;
+		using rep_type = std::chrono::microseconds::duration::rep;
+		using result_type = decltype(tv.tv_sec);
+		using tv_limits = std::numeric_limits<result_type>;
 
 		rep_type micro = std::chrono::duration_cast<std::chrono::microseconds>(val).count();
 		if (micro < 0) micro = 0;
 
-		tv.tv_sec  = std::min<rep_type>(micro / 1000000, tv_limits::max());
-		tv.tv_usec = std::min<rep_type>(micro % 1000000, tv_limits::max());
+		tv.tv_sec  = std::min<std::common_type_t<rep_type, result_type>>(micro / 1000000, tv_limits::max());
+		tv.tv_usec = std::min<std::common_type_t<rep_type, result_type>>(micro % 1000000, tv_limits::max());
+	}
+
+	int poll_mktimeout(std::chrono::steady_clock::duration val)
+	{
+		using rep_type = std::chrono::milliseconds::duration::rep;
+		using int_limits = std::numeric_limits<int>;
+
+		rep_type milli = std::chrono::duration_cast<std::chrono::milliseconds>(val).count();
+		if (milli < 0) return 0;
+
+		return std::min<std::common_type_t<rep_type, int>>(milli, int_limits::max());
 	}
 
 	void inet_ntop(const sockaddr * addr, std::string & str, unsigned short & port)

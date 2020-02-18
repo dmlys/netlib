@@ -34,12 +34,12 @@ namespace ext::net
 
 	bool listener::is_socket() const
 	{
-		return m_listening_socket != -1;
+		return m_listening_socket != invalid_socket;
 	}
 
 	void listener::getsockname(sockaddr_type * addr, socklen_t * addrlen) const
 	{
-		if (m_listening_socket == -1)
+		if (m_listening_socket == invalid_socket)
 			throw std::runtime_error("ext::net::listener::getsockname: bad socket");
 
 		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
@@ -119,7 +119,7 @@ namespace ext::net
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::getaddrinfo failed");
 
 		m_listening_socket = ::socket(addrres->ai_family, addrres->ai_socktype, addrres->ai_protocol);
-		if (m_listening_socket == -1) throw_last_socket_error("ext::net::listener::bind: ::socket failed");
+		if (m_listening_socket == invalid_socket) throw_last_socket_error("ext::net::listener::bind: ::socket failed");
 
 		//int enabled = 0;
 		//res = ::setsockopt(m_listening_socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
@@ -148,14 +148,14 @@ namespace ext::net
 	socket_streambuf listener::accept()
 	{
 		socket_handle_type sock = ::accept(m_listening_socket, nullptr, nullptr);
-		if (sock == -1) throw_last_socket_error("ext::net::listener::accept: ::accept failed");
+		if (sock == invalid_socket) throw_last_socket_error("ext::net::listener::accept: ::accept failed");
 
 		return socket_streambuf(sock);
 	}
 
 	void listener::shutdown()
 	{
-		if (m_listening_socket == -1) return;
+		if (m_listening_socket == invalid_socket) return;
 
 #if BOOST_OS_WINDOWS
 		constexpr int how = SD_BOTH;
@@ -170,15 +170,15 @@ namespace ext::net
 
 	void listener::close()
 	{
-		if (m_listening_socket == -1) return;
+		if (m_listening_socket == invalid_socket) return;
 
 		int res = ext::net::close(m_listening_socket);
-		m_listening_socket = -1;
+		m_listening_socket = invalid_socket;
 		assert(res == 0); EXT_UNUSED(res);
 	}
 
 	listener::listener(listener && l) noexcept
-	    : m_listening_socket(std::exchange(l.m_listening_socket, -1))
+	    : m_listening_socket(std::exchange(l.m_listening_socket, invalid_socket))
 	{
 
 	}
@@ -201,7 +201,7 @@ namespace ext::net
 
 	listener::~listener()
 	{
-		if (m_listening_socket == -1) return;
+		if (m_listening_socket == invalid_socket) return;
 
 		int res = ext::net::close(m_listening_socket);
 		assert(res == 0); EXT_UNUSED(res);

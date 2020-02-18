@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <boost/predef.h>
+#include <ext/net/socket_fwd.hpp>
 
 #if BOOST_OS_WINDOWS
 
@@ -39,6 +40,10 @@
 #include <sys/ioctl.h>  // for ioctl
 #include <arpa/inet.h>  // for inet_ntop/inet_pton
 #include <netdb.h>      // for getaddrinfo/freeaddrinfo
+
+#if EXT_NET_USE_POLL
+#include <sys/poll.h>
+#endif
 
 #endif
 
