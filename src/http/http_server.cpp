@@ -1,4 +1,4 @@
-﻿#include <fmt/format.h>
+#include <fmt/format.h>
 #include <ext/itoa.hpp>
 #include <ext/reverse_lock.hpp>
 #include <ext/errors.hpp>
@@ -451,7 +451,7 @@ namespace ext::net::http
 		}
 		catch (std::exception & ex)
 		{
-			context->conn = close;
+			context->conn_action = close;
 			next_method = &http_server::handle_finish;
 			LOG_ERROR("exception while processing socket = {}: class - {}; what - {}", context->sock.handle(), boost::core::demangle(typeid(ex).name()), ex.what());
 		}
@@ -503,11 +503,11 @@ namespace ext::net::http
 		switch (parse_result)
 		{
 		    case http_parse_result::success:
-				context->conn = request.conn;
+				context->conn_action = request.conn_action;
 				break;
 
 			case http_parse_result::parse_error:
-				response = create_bad_request_response(sock, connection_type::close);
+				response = create_bad_request_response(sock, connection_action_type::close);
 				return &http_server::handle_response;
 
 		    case http_parse_result::socket_error:
@@ -627,20 +627,19 @@ namespace ext::net::http
 	{
 		auto & sock = context->sock;
 		auto response = std::get<http_response>(std::move(context->response));
-		if (response.conn == connection_type::def)
-			response.conn = context->conn;
+			response.conn_action = context->conn_action;
 		
 		postprocess_response(response);
 		log_response(response);
 
-		context->conn = write_response(sock, response) ? response.conn : close;
+		context->conn_action = write_response(sock, response) ? response.conn_action : close;
 		return &http_server::handle_finish;
 	}
 
 	void http_server::handle_finish(processing_context * context)
 	{
 		assert(std::this_thread::get_id() == m_threadid);
-		if (context->conn == close)
+		if (context->conn_action == close)
 			close_connection(std::move(context->sock));
 		else
 			submit_connection(std::move(context->sock));
@@ -694,7 +693,7 @@ namespace ext::net::http
 	void http_server::prepare_context(processing_context * context, socket_streambuf sock, bool newconn)
 	{
 		context->sock = std::move(sock);
-		context->conn = close;
+		context->conn_action = close;
 
 		if (m_state_ver != context->state_ver)
 		{
@@ -823,10 +822,10 @@ namespace ext::net::http
 
 			std::string name, value;
 			while (parser.parse_header(sock, name, value))
-				request.headers.emplace(std::move(name), std::move(value));
+				request.headers.push_back({std::move(name), std::move(value)});
 
-			static_assert(connection_type::close == 1 and connection_type::keep_alive == 2);
-			request.conn = static_cast<connection_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
+			static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
+			request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 			parser.parse_body(sock, request.body);
 			return std::make_tuple(success, std::move(request));
 		}
@@ -854,7 +853,7 @@ namespace ext::net::http
 			sock.pubsync();
 
 			assert(sock.is_valid());
-			return resp.conn == keep_alive;
+			return resp.conn_action == keep_alive;
 		}
 		catch (std::system_error & ex)
 		{
@@ -866,11 +865,11 @@ namespace ext::net::http
 
 	void http_server::postprocess_response(http_response & resp) const
 	{
-		if (resp.conn == close)
-			resp.headers["Connection"] = "close";
+		if (resp.conn_action == close)
+			set_header(resp.headers, "Connection", "close");
 
-		if (resp.body.size() != 0 or resp.conn != close)
-			resp.headers["Content-Length"] = std::to_string(resp.body.size());
+		if (resp.body.size() != 0 or resp.conn_action != close)
+			set_header(resp.headers, "Content-Length", std::to_string(resp.body.size()));
 	}
 
 	auto http_server::process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result
@@ -1027,25 +1026,25 @@ namespace ext::net::http
 #endif
 	}
 
-	http_response http_server::create_bad_request_response(socket_streambuf &sock, connection_type conn /*= close*/) const
+	http_response http_server::create_bad_request_response(socket_streambuf &sock, connection_action_type conn /*= close*/) const
 	{
 		http_response response;
 		response.http_code = 400;
 		response.status = response.body = "BAD REQUEST";
-		response.conn = conn;
-		response.headers["Content-Type"] = "text/plain";
+		response.conn_action = conn;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}
 
-	http_response http_server::create_server_busy_response(socket_streambuf & sock, connection_type conn /*= close*/) const
+	http_response http_server::create_server_busy_response(socket_streambuf & sock, connection_action_type conn /*= close*/) const
 	{
 		http_response response;
 		response.http_code = 503;
 		response.status = "Service Unavailable";
 		response.body = "Server is busy, too many requests. Repeat later";
-		response.conn = conn;
-		response.headers["Content-Type"] = "test/plain";
+		response.conn_action = conn;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}
@@ -1055,8 +1054,8 @@ namespace ext::net::http
 		http_response response;
 		response.http_code = 404;
 		response.status = response.body = "Not found";
-		response.conn = request.conn;
-		response.headers["Content-Type"] = "text/plain";
+		response.conn_action = request.conn_action;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}
@@ -1067,8 +1066,8 @@ namespace ext::net::http
 		response.http_code = 500;
 		response.status = "Internal Server Error";
 		response.body = "Request processing abandoned";
-		response.conn = request.conn;
-		response.headers["Content-Type"] = "text/plain";
+		response.conn_action = request.conn_action;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}
@@ -1079,8 +1078,8 @@ namespace ext::net::http
 		response.http_code = 404;
 		response.status = "Cancelled";
 		response.body = "Request processing cancelled";
-		response.conn = request.conn;
-		response.headers["Content-Type"] = "text/plain";
+		response.conn_action = request.conn_action;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}
@@ -1090,8 +1089,8 @@ namespace ext::net::http
 		http_response response;
 		response.http_code = 500;
 		response.status = response.body = "Internal Server Error";
-		response.conn = request.conn;
-		response.headers["Content-Type"] = "text/plain";
+		response.conn_action = request.conn_action;
+		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
 	}

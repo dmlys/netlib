@@ -18,7 +18,7 @@ namespace ext::net::http
 		};
 		const char * m_string_first;
 		const char * m_string_last;
-		header_map::const_iterator m_cur_header;
+		http_headers_vector::const_iterator m_cur_header;
 
 	private:
 		bool write_string(char *& first, char * last);

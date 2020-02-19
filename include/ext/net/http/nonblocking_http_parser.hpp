@@ -45,7 +45,7 @@ namespace ext::net::http
 		union { http_request * m_request; http_response * m_response; };
 		std::string * m_header_value;
 		std::string * m_body;
-		http::header_map * m_headers;
+		http_headers_vector * m_headers;
 
 		// Including http_parser.h is somewhat unwanted - it's a C source with no namespace at all.
 		// Instead we declare byte array of same size and reinterpret_cast it were necessary.

@@ -147,7 +147,7 @@ namespace ext::net::http
 
 			// should this connection be closed after request processed, determined by Connection header,
 			// but also - were there errors while processing request.
-			connection_type conn = close;
+			connection_action_type conn_action = close;
 
 			std::vector<const http_server_handler *> handlers; // http handlers registered in server
 			std::vector<const http_pre_filter *> prefilters;   // http filters registered in server, sorted by order
@@ -349,9 +349,9 @@ namespace ext::net::http
 		virtual std::string format_error(std::error_code errc) const;
 
 		/// Creates HTTP 400 BAD REQUEST answer
-		virtual http_response create_bad_request_response(socket_streambuf & sock, connection_type conn = close) const;
+		virtual http_response create_bad_request_response(socket_streambuf & sock, connection_action_type conn = close) const;
 		/// Creates HTTP 503 Service Unavailable answer
-		virtual http_response create_server_busy_response(socket_streambuf & sock, connection_type conn = close) const;
+		virtual http_response create_server_busy_response(socket_streambuf & sock, connection_action_type conn = close) const;
 		/// Creates HTTP 404 Not found answer
 		virtual http_response create_unknown_request_response(socket_streambuf & sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer, body = Request processing abandoned

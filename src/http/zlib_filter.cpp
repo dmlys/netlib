@@ -171,15 +171,15 @@ namespace ext::net::http
 
 	auto zlib_filter::prefilter(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
 	{
-		auto it = req.headers.find("Content-Encoding");
-		if (it == req.headers.end()) return std::nullopt;
+		auto * hdr = find_header(req.headers, "Content-Encoding");
+		if (not hdr) return std::nullopt;
 
-		const auto & encoding = it->second;
+		const auto & encoding = hdr->value;
 		if (encoding == "gzip" or encoding == "deflate")
 		{
 			EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
 			req.body = inflate(req.body);
-			req.headers.erase("Content-Encoding");
+			remove_header(req.headers, "Content-Encoding");
 		}
 
 		return std::nullopt;
@@ -187,10 +187,10 @@ namespace ext::net::http
 
 	void zlib_filter::postfilter(ext::net::http::http_request & req, ext::net::http::http_response & resp) const
 	{
-		auto it = req.headers.find("Accept-Encoding");
-		if (it == req.headers.end()) return;
+		auto * hdr = find_header(resp.headers, "Accept-Encoding");
+		if (not hdr) return;
 
-		std::string_view encoding = it->second;
+		std::string_view encoding = hdr->value;
 		EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Accept-Encoding = {}", encoding);
 
 		double gzip_weight, deflate_weight;
@@ -198,12 +198,12 @@ namespace ext::net::http
 
 		if (gzip_weight > 0 and gzip_weight >= deflate_weight)
 		{
-			resp.headers["Content-Encoding"] = "gzip";
+			set_header(resp.headers, "Content-Encoding", "gzip");
 			resp.body = deflate(resp.body, true);
 		}
 		else if (deflate_weight > 0)
 		{
-			resp.headers["Content-Encoding"] = "deflate";
+			set_header(resp.headers, "Content-Encoding", "deflate");
 			resp.body = deflate(resp.body, false);
 		}
 	}

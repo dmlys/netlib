@@ -222,7 +222,9 @@ namespace ext::net::http
 		{
 			case header_field:
 				p.m_state = header_value;
-				p.m_header_value = &headers[body];
+				headers.emplace_back();
+				headers.back().name = body;
+				p.m_header_value = &headers.back().value;
 				body.clear();
 
 			case header_value:

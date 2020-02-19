@@ -1,8 +1,26 @@
 #include <ext/net/http/http_types.hpp>
 #include <ext/itoa.hpp>
+#include <algorithm>
 
 namespace ext::net::http
 {
+	http_header_view::operator http_header() const
+	{
+		return {
+			std::string(name.data(), name.size()),
+			std::string(value.data(), value.size())
+		};
+	}
+
+	http_header::operator http_header_view() const noexcept
+	{
+		return http_header_view {
+			name,
+			value
+		};
+	}
+
+
 	inline static std::streambuf & operator <<(std::streambuf & streambuf, char ch)
 	{
 		streambuf.sputc(ch);

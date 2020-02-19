@@ -53,7 +53,7 @@ namespace ext::net::http
 
 				for (; m_cur_header != m_resp->headers.end(); ++m_cur_header)
 				{
-					name = &m_cur_header->first;
+					name = &m_cur_header->name;
 					m_string_first = name->c_str();
 					m_string_last  = m_string_first + name->size();
 					m_state = 5;
@@ -66,7 +66,7 @@ namespace ext::net::http
 			case 6: // write http header name
 					if (not write_string(first, last)) return first - buffer;
 
-					value = &m_cur_header->second;
+					value = &m_cur_header->value;
 					m_string_first = value->c_str();
 					m_string_last  = m_string_first + value->size();
 					m_state = 7;
@@ -138,7 +138,7 @@ namespace ext::net::http
 
 				for (; m_cur_header != m_resp->headers.end(); ++m_cur_header)
 				{
-					name = &m_cur_header->first;
+					name = &m_cur_header->name;
 					m_string_first = name->c_str();
 					m_string_last  = m_string_first + name->size();
 					m_state = 5;
@@ -151,7 +151,7 @@ namespace ext::net::http
 			case 6: // write http header name
 					if (not write_string(first, last)) return first - buffer;
 
-					value = &m_cur_header->second;
+					value = &m_cur_header->value;
 					m_string_first = value->c_str();
 					m_string_last  = m_string_first + value->size();
 					m_state = 7;
