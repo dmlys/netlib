@@ -35,11 +35,13 @@ namespace ext::net::http
 	{
 		static http_response make_response(std::string body) { http_response resp; resp.http_code = 200; resp.body = std::move(body); return resp; }
 
-		http_server_handler::result_type operator()(std::string str)       const { return make_response(str); }
+		http_server_handler::result_type operator()(std::string str)       const { return make_response(std::move(str)); }
 		http_server_handler::result_type operator()(http_response && resp) const { return std::move(resp); }
+		http_server_handler::result_type operator()(std::nullopt_t val)    const { return val; }
 
-		http_server_handler::result_type operator()(ext::future<std::string> fstr)    const { return fstr.then([](auto f) { return make_response(f.get()); }); }
-		http_server_handler::result_type operator()(ext::future<http_response> fresp) const { return fresp; }
+		http_server_handler::result_type operator()(ext::future<std::string> fstr)     const { return fstr.then([](auto f) { return make_response(f.get()); }); }
+		http_server_handler::result_type operator()(ext::future<http_response> fresp)  const { return fresp; }
+		http_server_handler::result_type operator()(ext::future<std::nullopt_t> fresp) const { return fresp; }
 	};
 
 	struct simple_http_server_handler::call_dispatcher

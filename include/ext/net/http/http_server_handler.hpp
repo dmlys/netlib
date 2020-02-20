@@ -30,7 +30,11 @@ namespace ext::net::http
 	public:
 		using result_type = std::variant<
 			http_response,
-			ext::future<http_response>
+			std::nullopt_t,  // no answer at all, connection will be closed
+
+			// async variants
+			ext::future<http_response>,
+			ext::future<std::nullopt_t>
 		>;
 
 		virtual bool accept(const http_request & req, const socket_streambuf & sock) const = 0;
@@ -44,8 +48,8 @@ namespace ext::net::http
 	{
 	public:
 		using result_type = std::variant<
-			std::string, http_response,
-			ext::future<std::string>, ext::future<http_response>
+			std::string, http_response, std::nullopt_t,
+			ext::future<std::string>, ext::future<http_response>, ext::future<std::nullopt_t>
 		>;
 
 		using function_type = std::variant<

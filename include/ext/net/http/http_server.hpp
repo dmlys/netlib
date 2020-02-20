@@ -52,10 +52,10 @@ namespace ext::net::http
 		using handle_type   = socket_queue::handle_type;
 		using duration_type = socket_queue::duration_type;
 		using time_point    = socket_queue::time_point;
-		using function_type = simple_http_server_handler::function_type;
 
-		using process_result  = http_server_handler::result_type;
-		using async_process_result = ext::future<http_response>;
+		using handler_result_type = http_server_handler::result_type;
+		using funtion_result_type = simple_http_server_handler::result_type;
+		using function_type = simple_http_server_handler::function_type;
 
 #ifdef EXT_ENABLE_OPENSSL
 		using SSL          = ::SSL;
@@ -107,6 +107,9 @@ namespace ext::net::http
 		//
 
 	protected:
+		using process_result = http_server_handler::result_type;
+		using async_process_result = std::variant<ext::future<http_response>, ext::future<std::nullopt_t>>;
+
 		using hook_type = boost::intrusive::list_base_hook<
 			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
 		>;
@@ -355,7 +358,7 @@ namespace ext::net::http
 		virtual auto process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result;
 		/// Exception wrapper for getting result from ext::future<http_response>, on exception returns create_internal_server_error_response(sock, request, ex).
 		/// Also checks if future is cancelled or abandoned.
-		virtual auto process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> http_response;
+		virtual auto process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> process_result;
 
 		/// Searches listener context by sock addr: from what listener does this socket came
 		virtual const listener_context & get_listener_context(const socket_streambuf & sock) const;

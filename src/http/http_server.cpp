@@ -960,33 +960,48 @@ namespace ext::net::http
 
 	auto http_server::handle_processing_result(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
-		auto & response = context->response;
-
-		if (not std::holds_alternative<http_response>(response))
+		auto visitor = [this, context](auto & val) -> handle_method_type
 		{
-			assert(std::holds_alternative<async_process_result>(response));
-			auto & fresp = std::get<async_process_result>(response);
-			if (fresp.is_ready() or fresp.is_deferred())
-			{
-				response = process_ready_response(std::move(fresp), context->sock, context->request);
-			}
-			else
-			{
-				SOCK_LOG_INFO("async http_response, scheduling async processing");
-				return async_method(fresp.release(), &http_server::handle_async_processing_result);
-			}
-		}
+			auto & sock = context->sock;
+			auto & response = context->response;
+			using arg_type = std::remove_reference_t<decltype(val)>;
 
-		return &http_server::handle_postfilters;
+			if constexpr (ext::is_future_type_v<arg_type>)
+			{
+				if (val.is_ready() or val.is_deferred())
+				{
+					response = process_ready_response(std::move(val), context->sock, context->request);
+					return &http_server::handle_processing_result;
+				}
+				else
+				{
+					SOCK_LOG_INFO("async http_handler response, scheduling async processing");
+					return async_method(val.handle(), &http_server::handle_async_processing_result);
+				}
+			}
+			else if constexpr (std::is_same_v<arg_type, std::nullopt_t>)
+			{
+				SOCK_LOG_TRACE("got nullopt response from http_handler, connection will be closed");
+				context->conn_action = close;
+				return &http_server::handle_finish;
+			}
+			else // http_response
+			{
+				SOCK_LOG_TRACE("got response from http_handler");
+				if (val.conn_action == connection_action_type::def)
+					val.conn_action = context->conn_action;
+				return &http_server::handle_postfilters;
+			}
+		};
+
+		return std::visit(visitor, context->response);
 	}
 
 	auto http_server::handle_async_processing_result(processing_context * context, ext::intrusive_ptr<ext::shared_state_basic> resp_handle) -> handle_method_type
 	{
 		auto & sock = context->sock;
-		SOCK_LOG_INFO("async http_response ready");
+		SOCK_LOG_INFO("async http_handler response ready");
 
-		context->response = ext::future<http_response>(std::move(resp_handle));
 		return &http_server::handle_processing_result;
 	}
 
@@ -994,6 +1009,8 @@ namespace ext::net::http
 	{
 		try
 		{
+			// at this moment, context->response should only contain http_response
+			assert(std::holds_alternative<http_response>(context->response));
 			auto & resp = std::get<http_response>(context->response);
 			for (auto * filter : context->postfilters)
 				filter->postfilter(context->request, resp);
@@ -1017,8 +1034,7 @@ namespace ext::net::http
 	auto http_server::handle_response(processing_context * context) -> handle_method_type
 	{
 		auto & response = std::get<http_response>(context->response);
-			response.conn_action = context->conn_action;
-		
+
 		postprocess_response(response);
 		log_response(response);
 		context->writer.reset(&response);
@@ -1297,28 +1313,33 @@ namespace ext::net::http
 		}
 	}
 
-	auto http_server::process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> http_response
+	auto http_server::process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> process_result
 	{
-		try
+		auto visitor = [this, &sock, &request](auto & fresp) -> process_result
 		{
-			if (result.is_abandoned())
-				return create_processing_abondoned_response(sock, request);
-			
-			if (result.is_cancelled())
-				return create_processing_cancelled_response(sock, request);
-			
-			return result.get();
-		}
-		catch (std::exception & ex)
-		{
-			LOG_WARN("processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
-			return create_internal_server_error_response(sock, request, &ex);
-		}
-		catch (...)
-		{
-			LOG_ERROR("unknown processing error");
-			return create_internal_server_error_response(sock, request, nullptr);
-		}
+			try
+			{
+				if (fresp.is_abandoned())
+					return create_processing_abondoned_response(sock, request);
+
+				if (fresp.is_cancelled())
+					return create_processing_cancelled_response(sock, request);
+
+				return fresp.get();
+			}
+			catch (std::exception & ex)
+			{
+				LOG_WARN("processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
+				return create_internal_server_error_response(sock, request, &ex);
+			}
+			catch (...)
+			{
+				LOG_ERROR("unknown processing error");
+				return create_internal_server_error_response(sock, request, nullptr);
+			}
+		};
+
+		return std::visit(visitor, result);
 	}
 
 	auto http_server::get_listener_context(const socket_streambuf & sock) const -> const listener_context &
