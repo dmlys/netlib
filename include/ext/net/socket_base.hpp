@@ -144,6 +144,16 @@ namespace ext::net
 	bool inet_pton(int family, const std::wstring & waddr, sockaddr * out);
 #endif
 
+	/// создает строку вида <ERR:code>, например <ENOTCONN:107>,
+	/// поддерживает только ряд кодов, связанных с функциями получения.конвертация адресов: getpeername, getsockname, inet_pton, etc
+	std::string make_addr_error_description(int err);
+	/// возвращает строку адреса подключения вида $addr:$port, например 127.0.0.1:22, для ipv6 - [::1]:22
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	std::string sock_addr(sockaddr * addr);
+	/// safe версия sock_add - не кидает ошибок(за исключением std::bad_alloc),
+	/// в случае ошибки возвращает <ERR:code>. Например - <ENOTCONN:107>
+	std::string sock_addr_noexcept(sockaddr * addr);
+
 	/// \{
 	///
 	/// ::getaddrinfo wrapper, все строки в utf8

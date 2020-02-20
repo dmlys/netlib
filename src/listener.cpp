@@ -9,6 +9,10 @@
 
 namespace ext::net
 {
+	const int listener::af_unspec = AF_UNSPEC;
+	const int listener::af_inet   = AF_INET;
+	const int listener::af_inet6  = AF_INET6;
+
 	listener_exception::listener_exception(std::string sock_endpoint, std::error_code errc, std::string msg)
 	    : std::system_error(errc, std::move(msg) + ", sock_endpoint = " + sock_endpoint), m_sock_endpoint(std::move(sock_endpoint))
 	{
@@ -54,15 +58,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		std::string host;
-		unsigned short port;
-		inet_ntop(addr, host, port);
-
-		ext::itoa_buffer<unsigned short> buffer;
-		host += ':';
-		host += ext::itoa(port, buffer);
-
-		return host;
+		return sock_addr(addr);
 	}
 
 	unsigned short listener::sock_port() const
@@ -101,7 +97,7 @@ namespace ext::net
 		return addr;
 	}
 
-	void listener::bind(std::string ipaddr, unsigned short port)
+	void listener::bind(std::string ipaddr, unsigned short port, int af)
 	{
 		addrinfo hint, *addrres;
 
@@ -109,9 +105,21 @@ namespace ext::net
 		auto * service = ext::itoa(port, service_buffer);
 		auto * host = ipaddr.empty() ? nullptr : ipaddr.c_str();
 
+		// AI_PASSIVE - Socket address is intended for `bind'.
+		// AI_ADDRCONFIG - Use configuration of this host to choose returned address type..
+		//   If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4 addresses are returned in the list pointed to by res only
+		//   if the local system has at least one IPv4 address configured, and IPv6 addresses are returned only if the local system has at least one IPv6 address configured.
+		//   The loopback address is not considered for this case as valid as a configured address.
+		//   This flag is useful on, for example, IPv4-only systems, to ensure that getaddrinfo() does not return IPv6 socket addresses that would always fail in connect(2) or bind(2).
+		// AI_V4MAPPED - IPv4 mapped addresses are acceptable.
+		// AI_ALL - Return IPv4 mapped and IPv6 addresses.
+		//   If hints.ai_flags specifies the AI_V4MAPPED flag, and hints.ai_family was specified as AF_INET6, and no matching IPv6 addresses could be found,
+		///  then return IPv4-mapped IPv6 addresses in the list pointed to by res.
+		///  If both AI_V4MAPPED and AI_ALL are specified in hints.ai_flags, then return both IPv6 and IPv4-mapped IPv6 addresses in the list pointed to by res.
+		///  AI_ALL is ignored if AI_V4MAPPED is not also specified.
 		std::memset(&hint, 0, sizeof(hint));
-		hint.ai_flags = AI_PASSIVE | AI_V4MAPPED | AI_ADDRCONFIG | AI_ALL;
-		hint.ai_family = AF_UNSPEC;
+		hint.ai_flags = AI_PASSIVE | AI_ADDRCONFIG | AI_V4MAPPED | AI_ALL;
+		hint.ai_family = af;
 		hint.ai_protocol = IPPROTO_TCP;
 		hint.ai_socktype = SOCK_STREAM;
 
@@ -129,9 +137,7 @@ namespace ext::net
 		res = ::setsockopt(m_listening_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::setsockopt SO_REUSEADDR failed");
 
-		inet_ntop(addrres->ai_addr, ipaddr, port);
-		std::string sock_endpoint = ipaddr + ":" + service;
-
+		std::string sock_endpoint = sock_addr_noexcept(addrres->ai_addr);
 		res = ::bind(m_listening_socket, addrres->ai_addr, addrres->ai_addrlen);
 		if (res != 0) throw_last_listener_error(sock_endpoint, "ext::net::listener::bind: ::bind failed");
 

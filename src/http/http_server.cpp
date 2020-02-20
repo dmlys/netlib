@@ -1327,10 +1327,20 @@ namespace ext::net::http
 		auto it = m_listener_contexts.find(addr);
 		if (it == m_listener_contexts.end())
 		{
-			addr = "0.0.0.0";
-			addr += ":";
-			ext::itoa_buffer<unsigned short> buffer;
-			addr += ext::itoa(sock.sock_port(), buffer);
+			if (addr.find('.') != addr.npos)
+			{   // IP4
+				addr = "0.0.0.0";
+				addr += ":";
+				ext::itoa_buffer<unsigned short> buffer;
+				addr += ext::itoa(sock.sock_port(), buffer);
+			}
+			else
+			{   // IP6
+				addr = "[::]";
+				addr += ":";
+				ext::itoa_buffer<unsigned short> buffer;
+				addr += ext::itoa(sock.sock_port(), buffer);
+			}
 
 			it = m_listener_contexts.find(addr);
 		}

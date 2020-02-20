@@ -5,6 +5,7 @@
 #include <limits>
 #include <algorithm>
 
+#include <ext/itoa.hpp>
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_include.hpp>
 
@@ -233,7 +234,7 @@ namespace ext::net
 				[[fallthrough]];
 
 			// if it's SSL_ERROR_WANT_{WRITE,READ}
-			// errno can be EAGAIN or EINTR - repeat operation
+			// last error can be WSAEINTR or WSAEWOULDBLOCK - repeat operation
 			case SSL_ERROR_WANT_READ:
 			case SSL_ERROR_WANT_WRITE:
 
@@ -407,6 +408,118 @@ namespace ext::net
 
 		return inet_pton(family, waddr.c_str(), out);
 	}
+
+	std::string make_addr_error_description(int err)
+	{
+		ext::itoa_buffer<int> buffer;
+		std::string errstr;
+		errstr.reserve(32);
+
+		errstr += '<';
+
+		switch (err)
+		{
+			case WSAEFAULT:         errstr += "WSAEFAULT"; break;
+			case WSAEINVAL:         errstr += "WSAEINVAL"; break;
+			case WSAENOBUFS:        errstr += "WSAENOBUFS"; break;
+			case WSANOTINITIALISED: errstr += "WSANOTINITIALISED"; break;
+			case WSAEINPROGRESS:    errstr += "WSAEINPROGRESS"; break;
+			case WSAENOTCONN:       errstr += "WSAENOTCONN"; break;
+			case WSAENOTSOCK:       errstr += "WSAENOTSOCK"; break;
+			case WSAENETDOWN:       errstr += "WSAENETDOWN"; break;
+			default:                errstr += "unknown"; break;
+		}
+
+		errstr += ':';
+		errstr += ext::itoa(err, buffer);
+		errstr += '>';
+
+		return errstr;
+	}
+
+	std::string sock_addr(sockaddr * addr)
+	{
+		unsigned short port;
+		const char * host_ptr;
+		const socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[buflen];
+		std::string host;
+
+		if (addr->sa_family == AF_INET6)
+		{
+			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
+			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			port = ntohs(addr6->sin6_port);
+			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
+
+			host += '[';
+			host += host_ptr;
+			host += ']';
+		}
+		else if (addr->sa_family == AF_INET)
+		{
+			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
+			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			port = ntohs(addr4->sin_port);
+			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
+
+			host = host_ptr;
+		}
+		else
+		{
+			throw std::system_error(
+			    std::make_error_code(std::errc::address_family_not_supported),
+			    "inet_ntop unsupported address family"
+			);
+		}
+
+		ext::itoa_buffer<unsigned short> port_buffer;
+		host += ':';
+		host += ext::itoa(port, port_buffer);
+
+		return host;
+	}
+
+	std::string sock_addr_noexcept(sockaddr * addr)
+	{
+		unsigned short port;
+		const char * host_ptr;
+		const socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[buflen];
+		std::string host;
+
+		if (addr->sa_family == AF_INET6)
+		{
+			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
+			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			port = ntohs(addr6->sin6_port);
+			if (not host_ptr) return make_addr_error_description(::WSAGetLastError());
+
+			host += '[';
+			host += host_ptr;
+			host += ']';
+		}
+		else if (addr->sa_family == AF_INET)
+		{
+			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
+			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			port = ntohs(addr4->sin_port);
+			if (not host_ptr) return make_addr_error_description(::WSAGetLastError());
+
+			host = host_ptr;
+		}
+		else
+		{
+			return make_addr_error_description(WSAEAFNOSUPPORT);
+		}
+
+		ext::itoa_buffer<unsigned short> port_buffer;
+		host += ':';
+		host += ext::itoa(port, port_buffer);
+
+		return host;
+	}
+
 
 	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
 	{
@@ -767,6 +880,125 @@ namespace ext::net
 	{
 		return inet_pton(family, addr.c_str(), out);
 	}
+
+	std::string make_addr_error_description(int err)
+	{
+		ext::itoa_buffer<int> buffer;
+		std::string errstr;
+		errstr.reserve(32);
+
+		errstr += '<';
+
+		switch (err)
+		{
+			case EBADF:        errstr += "EBADF"; break;
+			case EINVAL:       errstr += "EINVAL"; break;
+			case EFAULT:       errstr += "EFAULT"; break;
+			case ENOTCONN:     errstr += "ENOTCONN"; break;
+			case ENOTSOCK:     errstr += "ENOTSOCK"; break;
+			case EOPNOTSUPP:   errstr += "EOPNOTSUPP"; break;
+			case ENOBUFS:      errstr += "ENOBUFS"; break;
+			case EAFNOSUPPORT: errstr += "EAFNOSUPPORT"; break;
+			case ENOSPC:       errstr += "ENOSPC"; break;
+			default:           errstr += "unknown"; break;
+		}
+
+		errstr += ':';
+		errstr += ext::itoa(err, buffer);
+		errstr += '>';
+
+		return errstr;
+	}
+
+	std::string sock_addr(sockaddr * addr)
+	{
+		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
+		const int force_afinet = BOOST_OS_HPUX;
+
+		unsigned short port;
+		const char * host_ptr;
+		const socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[buflen];
+		std::string host;
+
+		if (addr->sa_family == AF_INET6)
+		{
+			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
+			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			port = ntohs(addr6->sin6_port);
+			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
+
+			host += '[';
+			host += host_ptr;
+			host += ']';
+		}
+		else if (addr->sa_family == AF_INET || force_afinet)
+		{
+			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
+			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			port = ntohs(addr4->sin_port);
+			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
+
+			host = host_ptr;
+		}
+		else
+		{
+			throw std::system_error(
+			    std::make_error_code(std::errc::address_family_not_supported),
+			    "inet_ntop unsupported address family"
+			);
+		}
+
+		ext::itoa_buffer<unsigned short> port_buffer;
+		host += ':';
+		host += ext::itoa(port, port_buffer);
+
+		return host;
+	}
+
+	std::string sock_addr_noexcept(sockaddr * addr)
+	{
+		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
+		const int force_afinet = BOOST_OS_HPUX;
+
+		unsigned short port;
+		const char * host_ptr;
+		const socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[buflen];
+		std::string host;
+
+		if (addr->sa_family == AF_INET6)
+		{
+			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
+			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			port = ntohs(addr6->sin6_port);
+			if (not host_ptr) return make_addr_error_description(errno);
+
+			host += '[';
+			host += host_ptr;
+			host += ']';
+		}
+		else if (addr->sa_family == AF_INET || force_afinet)
+		{
+			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
+			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			port = ntohs(addr4->sin_port);
+			if (not host_ptr) return make_addr_error_description(errno);
+
+			host = host_ptr;
+		}
+		else
+		{
+			return make_addr_error_description(EAFNOSUPPORT);
+		}
+
+		ext::itoa_buffer<unsigned short> port_buffer;
+		host += ':';
+		host += ext::itoa(port, port_buffer);
+
+		return host;
+	}
+
 
 	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
 	{

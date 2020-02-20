@@ -30,33 +30,6 @@ namespace ext::net
 	const std::string  winsock2_streambuf::empty_str;
 	const std::wstring winsock2_streambuf::wempty_str;
 
-	static std::string make_addr_error_description(int err)
-	{
-		ext::itoa_buffer<int> buffer;
-		std::string errstr;
-		errstr.reserve(32);
-
-		errstr += '<';
-
-		switch (err)
-		{
-			case WSAEFAULT:         errstr += "WSAEFAULT"; break;
-			case WSAEINVAL:         errstr += "WSAEINVAL"; break;
-			case WSAENOBUFS:        errstr += "WSAENOBUFS"; break;
-			case WSANOTINITIALISED: errstr += "WSANOTINITIALISED"; break;
-			case WSAEINPROGRESS:    errstr += "WSAEINPROGRESS"; break;
-			case WSAENOTCONN:       errstr += "WSAENOTCONN"; break;
-			case WSAENOTSOCK:       errstr += "WSAENOTSOCK"; break;
-			case WSAENETDOWN:       errstr += "WSAENETDOWN"; break;
-			default:                errstr += "unknown"; break;
-		}
-
-		errstr += ':';
-		errstr += ext::itoa(err, buffer);
-		errstr += '>';
-
-		return errstr;
-	}
 
 	static void SockAddrToString(sockaddr * addr, int addrlen, std::string & out)
 	{
@@ -699,7 +672,7 @@ namespace ext::net
 			int res = ::recv(m_sockhandle, data, count, 0);
 			if (res > 0) return res;
 
-			if (rw_error(res, errno, m_lasterror)) goto error;
+			if (rw_error(res, ::WSAGetLastError(), m_lasterror)) goto error;
 			continue;
 
 		} while (wait_readable(until));
@@ -733,7 +706,7 @@ namespace ext::net
 			int res = ::send(m_sockhandle, data, count, 0);
 			if (res > 0) return res;
 
-			if (rw_error(res, errno, m_lasterror)) goto error;
+			if (rw_error(res, ::WSAGetLastError(), m_lasterror)) goto error;
 			continue;
 
 		} while (wait_writable(until));
@@ -1299,7 +1272,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
 		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
-		if (res != 0) return make_addr_error_description(errno);
+		if (res != 0) return make_addr_error_description(::WSAGetLastError());
 
 		return endpoint_noexcept(addr, addrlen);
 	}
@@ -1311,7 +1284,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
 		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
-		if (res != 0) return make_addr_error_description(errno);
+		if (res != 0) return make_addr_error_description(::WSAGetLastError());
 
 		return endpoint_noexcept(addr, addrlen);
 	}

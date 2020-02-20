@@ -42,6 +42,11 @@ namespace ext::net
 		socket_handle_type handle() const noexcept { return m_listening_socket; }
 
 	public:
+		static const int af_unspec; // = AF_UNSPEC
+		static const int af_inet;   // = AF_INET
+		static const int af_inet6;  // = AF_INET6
+
+	public:
 		/// calls ::getsockname(handle(), addr, namelen),
 		/// throws std::system_error in case or errors
 		void getsockname(sockaddr_type * addr, socklen_t * addrlen) const;
@@ -62,15 +67,15 @@ namespace ext::net
 	public:
 		/// binds this listener to given address and port.
 		/// first address is resolved via ::getaddrinfo with hints:
-		///    hint.ai_flags = AI_PASSIVE | AI_V4MAPPED | AI_ADDRCONFIG | AI_ALL;
-		///    hint.ai_family = AF_UNSPEC;
+		///    hint.ai_flags = AI_PASSIVE | AI_ADDRCONFIG | AI_V4MAPPED | AI_ALL;
+		///    hint.ai_family = af;
 		///    hint.ai_protocol = IPPROTO_TCP;
 		///    hint.ai_socktype = SOCK_STREAM;
 		/// then socket from created and bound from/to resolved address.
 		/// Also setsockopt with SO_REUSEADDR is called.
 		/// Throws std::system_error in case or errors
-		void bind(unsigned short port) { bind("", port); }
-		void bind(std::string ipaddr, unsigned short port);
+		void bind(unsigned short port, int af = af_unspec) { bind("", port, af); }
+		void bind(std::string ipaddr, unsigned short port, int af = af_unspec);
 		/// calls ::listen and checks result,
 		/// throws std::system_error in case or errors
 		void listen(int backlog);
@@ -87,6 +92,9 @@ namespace ext::net
 	public:
 		listener() = default;
 		~listener();
+
+		listener(unsigned short port, int af = af_unspec) { bind(port, af); }
+		listener(std::string ipaddr, unsigned short port, int af = af_unspec) { bind(std::move(ipaddr), port, af); }
 
 		listener(listener && l) noexcept;
 		listener & operator =(listener &&) noexcept;
