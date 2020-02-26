@@ -152,8 +152,8 @@ namespace ext::net::mime
 	/// If all characters, name and value can be placed into current line not exceeding line_size,
 	///   then encodes as one line, otherwise does folding
 	/// 
-	/// In case of folding all parameters would be terminated with ';' as required by rfc, but last one - will not. 
-	/// If you need to write several header parameters - in loop add "; " after calling this method.
+	/// In case of folding, all parameters would be terminated with ';' as required by rfc, but last one - will not.
+	/// If you need to write several header parameters in loop - add "; " after calling this method.
 	template <class Destination, class NameRandomAccessIterator, class ValRandomAccessIterator>
 	std::enable_if_t<
 		ext::is_iterator_v<NameRandomAccessIterator> and ext::is_iterator_v<ValRandomAccessIterator>,

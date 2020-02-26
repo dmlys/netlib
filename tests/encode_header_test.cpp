@@ -7,6 +7,9 @@
 namespace mime = ext::net::mime;
 using mime::MailDefaultLineSize;
 
+BOOST_AUTO_TEST_SUITE(encoding_tests)
+BOOST_AUTO_TEST_SUITE(header_encoding_tests)
+
 BOOST_AUTO_TEST_CASE(bencode_header_folded_test)
 {
 	std::string subj = "Я очень длинный текст темы сообщения, я создан для проверки того что simple_mail header_base64_encoder правильно нарезает текст, не превышая 80 символов(включая \\r\\n)";
@@ -95,3 +98,6 @@ BOOST_AUTO_TEST_CASE(encode_header_parameter_test)
 
 	BOOST_CHECK_EQUAL(output, expected_output);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+BOOST_AUTO_TEST_SUITE_END()

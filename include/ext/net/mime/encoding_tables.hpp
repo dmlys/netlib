@@ -17,6 +17,8 @@ namespace ext::net::mime
 		/// http percent encoding table
 		const char percent_char = 37; //'%'
 		extern const char percent_encoding_array[256];
+		extern const char wwwformurl_encoding_array[256]; // encoding array for application/x-www-form-urlencoded
+		extern const char wwwformurl_decoding_array[256]; // decoding array for application/x-www-form-urlencoded
 
 		constexpr std::size_t MailMinLineSize = 20;
 		constexpr std::size_t MailMaxLineSize = 1000;     // including \r\n

@@ -102,13 +102,17 @@ namespace ext::net
 		{
 			std::size_t count = 0;
 			for (; first != last; ++first)
+			{
+				static_assert(std::is_signed_v<char>);
 				count += mime_encode_arr[static_cast<unsigned char>(*first)] < 0 ? 3 : 1;
+			}
 
 			return count;
 		}
 
-		/// encodes input text [first; last) into out
-		/// encoding is done using encode_arr and qchar
+		/// Encodes input text [first; last) into out.
+		/// Encoding is done using encode_arr and qchar.
+		/// Chars that should be quoted - encoded as <qchar><hex1><hex2>
 		template <class InputIterator, class OutputIterator>
 		OutputIterator encode_quoted(char qchar, const char * encode_arr,
 		                             InputIterator first, InputIterator last, OutputIterator out)
@@ -129,11 +133,11 @@ namespace ext::net
 			return out;
 		}
 
-		/// decodes input quoted text [first; last) into out
-		/// quoted char is char encoded as <qchar><hex1><hex2>
-		/// 
-		/// anything that is not quoted group is passed as is,
-		/// in case of bad quoted groups - exceptions are thrown: not_enough_input, non_hex_char
+		/// Decodes input quoted text [first; last) into out.
+		/// Quoted chars encoded as <qchar><hex1><hex2> are decoded into chars.
+		/// Not quoted chars are returned as is
+		///
+		/// In case of bad quoted groups - exceptions are thrown: not_enough_input, non_hex_char
 		template <class RandomAccessIterator, class OutIterator>
 		OutIterator decode_quoted(char qchar, RandomAccessIterator first, RandomAccessIterator last, OutIterator out)
 		{
@@ -171,14 +175,56 @@ namespace ext::net
 			return out;
 		}
 
-		/// encodes input utf-8 text [first;last) into out, not more than max_output,
-		/// and not breaking utf-8 multi-byte sequences encoding is done using encode_arr and qchar
-		/// 
-		/// algorithm can write less than max_output, 
-		/// if writing last symbol would break utf-8 or <qc><h1><h2> sequence
+		/// Decodes input quoted text [first; last) into out.
+		/// Quoted chars encoded as <qchar><hex1><hex2> are decoded into chars.
+		/// Also not quoted chars are translated according with decoding_arr
 		///
-		/// returns tuple of iterator where input stopped, where output stopped and number or written chars.
-		/// works only with utf-8 text
+		/// In case of bad quoted groups - exceptions are thrown: not_enough_input, non_hex_char
+		template <class RandomAccessIterator, class OutIterator>
+		OutIterator decode_quoted(char qchar, const char * decoding_arr, RandomAccessIterator first, RandomAccessIterator last, OutIterator out)
+		{
+			// first process all chars except 3 last,
+			// that way we can safely increment iterator 2 times for quoted chars,
+			// without need to check if we are past last.
+			char ch;
+			for (auto end = last - 3; first < end; ++first, ++out)
+			{
+				ch = *first;
+				*out = ch != qchar ? decoding_arr[static_cast<unsigned char>(ch)] : unquote_char(first);
+			}
+
+			// previous loop can go past end iterator, but not past last iterator.
+			// check if last 3 characters is a quoted group
+			assert(last - first <= 3);
+			if ((ch = *first) == qchar)
+			{
+				// group is not full
+				if (last - first < 3) throw not_enough_input();
+
+				*out = unquote_char(first);
+				++out, ++first;
+			}
+
+			// process trailing
+			assert(last - first <= 3);
+			for (; first != last; ++first, ++out)
+			{
+				ch = *first;
+				if (ch == qchar) throw not_enough_input();
+				*out = decoding_arr[static_cast<unsigned char>(ch)];
+			}
+
+			return out;
+		}
+
+		/// Encodes input utf-8 text [first;last) into out, not more than max_output,
+		/// and not breaking utf-8 multi-byte sequences encoding is done using encode_arr and qchar.
+		/// 
+		/// Algorithm can write less than max_output,
+		/// if writing last symbol would break utf-8 or <qc><h1><h2> sequence.
+		///
+		/// Returns tuple of iterator where input stopped, where output stopped and number or written chars.
+		/// Works only with utf-8 text
 		template <class Iterator, class OutputIterator>
 		std::tuple<Iterator, OutputIterator, std::size_t>
 		encode_quoted_bounded(
