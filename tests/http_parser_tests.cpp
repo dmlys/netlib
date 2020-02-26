@@ -51,3 +51,32 @@ BOOST_AUTO_TEST_CASE(http_parse_header_test)
 	BOOST_CHECK(extract_header_parameter(parstr, "q", parval));
 	BOOST_CHECK_EQUAL(parval, "1");
 }
+
+BOOST_AUTO_TEST_CASE(http_parse_query_test)
+{
+	using namespace ext::net::http;
+	std::string_view text;
+	std::string_view name, value;
+
+	text = "user=palps&action=doit&treason&=duel";
+	parse_query(text, name, value);
+	BOOST_CHECK_EQUAL(name, "user");
+	BOOST_CHECK_EQUAL(value, "palps");
+	parse_query(text, name, value);
+	BOOST_CHECK_EQUAL(name, "action");
+	BOOST_CHECK_EQUAL(value, "doit");
+	parse_query(text, name, value);
+	BOOST_CHECK_EQUAL(name, "");
+	BOOST_CHECK_EQUAL(value, "treason");
+	parse_query(text, name, value);
+	BOOST_CHECK_EQUAL(name, "");
+	BOOST_CHECK_EQUAL(value, "duel");
+
+	text = "user=palps&action=doit&treason&=duel";
+	BOOST_CHECK(extract_query(text, "user", value));
+	BOOST_CHECK_EQUAL(value, "palps");
+	BOOST_CHECK(extract_query(text, "action", value));
+	BOOST_CHECK_EQUAL(value, "doit");
+	BOOST_CHECK(extract_query(text, "", value));
+	BOOST_CHECK_EQUAL(value, "treason");
+}

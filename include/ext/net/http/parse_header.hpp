@@ -4,7 +4,7 @@
 
 namespace ext::net::http
 {
-	/// parses regular HTTP header value(MIME headers not supported).
+	/// Parses regular HTTP header value(MIME headers not supported).
 	/// Extracts header value into value, and all parameters into params string
 	/// In practice - splits by ',', trims both result string values.
 	/// Returns true if header_str has more input, false if header_str depleted.
@@ -21,7 +21,7 @@ namespace ext::net::http
 	bool parse_header_value(std::string & header_str, std::string & value, std::string & params); // can throw bad_alloc on string assignment
 	bool parse_header_value(std::string_view & header_str, std::string_view & value, std::string_view & params) noexcept;
 
-	/// parses and extracts specific value from header_str, returns true if value was found, false otherwise
+	/// Parses and extracts specific value from header_str, returns true if value was found, false otherwise
 	/// Typical usage:
 	///   if (extract_header_value(header_str, "gzip", parstr) and extract_header_parameter(parstr, "q", parval))
 	///   {
@@ -30,7 +30,7 @@ namespace ext::net::http
 	bool extract_header_value(std::string_view header_str, std::string_view value, std::string & params); // can throw bad_alloc on string assignment
 	bool extract_header_value(std::string_view header_str, std::string_view value, std::string_view & params) noexcept;
 
-	/// parses regular HTTP header value parameters(MIME headers not supported).
+	/// Parses regular HTTP header value parameters(MIME headers not supported).
 	/// Extracts header parameter name into name and value into value,
 	/// In practice - splits by ';' and '=', trims both result string values.
 	/// Returns true if par_str has more input, false if par_str depleted.
@@ -46,7 +46,7 @@ namespace ext::net::http
 	bool parse_header_parameter(std::string & par_str, std::string & name, std::string & value); // can throw bad_alloc on string assignment
 	bool parse_header_parameter(std::string_view & par_str, std::string_view & name, std::string_view & value) noexcept;
 
-	/// parses and extracts specific parameter from par_str, returns true if parameter was found, false otherwise
+	/// Parses and extracts specific parameter from par_str, returns true if parameter was found, false otherwise
 	/// Typical usage:
 	///   if (extract_header_value(header_str, "gzip", parstr) and extract_header_parameter(parstr, "q", parval))
 	///   {
@@ -54,4 +54,31 @@ namespace ext::net::http
 	///   }
 	bool extract_header_parameter(std::string_view par_str, std::string_view name, std::string & value); // can throw bad_alloc on string assignment
 	bool extract_header_parameter(std::string_view par_str, std::string_view name, std::string_view & value) noexcept;
+
+	/// Parses regular HTTP query string, both from url or POST request: name=value&name=value&name=value ...
+	/// Extracts both name and value. In practice splits by '&' and '=', trims both result string values.
+	/// Returns true if query_str has more input, false if query_str depleted.
+	/// NOTE: this function does not do any form of url decoding.
+	///
+	/// parsing examples:
+	///   name=value                           -> [("name", "value"]
+	///   name1=value1&name2&=value3           -> [("name1", "value1"), ("", "name2"), ("", "value3")]
+	///
+	/// Typical usage:
+	///   while (parse_query(query_str, name, value)
+	///   {
+	///       do something with name and value
+	///   }
+	bool parse_query(std::string & query_str, std::string & name, std::string & value); // can throw bad_alloc on string assignment
+	bool parse_query(std::string_view & query_str, std::string_view & name, std::string_view & value) noexcept;
+
+	/// Parses and extracts specific parameter from qurey_str, return true if parameter was found, false otherwise
+	///
+	/// Typical usage:
+	///   if (extract_query(qureey_str, "user", userval))
+	///   {
+	///       do something with userval and fact that user argument is given
+	///   }
+	bool extract_query(std::string_view qurey_str, std::string_view name, std::string & value); // can throw bad_alloc on string assignment
+	bool extract_query(std::string_view qurey_str, std::string_view name, std::string_view & value) noexcept;
 }

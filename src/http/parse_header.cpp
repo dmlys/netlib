@@ -131,7 +131,7 @@ namespace ext::net::http
 		first = last;
 		last = par_str.data() + par_str.size();
 		if (first != last) ++first;
-		par_str = std::string_view(first, last - first);
+		par_str.assign(first, last);
 
 		return true;
 	}
@@ -178,6 +178,94 @@ namespace ext::net::http
 	{
 		std::string_view curname, curvalue;
 		while (parse_header_parameter(par_str, curname, curvalue))
+			if (curname == name)
+			{
+				value = curvalue;
+				return true;
+			}
+
+		return false;
+	}
+
+	bool parse_query(std::string & query_str, std::string & name, std::string & value)
+	{
+		auto first = query_str.data();
+		auto last  = first + query_str.size();
+		if (first == last) return false;
+
+		last = std::find(first, last, '&');
+		auto namelast = std::find(first, last, '=');
+		auto valfirst = namelast;
+		if (valfirst != last)
+			++valfirst;
+		else
+		{
+			namelast = first;
+			valfirst = first;
+		}
+
+		name.assign(first, namelast);
+		value.assign(valfirst, last);
+
+		trim(name);
+		trim(value);
+
+		first = last;
+		last = query_str.data() + query_str.size();
+		if (first != last) ++first;
+		query_str.assign(first, last);
+
+		return true;
+	}
+
+	bool parse_query(std::string_view & query_str, std::string_view & name, std::string_view & value) noexcept
+	{
+		auto first = query_str.data();
+		auto last  = first + query_str.size();
+		if (first == last) return false;
+
+		last = std::find(first, last, '&');
+		auto namelast = std::find(first, last, '=');
+		auto valfirst = namelast;
+		if (valfirst != last)
+			++valfirst;
+		else
+		{
+			namelast = first;
+			valfirst = first;
+		}
+
+		name  = std::string_view(first, namelast - first);
+		value = std::string_view(valfirst, last - valfirst);
+
+		trim(name);
+		trim(value);
+
+		first = last;
+		last = query_str.data() + query_str.size();
+		if (first != last) ++first;
+		query_str = std::string_view(first, last - first);
+
+		return true;
+	}
+
+	bool extract_query(std::string_view qurey_str, std::string_view name, std::string & value)
+	{
+		std::string_view curname, curvalue;
+		while (parse_query(qurey_str, curname, curvalue))
+			if (curname == name)
+			{
+				value.assign(curvalue.begin(), curvalue.end());
+				return true;
+			}
+
+		return false;
+	}
+
+	bool extract_query(std::string_view qurey_str, std::string_view name, std::string_view & value) noexcept
+	{
+		std::string_view curname, curvalue;
+		while (parse_query(qurey_str, curname, curvalue))
 			if (curname == name)
 			{
 				value = curvalue;
