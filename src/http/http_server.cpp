@@ -3,6 +3,8 @@
 #include <ext/reverse_lock.hpp>
 #include <ext/errors.hpp>
 #include <ext/library_logger/logging_macros.hpp>
+#include <ext/functors/ctpred.hpp>
+#include <ext/hexdump.hpp>
 
 #include <boost/core/demangle.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -511,7 +513,7 @@ namespace ext::net::http
 		return ch == 0x16;
 	}
 
-	auto http_server::peek(processing_context * context, char * data, int len, int & read) -> handle_method_type
+	auto http_server::peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type
 	{
 		auto & sock = context->sock;
 		auto handle = sock.handle();
@@ -560,7 +562,7 @@ namespace ext::net::http
 
 		if (errc != sock_errc::eof)
 		{
-			LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
+			SOCK_LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
 	#ifdef EXT_ENABLE_OPENSSL
 			openssl::openssl_clear_errors();
 	#endif
@@ -574,7 +576,7 @@ namespace ext::net::http
 		return nullptr;
 	}
 
-	auto http_server::recv(processing_context * context, char * data, int len, int & read) -> handle_method_type
+	auto http_server::recv(processing_context * context, char * data, int len, int & read) const -> handle_method_type
 	{
 		auto & sock = context->sock;
 		auto handle = sock.handle();
@@ -623,7 +625,7 @@ namespace ext::net::http
 
 		if (errc != sock_errc::eof)
 		{
-			LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
+			SOCK_LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
 	#ifdef EXT_ENABLE_OPENSSL
 			openssl::openssl_clear_errors();
 	#endif
@@ -637,7 +639,7 @@ namespace ext::net::http
 		return nullptr;
 	}
 
-	auto http_server::send(processing_context * context, const char * data, int len, int & written) -> handle_method_type
+	auto http_server::send(processing_context * context, const char * data, int len, int & written) const -> handle_method_type
 	{
 		auto & sock = context->sock;
 		auto handle = sock.handle();
@@ -685,13 +687,24 @@ namespace ext::net::http
 		}
 
 		assert(errc == sock_errc::error);
-		LOG_WARN("got system error while writting response(send to socket): {}", format_error(errc));
+		SOCK_LOG_WARN("got system error while writting response(send to socket): {}", format_error(errc));
 	#ifdef EXT_ENABLE_OPENSSL
 		openssl::openssl_clear_errors();
 	#endif
 		//sock.set_last_error(errc);
 		context->conn_action = close;
 		return &http_server::handle_finish;
+	}
+
+	std::size_t http_server::sendbuf_size(processing_context * context) const
+	{
+		constexpr int max_bufsize = 10 * 1024;
+		int n = 0;
+		socklen_t m = sizeof(m);
+		int res = ::getsockopt(context->sock.handle(), SOL_SOCKET, SO_SNDBUF, reinterpret_cast<char *>(&n), &m);
+		if (res == -1) return max_bufsize;
+
+		return std::min(max_bufsize, n);
 	}
 
 	auto http_server::handle_start(processing_context * context) -> handle_method_type
@@ -719,7 +732,8 @@ namespace ext::net::http
 		if (context->ssl_ptr)
 			return &http_server::handle_ssl_configuration;
 
-		return &http_server::handle_request_parsing;
+		SOCK_LOG_TRACE("starting processing of a new http request");
+		return &http_server::handle_request_headers_parsing;
 	}
 
 	auto http_server::handle_ssl_configuration(processing_context * context) -> handle_method_type
@@ -750,7 +764,7 @@ namespace ext::net::http
 			}
 			else
 			{
-				return &http_server::handle_request_parsing;
+				return &http_server::handle_request_headers_parsing;
 			}
 		}
 	#else
@@ -850,16 +864,64 @@ namespace ext::net::http
 	#endif
 	}
 
-	auto http_server::handle_request_parsing(processing_context * context) -> handle_method_type
+	auto http_server::handle_request_headers_parsing(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
 
-		auto & request = context->request;
 		auto & response = context->response;
 		auto & parser = context->parser;
 
-		SOCK_LOG_TRACE("parsing http request");
+		SOCK_LOG_DEBUG("parsing http request headers");
+
+		try
+		{
+			char * first = sock.gptr();
+			char * last  = sock.egptr();
+			int len = last - first;
+
+			if (first != last) goto parse;
+
+			do
+			{
+				if (context->read_count >= context->maximum_headers_size)
+				{
+					SOCK_LOG_WARN("http request is to long, {} >= {}", context->read_count, context->maximum_headers_size);
+					response = create_bad_request_response(sock, connection_action_type::close);
+					return &http_server::handle_response;
+				}
+
+				std::tie(first, last) = sock.getbuf();
+				if (auto next = recv(context, first, last - first, len))
+					return next;
+
+				sock.setg(first, first, first + len);
+				log_read_buffer(sock.handle(), first, len);
+			parse:
+				auto read = parser.parse_headers(first, len);
+				sock.gbump(static_cast<int>(read));
+
+			} while (not parser.headers_parsed());
+
+			return &http_server::handle_parsed_headers;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got parsing error while processing http request headers: {}", ex.what());
+			response = create_bad_request_response(sock, connection_action_type::close);
+			return &http_server::handle_response;
+		}
+	}
+
+	auto http_server::handle_request_body_parsing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & response = context->response;
+		auto & parser = context->parser;
+
+		SOCK_LOG_DEBUG("parsing http request body");
 
 		try
 		{
@@ -876,62 +938,237 @@ namespace ext::net::http
 					return next;
 
 				sock.setg(first, first, first + len);
+				log_read_buffer(sock.handle(), first, len);
 			parse:
 				auto read = parser.parse_message(first, len);
 				sock.gbump(static_cast<int>(read));
 
 			} while (not parser.message_parsed());
 
-			request.method = parser.http_method();
-			request.http_version = parser.http_version();
-			return &http_server::handle_request;
+			return &http_server::handle_parsed_request;
 		}
 		catch (std::runtime_error & ex)
 		{
-			LOG_WARN("got parsing error while processing request: {}", ex.what());
+			SOCK_LOG_WARN("got parsing error while processing request: {}", ex.what());
 			response = create_bad_request_response(sock, connection_action_type::close);
 			return &http_server::handle_response;
 		}
 	}
 
-	auto http_server::handle_request(processing_context * context) -> handle_method_type
+	auto http_server::handle_discarded_request_body_parsing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & parser = context->parser;
+		auto & response = context->response;
+
+		SOCK_LOG_TRACE("discarding http request body");
+
+		try
+		{
+			char * first = sock.gptr();
+			char * last  = sock.egptr();
+			int len = last - first;
+
+			if (first != last) goto parse;
+
+			do
+			{
+				if (context->read_count >= context->maximum_discard_message_size)
+				{
+					SOCK_LOG_WARN("http request is to long, {} >= {}, closing connection", context->read_count, context->maximum_discard_message_size);
+					context->conn_action = close;
+					return &http_server::handle_finish;
+				}
+
+				std::tie(first, last) = sock.getbuf();
+				if (auto next = recv(context, first, last - first, len))
+					return next;
+
+				sock.setg(first, first, first + len);
+				log_read_buffer(sock.handle(), first, len);
+			parse:
+				auto read = parser.parse_message(first, len);
+				sock.gbump(static_cast<int>(read));
+
+			} while (not parser.message_parsed());
+
+			return &http_server::handle_parsed_request;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got parsing error while discarding http request body: {}", ex.what());
+			response = create_bad_request_response(sock, connection_action_type::close);
+			return &http_server::handle_response;
+		}
+	}
+
+	auto http_server::handle_parsed_headers(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		auto & request = context->request;
 		auto & parser = context->parser;
+		SOCK_LOG_DEBUG("http request headers parsed");
 
-		SOCK_LOG_TRACE("http request succesfully parsed");
+		request.method = parser.http_method();
+		request.http_version = parser.http_version();
 		static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
 		context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 
-		log_request(request);
-		return &http_server::handle_prefilters;
+		return &http_server::handle_prefilters_headers;
 	}
 
-	auto http_server::handle_prefilters(processing_context * context) -> handle_method_type
+	auto http_server::handle_prefilters_headers(processing_context * context) -> handle_method_type
 	{
+		auto & sock = context->sock;
 		try
 		{
-			for (auto * filter : context->prefilters)
+			for (const auto * filter : context->headers_prefilters)
 			{
-				auto res = filter->prefilter(context->request);
+				auto res = filter->prefilter_headers(context->request);
 				if (not res) continue;
 
 				context->response = *res;
-				return &http_server::handle_response;
+				return &http_server::handle_request_header_processing;
+			}
+
+			return &http_server::handle_find_handler;
+		}
+		catch (std::exception & ex)
+		{
+			SOCK_LOG_WARN("pre-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
+			context->response = create_internal_server_error_response(context->sock, context->request, &ex);
+			return &http_server::handle_request_header_processing;
+		}
+		catch (...)
+		{
+			SOCK_LOG_ERROR("pre-filters unknown processing error");
+			context->response = create_internal_server_error_response(context->sock, context->request, nullptr);
+			return &http_server::handle_request_header_processing;
+		}
+	}
+
+	auto http_server::handle_find_handler(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto & request = context->request;
+		auto & response = context->response;
+
+		try
+		{
+			SOCK_LOG_TRACE("searching http request handler");
+			context->handler = find_handler(*context);
+			SOCK_LOG_INFO("found http handler {} for {} {}", fmt::ptr(context->handler), request.method, request.url);
+			return &http_server::handle_request_header_processing;
+		}
+		catch (std::exception & ex)
+		{
+			SOCK_LOG_WARN("handler search error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
+			response = create_internal_server_error_response(sock, request, &ex);
+			return &http_server::handle_request_header_processing;
+		}
+		catch (...)
+		{
+			SOCK_LOG_WARN("handler search unknown error");
+			response = create_internal_server_error_response(sock, request, nullptr);
+			return &http_server::handle_request_header_processing;
+		}
+	}
+
+	auto http_server::handle_request_header_processing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto & request = context->request;
+
+		auto next_method = context->handler ? &http_server::handle_request_body_parsing
+		                                    : &http_server::handle_discarded_request_body_parsing;
+
+		/// We should handle Expect extension, described in RFC7231 section 5.1.1.
+		/// https://tools.ietf.org/html/rfc7231#section-5.1.1
+
+		/// Only HTTP/1.1 should handle it
+		if (request.http_version < 11) return next_method;
+
+		ext::ctpred::not_equal_to<ext::aci_char_traits> nieq;
+		ext::ctpred::    equal_to<ext::aci_char_traits> ieq;
+		/// only for POST and PUT
+		if (nieq(request.method, "POST") and nieq(request.method, "PUT"))
+			return next_method;
+
+		auto expect = get_header_value(request.headers, "Expect");
+		if (expect.empty()) return next_method;
+
+		/// Expect can only have one value - 100-contine, others are errors
+		context->expect_extension = ieq(expect, "100-continue");
+
+		if (not context->expect_extension)
+		{
+			SOCK_LOG_WARN("Unsupported Expect: {}; returning 417", expect);
+			context->response = create_expectation_failed_response(context);
+			return &http_server::handle_response;
+		}
+
+		SOCK_LOG_DEBUG("Got Expact: 100-continue");
+
+		// already have answer from prefilters
+		if (std::holds_alternative<http_response>(context->response))
+		{
+			return &http_server::handle_response;
+		}
+		else if (context->handler)
+		{
+			SOCK_LOG_DEBUG("Returning 100 Continue");
+			context->response = create_continue_response(context);
+			context->continue_answer = true;
+			return &http_server::handle_response;
+		}
+		else
+		{
+			// handle_processing will handle null handler
+			return &http_server::handle_processing;
+		}
+	}
+
+	auto http_server::handle_parsed_request(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto & request = context->request;
+
+		SOCK_LOG_DEBUG("http request succesfully parsed");
+		//static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
+		//context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
+
+		log_request(request);
+		return &http_server::handle_prefilters_full;
+	}
+
+	auto http_server::handle_prefilters_full(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+
+		try
+		{
+			for (const auto * filter : context->full_prefilters)
+			{
+				auto res = filter->prefilter_full(context->request);
+				if (not res) continue;
+
+				context->response = *res;
+				return &http_server::handle_processing;
 			}
 
 			return &http_server::handle_processing;
 		}
 		catch (std::exception & ex)
 		{
-			LOG_WARN("pre-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
+			SOCK_LOG_WARN("pre-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
 			context->response = create_internal_server_error_response(context->sock, context->request, &ex);
 			return &http_server::handle_response;
 		}
 		catch (...)
 		{
-			LOG_ERROR("pre-filters unknown processing error");
+			SOCK_LOG_ERROR("pre-filters unknown processing error");
 			context->response = create_internal_server_error_response(context->sock, context->request, nullptr);
 			return &http_server::handle_response;
 		}
@@ -942,16 +1179,20 @@ namespace ext::net::http
 		auto & sock = context->sock;
 		auto & response = context->response;
 		auto & request = context->request;
-		auto * handler = find_handler(*context);
+		auto * handler = context->handler;
+
+		// already have response from filters
+		if (std::holds_alternative<http_response>(response))
+			return &http_server::handle_response;
 
 		if (handler)
 		{
-			SOCK_LOG_INFO("found http handler {} for {} {}, processing", fmt::ptr(handler), request.method, request.url);
+			SOCK_LOG_INFO("invoking http handler", request.method, request.url);
 			response = process_request(sock, *handler, request);
 		}
 		else
 		{
-			SOCK_LOG_INFO("http handler not found for {} {}, returning 404", request.method, request.url);
+			SOCK_LOG_INFO("no http handler, returning 404", request.method, request.url);
 			response = create_unknown_request_response(sock, request);
 		}
 
@@ -1007,25 +1248,27 @@ namespace ext::net::http
 
 	auto http_server::handle_postfilters(processing_context * context) -> handle_method_type
 	{
+		auto & sock = context->sock;
+
 		try
 		{
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
 			auto & resp = std::get<http_response>(context->response);
-			for (auto * filter : context->postfilters)
+			for (const auto * filter : context->postfilters)
 				filter->postfilter(context->request, resp);
 
 			return &http_server::handle_response;
 		}
 		catch (std::runtime_error & ex)
 		{
-			LOG_WARN("post-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
+			SOCK_LOG_WARN("post-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
 			context->response = create_internal_server_error_response(context->sock, context->request, &ex);
 			return &http_server::handle_response;
 		}
 		catch (...)
 		{
-			LOG_ERROR("post-filters unknown processing error");
+			SOCK_LOG_ERROR("post-filters unknown processing error");
 			context->response = create_internal_server_error_response(context->sock, context->request, nullptr);
 			return &http_server::handle_response;
 		}
@@ -1035,10 +1278,13 @@ namespace ext::net::http
 	{
 		auto & response = std::get<http_response>(context->response);
 
-		postprocess_response(response);
+		if (not context->continue_answer)
+			postprocess_response(response);
 		log_response(response);
+
+		auto bufsize = sendbuf_size(context);
+		context->output_buffer.reserve(bufsize);
 		context->writer.reset(&response);
-		context->output_buffer.reserve(1024);
 
 		return &http_server::handle_response_writting;
 	}
@@ -1051,7 +1297,7 @@ namespace ext::net::http
 		auto & writer = context->writer;
 		auto & output_buffer = context->output_buffer;
 
-		SOCK_LOG_TRACE("writting http request");
+		SOCK_LOG_TRACE("writting http response");
 
 		try
 		{
@@ -1073,6 +1319,7 @@ namespace ext::net::http
 				if (auto next = send(context, first, last - first, len))
 					return next;
 
+				log_write_buffer(sock.handle(), first, len);
 				output_buffer.erase(0, len);
 				if (first + len < last)
 				{
@@ -1082,11 +1329,32 @@ namespace ext::net::http
 
 			} while(not writer.finished());
 
-			return &http_server::handle_finish;
+			return &http_server::handle_response_written;
 		}
 		catch (std::runtime_error & ex)
 		{
-			LOG_WARN("got writting error while processing response: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while processing response: {}", ex.what());
+			return &http_server::handle_finish;
+		}
+	}
+
+	auto http_server::handle_response_written(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		SOCK_LOG_TRACE("http response written");
+
+		if (context->expect_extension and context->continue_answer)
+		{
+			SOCK_LOG_DEBUG("continue http request processing after 100 Continue, now parsing body");
+			context->first_response_written = true, context->continue_answer = false;
+			context->response = std::nullopt; // important! reset 100 Continue request, some code checks it before normal response is generated
+			return &http_server::handle_request_body_parsing;
+		}
+		else
+		{
+			context->final_response_written = true;
+			context->response = std::nullopt;
+			SOCK_LOG_DEBUG("http request completely processed");
 			return &http_server::handle_finish;
 		}
 	}
@@ -1150,25 +1418,40 @@ namespace ext::net::http
 		context->sock = std::move(sock);
 		context->conn_action = close;
 		context->next_method = nullptr;
+
+		context->handler = nullptr;
+		context->read_count = context->written_count = 0;
+		context->expect_extension = context->continue_answer = false;
+		context->first_response_written = context->final_response_written = false;
+
 		context->parser.reset(&context->request);
+		context->writer.reset(nullptr);
+
+		context->response = std::nullopt;
+		// parser.reset already cleans request
 
 		if (m_state_ver != context->state_ver)
 		{
 			context->state_ver = m_state_ver;
+			context->maximum_headers_size = m_maximum_headers_size;
+			context->maximum_discard_message_size = m_maximum_discard_message_size;
 
 			using boost::make_transform_iterator;
 			auto get = [](const auto & sptr) { return sptr.get(); };
 			auto handler_sorter = [](const http_server_handler * ptr1, const http_server_handler * ptr2) noexcept { return ptr1->order() < ptr2->order(); };
-			auto pre_sorter = [](const http_pre_filter * ptr1, const http_pre_filter * ptr2) noexcept { return ptr1->preorder() < ptr2->preorder(); };
-			auto post_sorter = [](const http_post_filter * ptr1, const http_post_filter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
+			auto headers_presorter = [](const http_headers_prefilter * ptr1, const http_headers_prefilter * ptr2) noexcept { return ptr1->preorder_headers() < ptr2->preorder_headers(); };
+			auto full_presorter = [](const http_full_prefilter * ptr1, const http_full_prefilter * ptr2) noexcept { return ptr1->preorder_full() < ptr2->preorder_full(); };
+			auto postsorter = [](const http_post_filter * ptr1, const http_post_filter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
 
 			context->handlers.assign(make_transform_iterator(m_handlers.begin(), get), make_transform_iterator(m_handlers.end(), get));
-			context->prefilters.assign(make_transform_iterator(m_prefilters.begin(), get), make_transform_iterator(m_prefilters.end(), get));
+			context->headers_prefilters.assign(make_transform_iterator(m_headers_prefilters.begin(), get), make_transform_iterator(m_headers_prefilters.end(), get));
+			context->full_prefilters.assign(make_transform_iterator(m_full_prefilters.begin(), get), make_transform_iterator(m_full_prefilters.end(), get));
 			context->postfilters.assign(make_transform_iterator(m_postfilters.begin(), get), make_transform_iterator(m_postfilters.end(), get));
 
 			std::stable_sort(context->handlers.begin(), context->handlers.end(), handler_sorter);
-			std::stable_sort(context->prefilters.begin(), context->prefilters.end(), pre_sorter);
-			std::stable_sort(context->postfilters.begin(), context->postfilters.end(), post_sorter);
+			std::stable_sort(context->headers_prefilters.begin(), context->headers_prefilters.end(), headers_presorter);
+			std::stable_sort(context->full_prefilters.begin(), context->full_prefilters.end(), full_presorter);
+			std::stable_sort(context->postfilters.begin(), context->postfilters.end(), postsorter);
 			std::reverse(context->postfilters.begin(), context->postfilters.end());
 		}
 
@@ -1417,7 +1700,7 @@ namespace ext::net::http
 		if (not record) return;
 
 		auto & stream = record.get_ostream();
-		stream << fmt::format("logging http request:\n", fmt::ptr(this));
+		stream << "logging http request:\n";
 		write_http_request(stream, request, m_logger->is_enabled_for(m_request_body_logging_level));
 
 		record.push();
@@ -1434,7 +1717,7 @@ namespace ext::net::http
 		if (not record) return;
 
 		auto & stream = record.get_ostream();
-		stream << fmt::format("logging http response:\n", fmt::ptr(this));
+		stream << "logging http response:\n";
 		write_http_response(stream, response, m_logger->is_enabled_for(m_request_body_logging_level));
 
 		record.push();
@@ -1464,7 +1747,35 @@ namespace ext::net::http
 	#endif
 	}
 
-	http_response http_server::create_bad_request_response(socket_streambuf &sock, connection_action_type conn /*= close*/) const
+	void http_server::log_read_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const
+	{
+		if (not m_logger) return;
+
+		auto record = m_logger->open_record(m_read_buffer_logging_level, __FILE__, __LINE__);
+		if (not record) return;
+
+		auto & stream = record.get_ostream();
+		stream << fmt::format("sock={}, read {} bytes, buffer is:\n", sock_handle, size);
+		ext::write_hexdump(buffer, buffer + size, stream);
+
+		record.push();
+	}
+
+	void http_server::log_write_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const
+	{
+		if (not m_logger) return;
+
+		auto record = m_logger->open_record(m_read_buffer_logging_level, __FILE__, __LINE__);
+		if (not record) return;
+
+		auto & stream = record.get_ostream();
+		stream << fmt::format("sock={}, writting {} bytes, buffer is:\n", sock_handle, size);
+		ext::write_hexdump(buffer, buffer + size, stream);
+
+		record.push();
+	}
+
+	http_response http_server::create_bad_request_response(const socket_streambuf & sock, connection_action_type conn /*= close*/) const
 	{
 		http_response response;
 		response.http_code = 400;
@@ -1475,7 +1786,7 @@ namespace ext::net::http
 		return response;
 	}
 
-	http_response http_server::create_server_busy_response(socket_streambuf & sock, connection_action_type conn /*= close*/) const
+	http_response http_server::create_server_busy_response(const socket_streambuf & sock, connection_action_type conn /*= close*/) const
 	{
 		http_response response;
 		response.http_code = 503;
@@ -1487,7 +1798,7 @@ namespace ext::net::http
 		return response;
 	}
 
-	http_response http_server::create_unknown_request_response(socket_streambuf & sock, const http_request & request) const
+	http_response http_server::create_unknown_request_response(const socket_streambuf & sock, const http_request & request) const
 	{
 		http_response response;
 		response.http_code = 404;
@@ -1498,7 +1809,7 @@ namespace ext::net::http
 		return response;
 	}
 	
-	http_response http_server::create_processing_abondoned_response(socket_streambuf & sock, const http_request & request) const
+	http_response http_server::create_processing_abondoned_response(const socket_streambuf & sock, const http_request & request) const
 	{
 		http_response response;
 		response.http_code = 500;
@@ -1510,7 +1821,7 @@ namespace ext::net::http
 		return response;
 	}
 	
-	http_response http_server::create_processing_cancelled_response(socket_streambuf & sock, const http_request & request) const
+	http_response http_server::create_processing_cancelled_response(const socket_streambuf & sock, const http_request & request) const
 	{
 		http_response response;
 		response.http_code = 404;
@@ -1522,7 +1833,7 @@ namespace ext::net::http
 		return response;
 	}
 	
-	http_response http_server::create_internal_server_error_response(socket_streambuf & sock, const http_request & request, std::exception * ex) const
+	http_response http_server::create_internal_server_error_response(const socket_streambuf & sock, const http_request & request, std::exception * ex) const
 	{
 		http_response response;
 		response.http_code = 500;
@@ -1530,6 +1841,25 @@ namespace ext::net::http
 		response.conn_action = request.conn_action;
 		set_header(response.headers, "Content-Type", "text/plain");
 
+		return response;
+	}
+
+	http_response http_server::create_expectation_failed_response(const processing_context * context) const
+	{
+		http_response response;
+		response.http_code = 417;
+		response.status = response.body = "Expectation Failed";
+		response.conn_action = context->request.conn_action;
+		set_header(response.headers, "Content-Type", "text/plain");
+
+		return response;
+	}
+
+	http_response http_server::create_continue_response(const processing_context * context) const
+	{
+		http_response response;
+		response.http_code = 100;
+		response.status = "Continue";
 		return response;
 	}
 
@@ -1626,8 +1956,11 @@ namespace ext::net::http
 	{
 		filter->set_logger(m_logger);
 
-		if (auto ptr = ext::dynamic_pointer_cast<http_pre_filter>(filter))
-			m_prefilters.push_back(std::move(ptr));
+		if (auto ptr = ext::dynamic_pointer_cast<http_headers_prefilter>(filter))
+			m_headers_prefilters.push_back(std::move(ptr));
+
+		if (auto ptr = ext::dynamic_pointer_cast<http_full_prefilter>(filter))
+			m_full_prefilters.push_back(std::move(ptr));
 
 		if (auto ptr = ext::dynamic_pointer_cast<http_post_filter>(filter))
 			m_postfilters.push_back(std::move(ptr));

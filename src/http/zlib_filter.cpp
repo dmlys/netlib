@@ -169,7 +169,7 @@ namespace ext::net::http
 		return output;
 	}
 
-	auto zlib_filter::prefilter(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
+	auto zlib_filter::prefilter_full(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
 	{
 		auto * hdr = find_header(req.headers, "Content-Encoding");
 		if (not hdr) return std::nullopt;
@@ -187,7 +187,11 @@ namespace ext::net::http
 
 	void zlib_filter::postfilter(ext::net::http::http_request & req, ext::net::http::http_response & resp) const
 	{
-		auto * hdr = find_header(resp.headers, "Accept-Encoding");
+		// if already have encoding - do nothing
+		auto * enc_hdr = find_header(resp.headers, "Content-Encoding");
+		if (enc_hdr) return;
+
+		auto * hdr = find_header(req.headers, "Accept-Encoding");
 		if (not hdr) return;
 
 		std::string_view encoding = hdr->value;

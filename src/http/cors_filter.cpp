@@ -12,7 +12,7 @@ namespace ext::net::http
 		set_header(resp.headers,"Access-Control-Allow-Origin", origin_header.value);
 	}
 
-	auto cors_filter::prefilter(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
+	auto cors_filter::prefilter_headers(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
 	{
 		if (req.method != "OPTIONS") return std::nullopt;
 

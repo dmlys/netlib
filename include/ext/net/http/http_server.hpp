@@ -165,9 +165,19 @@ namespace ext::net::http
 			// but also - were there errors while processing request.
 			connection_action_type conn_action = close;
 
-			std::vector<const http_server_handler *> handlers; // http handlers registered in server
-			std::vector<const http_pre_filter *> prefilters;   // http filters registered in server, sorted by order
-			std::vector<const http_post_filter *> postfilters; // http filters registered in server, sorted by order
+			std::vector<const http_server_handler *>    handlers;            // http handlers registered in server
+			std::vector<const http_headers_prefilter *> headers_prefilters;  // http headers prefilters  registered in server, sorted by order
+			std::vector<const http_full_prefilter *>    full_prefilters;     // http full    prefilters  registered in server, sorted by order
+			std::vector<const http_post_filter *>       postfilters;         // http         postfilters registered in server, sorted by order
+
+			const http_server_handler * handler;
+			bool expect_extension;         // request with Expect: 100-continue header, see RFC7231 section 5.1.1.
+			bool continue_answer;          // context holds answer 100 Continue
+			bool first_response_written;   // wrote first 100-continue
+			bool final_response_written;   // wrote final(possibly second) response
+
+			std::size_t read_count, written_count;
+			std::size_t maximum_headers_size, maximum_discard_message_size;
 
 			nonblocking_http_parser parser; // http parser with state
 			nonblocking_http_writer writer; // http writer with state
@@ -185,15 +195,20 @@ namespace ext::net::http
 		boost::container::flat_map<std::string, listener_context> m_listener_contexts; // listener contexts map by <addr:port>
 
 		unsigned m_state_ver = 0;
-		std::vector<std::unique_ptr<const http_server_handler>> m_handlers; // registered http handlers
-		std::vector<ext::intrusive_ptr<http_pre_filter>> m_prefilters;      // registered http filters, unspecified order
-		std::vector<ext::intrusive_ptr<http_post_filter>> m_postfilters;    // registered http filters, unspecified order
+		std::vector<std::unique_ptr<const http_server_handler>> m_handlers;            // registered http handlers
+		std::vector<ext::intrusive_ptr<http_headers_prefilter>> m_headers_prefilters;  // registered http headers prefilters, unspecified order
+		std::vector<ext::intrusive_ptr<http_full_prefilter>> m_full_prefilters;        // registered http full    prefilters, unspecified order
+		std::vector<ext::intrusive_ptr<http_post_filter>> m_postfilters;               // registered http        postfilters, unspecified order
 
 		ext::library_logger::logger * m_logger = nullptr;
 		// log level on which http request and reply headers are logged
 		unsigned m_request_logging_level = -1;
 		// log level on which http request and reply body are logger, overrides m_request_logging_level if bigger
 		unsigned m_request_body_logging_level = -1;
+		// log level on which every read from socket operation buffer is logged
+		unsigned m_read_buffer_logging_level = -1;
+		// log level on which every write to socket operation buffer is logged
+		unsigned m_write_buffer_logging_level = -1;
 
 		// processing_contexts
 		std::size_t m_minimum_contexts = 10;
@@ -249,6 +264,16 @@ namespace ext::net::http
 		/// timeout for socket operations when closing, basicly affects SSL shutdown
 		static constexpr duration_type m_close_socket_timeout = std::chrono::milliseconds(100);
 
+		/// Maximum bytes read from socket while parsing HTTP request headers, -1 - unlimited.
+		/// If request headers are not parsed yet, and server read from socket more than m_maximum_headers_size,
+		/// BAD request is returned
+		std::size_t m_maximum_headers_size = -1;
+		/// Maximum bytes read from socket while parsing discarded HTTP request, -1 - unlimited.
+		/// If there is no handler for this request, or some other error code is answered(e.g. unauthorized),
+		/// this request is considered to be discarded - in this case we still might read it's body,
+		/// but no more than m_maximum_discard_message_size in total, otherwise connection is forcibly closed.
+		std::size_t m_maximum_discard_message_size = -1;
+
 	protected:
 		/// Performs actual startup of http server, blocking
 		virtual void do_start(std::unique_lock<std::mutex> & lk);
@@ -291,17 +316,20 @@ namespace ext::net::http
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
 		///  * if some error occurs sets it into sock, logs it and returns handle_finish
-		virtual auto peek(processing_context * context, char * data, int len, int & read) -> handle_method_type;
+		virtual auto peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
 		/// non blocking recv method:
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
 		///  * if some error occurs sets it into sock, logs it and returns handle_finish
-		virtual auto recv(processing_context * context, char * data, int len, int & read) -> handle_method_type;
+		virtual auto recv(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
 		/// non blocking send method:
 		///  * if successfully sends something - returns nullptr
 		///  * if send would block - returns wait_connection operation,
 		///  * if some error occurs sets it into sock, logs it and returns handle_finish
-		virtual auto send(processing_context * context, const char * data, int len, int & written) -> handle_method_type;
+		virtual auto send(processing_context * context, const char * data, int len, int & written) const -> handle_method_type;
+
+		/// returns socket send buffer size getsockopt(..., SOL_SOCKET, SO_SNDBUF, ...), but no more that 10 * 1024
+		virtual std::size_t sendbuf_size(processing_context * context) const;
 
 		// http_request processing parts
 		virtual auto handle_start(processing_context * context) -> handle_method_type;
@@ -309,15 +337,26 @@ namespace ext::net::http
 		virtual auto handle_ssl_start_handshake(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_continue_handshake(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_finish_handshake(processing_context * context) -> handle_method_type;
-		virtual auto handle_request_parsing(processing_context * context) -> handle_method_type;
-		virtual auto handle_request(processing_context * context) -> handle_method_type;
-		virtual auto handle_prefilters(processing_context * context) -> handle_method_type;
+
+		virtual auto handle_request_headers_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_body_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_discarded_request_body_parsing(processing_context * context) -> handle_method_type;
+
+		virtual auto handle_parsed_headers(processing_context * context) -> handle_method_type;
+		virtual auto handle_prefilters_headers(processing_context * context) -> handle_method_type;
+		virtual auto handle_find_handler(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_header_processing(processing_context * context) -> handle_method_type;
+
+		virtual auto handle_parsed_request(processing_context * context) -> handle_method_type;
+		virtual auto handle_prefilters_full(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing_result(processing_context * context) -> handle_method_type;
 		virtual auto handle_async_processing_result(processing_context * context, ext::intrusive_ptr<ext::shared_state_basic> resp_handle) -> handle_method_type;
 		virtual auto handle_postfilters(processing_context * context) -> handle_method_type;
+
 		virtual auto handle_response(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
 		virtual void handle_finish(processing_context * context);
 
 		/// Acquires processing context, one of cached ones, or creates one if allowed. If exhausted - returns null
@@ -389,18 +428,27 @@ namespace ext::net::http
 		/// Formats error from error codes, in case of SSL error reads and formats all SSL errors from OpenSSL error queue
 		virtual std::string format_error(std::error_code errc) const;
 
+		/// logs read buffer in hex dump format
+		virtual void log_read_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
+		/// logs write buffer in hex dump format
+		virtual void log_write_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
+
 		/// Creates HTTP 400 BAD REQUEST answer
-		virtual http_response create_bad_request_response(socket_streambuf & sock, connection_action_type conn = close) const;
+		virtual http_response create_bad_request_response(const socket_streambuf & sock, connection_action_type conn = close) const;
 		/// Creates HTTP 503 Service Unavailable answer
-		virtual http_response create_server_busy_response(socket_streambuf & sock, connection_action_type conn = close) const;
+		virtual http_response create_server_busy_response(const socket_streambuf & sock, connection_action_type conn = close) const;
 		/// Creates HTTP 404 Not found answer
-		virtual http_response create_unknown_request_response(socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_unknown_request_response(const socket_streambuf & sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer, body = Request processing abandoned
-		virtual http_response create_processing_abondoned_response(socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_processing_abondoned_response(const socket_streambuf & sock, const http_request & request) const;
 		/// Creates HTTP 404 Canceled, body = Request processing cancelled
-		virtual http_response create_processing_cancelled_response(socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_processing_cancelled_response(const socket_streambuf & sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer
-		virtual http_response create_internal_server_error_response(socket_streambuf & sock, const http_request & request, std::exception * ex) const;
+		virtual http_response create_internal_server_error_response(const socket_streambuf & sock, const http_request & request, std::exception * ex) const;
+		/// Creates HTTP 417 Expectation Failed answer
+		virtual http_response create_expectation_failed_response(const processing_context * context) const;
+		/// Creates HTTP 100 Continue response
+		virtual http_response create_continue_response(const processing_context * context) const;
 
 	public:
 		/// Adds http filter(both pre and post if applicable)
@@ -439,14 +487,20 @@ namespace ext::net::http
 		auto get_keep_alive_timeout() const -> duration_type;
 
 	public:
-		void set_logger(ext::library_logger::logger * logger, bool log_internals = false) { m_logger = logger; if (log_internals) m_sock_queue.set_logger(logger); }
+		void set_logger(ext::library_logger::logger * logger) { m_logger = logger; m_sock_queue.set_logger(logger); }
 		auto get_logger() const noexcept { return m_logger;   }
 
-		void set_request_logging_level(unsigned log_level) { m_request_logging_level = log_level; }
-		auto get_request_logging_level(unsigned log_level) { return m_request_logging_level; }
+		void set_request_logging_level(unsigned log_level) noexcept { m_request_logging_level = log_level; }
+		auto get_request_logging_level()             const noexcept { return m_request_logging_level; }
 
-		void set_request_body_logging_level(unsigned log_level) { m_request_body_logging_level = log_level; }
-		auto get_request_body_logging_level(unsigned log_level) { return m_request_body_logging_level; }
+		void set_request_body_logging_level(unsigned log_level) noexcept { m_request_body_logging_level = log_level; }
+		auto get_request_body_logging_level()             const noexcept { return m_request_body_logging_level; }
+
+		void set_read_buffer_logging_level(unsigned log_level) noexcept { m_read_buffer_logging_level = log_level; }
+		auto get_read_buffer_logging_level()             const noexcept { return m_read_buffer_logging_level; }
+
+		void set_write_buffer_logging_level(unsigned log_level) noexcept { m_write_buffer_logging_level = log_level; }
+		auto get_write_buffer_logging_level()             const noexcept { return m_write_buffer_logging_level; }
 
 	public:
 		http_server();

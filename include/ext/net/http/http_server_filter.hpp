@@ -21,12 +21,22 @@ namespace ext::net::http
 	};
 
 
-	class http_pre_filter : virtual public http_filter_base
+	class http_headers_prefilter : virtual public http_filter_base
 	{
 	public:
 		/// override to change execution order of this filter
-		virtual unsigned preorder() const noexcept { return default_order; }
-		virtual auto prefilter(http_request & request) const -> std::optional<http_response> = 0;
+		virtual unsigned preorder_headers() const noexcept { return default_order; }
+		//virtual auto prefilter_headers(http_request & request) const -> std::optional<http_response> = 0;
+		virtual auto prefilter_headers(http_request & request) const -> std::optional<http_response> = 0;
+	};
+
+	class http_full_prefilter : virtual public http_filter_base
+	{
+	public:
+		/// override to change execution order of this filter
+		virtual unsigned preorder_full() const noexcept { return default_order; }
+		//virtual auto prefilter_headers(http_request & request) const -> std::optional<http_response> = 0;
+		virtual auto prefilter_full(http_request & request) const -> std::optional<http_response> = 0;
 	};
 
 	class http_post_filter : virtual public http_filter_base

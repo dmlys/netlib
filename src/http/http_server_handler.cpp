@@ -33,7 +33,7 @@ namespace ext::net::http
 
 	struct simple_http_server_handler::result_dispatcher
 	{
-		static http_response make_response(std::string body) { http_response resp; resp.http_code = 200; resp.body = std::move(body); return resp; }
+		static http_response make_response(std::string body) { http_response resp; resp.http_code = 200; resp.status = "OK"; resp.body = std::move(body); return resp; }
 
 		http_server_handler::result_type operator()(std::string str)       const { return make_response(std::move(str)); }
 		http_server_handler::result_type operator()(http_response && resp) const { return std::move(resp); }
@@ -48,7 +48,7 @@ namespace ext::net::http
 	{
 		http_request * request;
 
-		//static http_response make_response(std::string body) { http_response resp; resp.http_code = 200; resp.body = std::move(body); return resp; }
+		//static http_response make_response(std::string body) { http_response resp; resp.http_code = 200; resp.status = "OK"; resp.body = std::move(body); return resp; }
 
 		http_server_handler::result_type operator()(const std::function<result_type()> & func)                const { return std::visit(result_dispatcher(), func()); }
 		http_server_handler::result_type operator()(const std::function<result_type(std::string & )> & func)  const { return std::visit(result_dispatcher(), func(request->body)); }
