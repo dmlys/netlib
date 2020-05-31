@@ -1,8 +1,13 @@
 #include <string>
 #include <string_view>
+#include <clocale>
+#include <sstream>
+#include <locale>
 #include <algorithm>
 
 #include <ext/net/http/parse_header.hpp>
+#include <boost/predef.h>
+
 
 namespace ext::net::http
 {
@@ -274,4 +279,53 @@ namespace ext::net::http
 
 		return false;
 	}
+
+#if BOOST_LIB_STD_GNU or BOOST_LIB_STD_CXX
+	static locale_t cloc = newlocale(LC_ALL_MASK, "C", nullptr);
+#endif
+
+	double parse_weight(std::string_view str, double invval/* = 0.0*/)
+	{
+	#if BOOST_LIB_STD_GNU or BOOST_LIB_STD_CXX
+		// on glibc at least on 2020/03/11 std::from_chars is not implemented for floating types
+		// use strtod_l instead, through it's unsafe, because it's works with zero terminated strings, and we have string_view
+
+		errno = 0;
+		double result = strtod_l(str.data(), nullptr, cloc);
+		if (result == 0.0 and errno) return invval;
+
+		return result;
+
+	#elif __cplusplus >= 201703L
+		// c++ 17 have std::from_chars which parses always and only witch C locale, but fast and efficient
+		auto first = str.data();
+		auto last  = first + str.size();
+
+		double val = invval;
+		std::from_chars(first, last, val);
+		return val;
+	#else
+		// fallback to slow std::istringstream with classic locale
+		std::istringstream ss(std::string(str.data(), str.data() + str.size()));
+		ss.imbue(std::locale::classic());
+
+		double result = invval;
+		ss >> result;
+
+		return result;
+	#endif
+	}
+
+	double extract_weight(std::string_view field, std::string_view name, double defval/* = 0.0*/)
+	{
+		std::string_view parstr, parval;
+		if (not extract_header_value(field, name, parstr))
+			return 0;
+
+		if (extract_header_parameter(parstr, "q", parval))
+			return parse_weight(parval, defval);
+		else
+			return defval;
+	}
+
 }

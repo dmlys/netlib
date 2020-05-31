@@ -20,14 +20,42 @@ namespace ext::net::http
 		};
 	}
 
+	struct http_body_size_visitor
+	{
+		std::optional<std::size_t> operator()(const std::string       & str ) const noexcept { return str.size(); }
+		std::optional<std::size_t> operator()(const std::vector<char> & data) const noexcept { return data.size(); }
+		std::optional<std::size_t> operator()(const std::unique_ptr<std::streambuf> & ) const noexcept { return std::nullopt; }
+		std::optional<std::size_t> operator()(const std::unique_ptr<async_http_body_source> & ) const noexcept { return std::nullopt; }
+		std::optional<std::size_t> operator()(null_body_type) const noexcept { return 0; }
+	};
+	
+	std::optional<std::size_t> size(const http_body & body) noexcept
+	{
+		return std::visit(http_body_size_visitor(), body);
+	}
+	
+	struct http_body_clear_visitor
+	{
+		void operator()(std::string       & str ) const noexcept { return str.clear(); }
+		void operator()(std::vector<char> & data) const noexcept { return data.clear(); }
+		void operator()(std::unique_ptr<std::streambuf> & ) const noexcept { }
+		void operator()(std::unique_ptr<async_http_body_source> & ) const noexcept { }
+		void operator()(null_body_type) const noexcept { }
+	};
+	
+	void clear(http_body & body) noexcept
+	{
+		return std::visit(http_body_clear_visitor(), body);
+	}
+	
 	void clear(http_request & request) noexcept
 	{
 		request.http_version = 11;
 		request.method.clear();
 		request.url.clear();
-		request.body.clear();
+		clear(request.body);
 		request.headers.clear();
-		request.conn_action = def;
+		request.conn_action = connection_action_type::def;
 	}
 
 	void clear(http_response & response) noexcept
@@ -35,9 +63,9 @@ namespace ext::net::http
 		response.http_version = 11;
 		response.http_code = 404;
 		response.status.clear();
-		response.body.clear();
+		clear(response.body);
 		response.headers.clear();
-		response.conn_action = def;
+		response.conn_action = connection_action_type::def;
 	}
 
 
@@ -67,6 +95,19 @@ namespace ext::net::http
 		return streambuf;
 	}
 
+	namespace
+	{
+		struct http_body_print_visitor
+		{
+			std::string_view operator()(const std::string       & str ) const noexcept { return str; }
+			std::string_view operator()(const std::vector<char> & data) const noexcept { return std::string_view(data.data(), data.size()); }
+			std::string_view operator()(const std::unique_ptr<std::streambuf> & ) const noexcept { return "<std::streambuf>"; }
+			std::string_view operator()(const std::unique_ptr<async_http_body_source> & ) const noexcept { return "<ext::net::http::async_http_body_source>"; }
+			std::string_view operator()(null_body_type) const noexcept { return "<ext::net::http::null_body>"; }
+		};
+	}
+	
+	
 	void write_http_request(std::streambuf & os, const http_request & request, bool with_body)
 	{
 		os << request.method << ' ' << request.url << ' ';
@@ -80,7 +121,7 @@ namespace ext::net::http
 		if (with_body)
 		{
 			os << '\r' << '\n';
-			os << request.body;
+			os << std::visit(http_body_print_visitor(), request.body);
 		}
 	}
 
@@ -94,7 +135,7 @@ namespace ext::net::http
 		if (with_body)
 		{
 			os << '\r' << '\n';
-			os << response.body;
+			os << std::visit(http_body_print_visitor(), response.body);
 		}
 	}
 }

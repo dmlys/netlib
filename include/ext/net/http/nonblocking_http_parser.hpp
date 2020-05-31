@@ -17,7 +17,7 @@
 struct http_parser;
 struct http_parser_settings;
 
-namespace ext::net::http
+namespace ext::net::http::http_server_utils
 {
 	/// simple non blocking http parser, based on ::http_parser
 	class nonblocking_http_parser
@@ -40,11 +40,12 @@ namespace ext::net::http
 		unsigned m_type       : 2;
 		unsigned m_state      : 3;
 		unsigned m_stop_state : 3;
-		unsigned m_flags    : sizeof(unsigned) * CHAR_BIT - 2 - 3 - 3;
+		unsigned m_flags      : sizeof(unsigned) * CHAR_BIT - 2 - 3 - 3;
 
 		union { http_request * m_request; http_response * m_response; };
+		union { std::string * m_strbody; std::vector<char> * m_vecbody; };
+		std::string m_tmp;
 		std::string * m_header_value;
-		std::string * m_body;
 		http_headers_vector * m_headers;
 
 		// Including http_parser.h is somewhat unwanted - it's a C source with no namespace at all.
@@ -68,8 +69,10 @@ namespace ext::net::http
 		std::aligned_storage_t<HTTP_PARSER_SIZE / CHAR_BIT, alignof(std::uint64_t)> m_parser_object;
 		std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> const * m_settings_object;
 
-		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object1;
-		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object2;
+		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object_headers;
+		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object_string_body;
+		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object_vector_body;
+		static const std::aligned_storage_t<HTTP_PARSER_SETTINGS_SIZE / CHAR_BIT, alignof(void *)> settings_object_no_body;
 
 	private: // others
 		BOOST_NORETURN static void throw_parser_error(const ::http_parser * parser);
@@ -92,18 +95,23 @@ namespace ext::net::http
 		static int on_header_field(::http_parser * parser, const char * data, size_t len);
 		static int on_header_value(::http_parser * parser, const char * data, size_t len);
 		static int on_headers_complete(::http_parser * parser);
-		static int on_body(::http_parser * parser, const char * data, size_t len);
+		static int on_string_body(::http_parser * parser, const char * data, size_t len);
+		static int on_vector_body(::http_parser * parser, const char * data, size_t len);
+		static int on_no_body(::http_parser * parser, const char * data, size_t len);
 		static int on_message_begin(::http_parser * parser);
 		static int on_message_complete(::http_parser * parser);
 
-		void init_parser_internals();
-		void on_parsed_header(const std::string & name, const std::string & value);
+		void init_parser_internals() noexcept;
+		void init_body_parsing() noexcept;
 
 	public: // main process methods
 		/// resets state of a parser and prepares it for parsing a message
 		void reset(http_request  * request);
 		void reset(http_response * response);
 		void reset(std::nullptr_t) { m_request = nullptr; }
+		
+		void set_body_destination(std::string & str);
+		void set_body_destination(std::vector<char> & vec);
 
 		bool status_parsed()  const noexcept { return m_state >  status_state; }
 		bool url_parsed()     const noexcept { return m_state >  url_state; }

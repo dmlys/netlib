@@ -3,9 +3,10 @@
 #include <string_view>
 #include <ext/net/http/http_types.hpp>
 
-namespace ext::net::http
+namespace ext::net::http::http_server_utils
 {
-	/// simple non blocking http writer
+	/// Simple non blocking http writer, writes everything except body.
+	/// Body should be written by other means
 	class nonblocking_http_writer
 	{
 	private:
@@ -31,7 +32,7 @@ namespace ext::net::http
 		/// call finished to check if http entity completely written
 		std::size_t write_some(char * buffer, std::size_t bufsize) { return (this->*m_method)(buffer, bufsize); }
 		/// http entity completely written
-		bool finished() { return m_state >= 11; }
+		bool finished() { return m_state >= 10; }
 		/// initialises writer for writing http response, after that write_some can be called
 		void reset(const http_response * resp);
 		/// initialises writer for writing http request, after that write_some can be called

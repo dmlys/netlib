@@ -12,14 +12,14 @@
 #include "http_parser.h"
 
 
-namespace ext::net::http
+namespace ext::net::http::http_server_utils
 {
 	const unsigned nonblocking_http_parser::request  = HTTP_REQUEST;
 	const unsigned nonblocking_http_parser::response = HTTP_RESPONSE;
 
-	const decltype(nonblocking_http_parser::settings_object1) nonblocking_http_parser::settings_object1 = []
+	const decltype(nonblocking_http_parser::settings_object_headers) nonblocking_http_parser::settings_object_headers = []
 	{
-		using result_type = decltype(nonblocking_http_parser::settings_object1);
+		using result_type = decltype(nonblocking_http_parser::settings_object_headers);
 
 		::http_parser_settings settings;
 		http_parser_settings_init(&settings);
@@ -34,18 +34,18 @@ namespace ext::net::http
 		//settings->on_header_value     = &on_header_value;
 
 		settings.on_headers_complete = &on_headers_complete;
-		settings.on_body             = &on_body;
+		//settings.on_body             = &on_body;
 		settings.on_message_complete = &on_message_complete;
 
-		static_assert(sizeof(settings_object1) == sizeof(::http_parser_settings),
+		static_assert(sizeof(settings_object_headers) == sizeof(::http_parser_settings),
 			"::http_parser_settings size is different than impl buffer");
 
 		return reinterpret_cast<result_type &>(settings);
 	}();
 
-	const decltype(nonblocking_http_parser::settings_object2) nonblocking_http_parser::settings_object2 = []
+	const decltype(nonblocking_http_parser::settings_object_string_body) nonblocking_http_parser::settings_object_string_body = []
 	{
-		using result_type = decltype(nonblocking_http_parser::settings_object2);
+		using result_type = decltype(nonblocking_http_parser::settings_object_string_body);
 
 		::http_parser_settings settings;
 		http_parser_settings_init(&settings);
@@ -57,15 +57,61 @@ namespace ext::net::http
 		settings.on_header_value     = &on_header_value;
 
 		settings.on_headers_complete = &on_headers_complete;
-		settings.on_body             = &on_body;
+		settings.on_body             = &on_string_body;
 		settings.on_message_complete = &on_message_complete;
 
-		static_assert(sizeof(settings_object2) == sizeof(::http_parser_settings),
+		static_assert(sizeof(settings_object_string_body) == sizeof(::http_parser_settings),
+			"::http_parser_settings size is different than impl buffer");
+
+		return reinterpret_cast<result_type &>(settings);
+	}();
+	
+	const decltype(nonblocking_http_parser::settings_object_vector_body) nonblocking_http_parser::settings_object_vector_body = []
+	{
+		using result_type = decltype(nonblocking_http_parser::settings_object_vector_body);
+
+		::http_parser_settings settings;
+		http_parser_settings_init(&settings);
+
+		settings.on_status           = &on_status;
+		settings.on_url              = &on_url;
+
+		settings.on_header_field     = &on_header_field;
+		settings.on_header_value     = &on_header_value;
+
+		settings.on_headers_complete = &on_headers_complete;
+		settings.on_body             = &on_vector_body;
+		settings.on_message_complete = &on_message_complete;
+
+		static_assert(sizeof(settings_object_vector_body) == sizeof(::http_parser_settings),
 			"::http_parser_settings size is different than impl buffer");
 
 		return reinterpret_cast<result_type &>(settings);
 	}();
 
+	const decltype(nonblocking_http_parser::settings_object_no_body) nonblocking_http_parser::settings_object_no_body = []
+	{
+		using result_type = decltype(nonblocking_http_parser::settings_object_no_body);
+
+		::http_parser_settings settings;
+		http_parser_settings_init(&settings);
+
+		settings.on_status           = &on_status;
+		settings.on_url              = &on_url;
+
+		settings.on_header_field     = &on_header_field;
+		settings.on_header_value     = &on_header_value;
+
+		settings.on_headers_complete = &on_headers_complete;
+		settings.on_body             = &on_no_body;
+		settings.on_message_complete = &on_message_complete;
+
+		static_assert(sizeof(settings_object_no_body) == sizeof(::http_parser_settings),
+			"::http_parser_settings size is different than impl buffer");
+
+		return reinterpret_cast<result_type &>(settings);
+	}();
+	
 
 	inline nonblocking_http_parser & nonblocking_http_parser::get_this(::http_parser * parser) noexcept
 	{
@@ -122,14 +168,33 @@ namespace ext::net::http
 		throw std::runtime_error(std::move(msg));
 	}
 
-	void nonblocking_http_parser::init_parser_internals()
+	void nonblocking_http_parser::init_parser_internals() noexcept
 	{
 		auto * parser = &get_parser();
 		parser->data = this;
-		m_settings_object = &settings_object1;
+		m_settings_object = &settings_object_headers;
 		http_parser_init(parser, ::http_parser_type::HTTP_REQUEST);
 	}
 
+	void nonblocking_http_parser::init_body_parsing() noexcept
+	{
+		http_body * body = m_type == HTTP_REQUEST ? &m_request->body : &m_response->body;
+		switch (static_cast<http_body_type>(body->index()))
+		{
+			case http_body_type::string:
+				m_settings_object = &settings_object_string_body;
+				m_strbody = std::get_if<std::string>(body);
+				break;
+			case http_body_type::vector:
+				m_settings_object = &settings_object_vector_body;
+				m_vecbody = std::get_if<std::vector<char>>(body);
+				break;
+			default:
+				m_strbody = nullptr;
+				m_settings_object = &settings_object_no_body;
+		}
+	}
+	
 	int nonblocking_http_parser::on_status(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
@@ -146,12 +211,11 @@ namespace ext::net::http
 		auto & p = get_this(parser);
 
 		p.m_state = header_field;
-		p.m_settings_object = &settings_object2;
+		p.init_body_parsing();
 		p.m_response->http_code = p.http_code();
 
 		// save for later header parsing
-		auto & body = *p.m_body;
-		body.assign(data, len);
+		p.m_tmp.assign(data, len);
 
 		::http_parser_pause(parser, 1);
 		return 0;
@@ -173,12 +237,11 @@ namespace ext::net::http
 		auto & p = get_this(parser);
 
 		p.m_state = header_field;
-		p.m_settings_object = &settings_object2;
+		p.init_body_parsing();
 		p.m_request->http_version = p.http_version();
 
 		// save for later header parsing
-		auto & body = *p.m_body;
-		body.assign(data, len);
+		p.m_tmp.assign(data, len);
 
 		::http_parser_pause(parser, 1);
 		return 0;
@@ -187,19 +250,19 @@ namespace ext::net::http
 	int nonblocking_http_parser::on_header_field(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
-		auto & body = *p.m_body;
+		auto & tmp = p.m_tmp;
 
 		switch (p.m_state)
 		{
 			case header_value:
 				p.m_state = header_field;
-				*p.m_header_value = body;
-				body.assign(data, len);
+				*p.m_header_value = tmp;
+				tmp.assign(data, len);
 
 				return 0;
 
 			case header_field:
-				body.append(data, len);
+				tmp.append(data, len);
 				break;
 
 			default: EXT_UNREACHABLE();
@@ -211,7 +274,7 @@ namespace ext::net::http
 	int nonblocking_http_parser::on_header_value(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
-		auto & body = *p.m_body;
+		auto & tmp = p.m_tmp;
 		auto & headers = *p.m_headers;
 
 		switch (p.m_state)
@@ -219,12 +282,12 @@ namespace ext::net::http
 			case header_field:
 				p.m_state = header_value;
 				headers.emplace_back();
-				headers.back().name = body;
+				headers.back().name = tmp;
 				p.m_header_value = &headers.back().value;
-				body.clear();
+				tmp.clear();
 
 			case header_value:
-				body.append(data, len);
+				tmp.append(data, len);
 				break;
 
 			default: EXT_UNREACHABLE();
@@ -238,10 +301,10 @@ namespace ext::net::http
 		auto & p = get_this(parser);
 
 		if (p.m_state == header_value)
-			*p.m_header_value = *p.m_body;
+			*p.m_header_value = p.m_tmp;
 
 		p.m_state = body_state;
-		p.m_body->clear();
+		p.m_tmp.clear();
 
 		if (p.m_state >= p.m_stop_state)
 			::http_parser_pause(parser, 1);
@@ -249,12 +312,27 @@ namespace ext::net::http
 		return 0;
 	}
 
-	int nonblocking_http_parser::on_body(::http_parser * parser, const char * data, size_t len)
+	int nonblocking_http_parser::on_string_body(::http_parser * parser, const char * data, size_t len)
 	{
 		auto & p = get_this(parser);
-		p.m_body->append(data, len);
+		p.m_strbody->append(data, len);
 
 		return 0;
+	}
+	
+	int nonblocking_http_parser::on_vector_body(::http_parser * parser, const char * data, size_t len)
+	{
+		auto & p = get_this(parser);
+		p.m_vecbody->insert(p.m_vecbody->end(), data, data + len);
+		
+		return 0;
+	}
+	
+	int nonblocking_http_parser::on_no_body(::http_parser * parser, const char * data, size_t len)
+	{
+		//auto & p = get_this(parser);
+		//throw std::logic_error("invalid http body parsing, please configure parsing properly");
+		return 1;
 	}
 
 	int nonblocking_http_parser::on_message_begin(::http_parser * parser)
@@ -342,9 +420,10 @@ namespace ext::net::http
 		m_state = start_state;
 		m_stop_state = finished;
 		m_flags = 0;
-
+		m_tmp.clear();
+		
 		m_request = request;
-		m_body = &request->body;
+		m_strbody = nullptr;
 		m_headers = &request->headers;
 
 		clear(*request);
@@ -358,9 +437,10 @@ namespace ext::net::http
 		m_state = start_state;
 		m_stop_state = finished;
 		m_flags = 0;
+		m_tmp.clear();
 
 		m_response = response;
-		m_body = &response->body;
+		m_strbody = nullptr;
 		m_headers = &response->headers;
 
 		clear(*response);
@@ -368,6 +448,18 @@ namespace ext::net::http
 		init_parser_internals();
 	}
 
+	void nonblocking_http_parser::set_body_destination(std::string & str)
+	{
+		m_strbody = &str;
+		m_settings_object = &settings_object_string_body;
+	}
+	
+	void nonblocking_http_parser::set_body_destination(std::vector<char> & vec)
+	{
+		m_vecbody = &vec;
+		m_settings_object = &settings_object_vector_body;
+	}
+	
 	nonblocking_http_parser::nonblocking_http_parser(nonblocking_http_parser && other)
 	{
 		m_type = other.m_type;
@@ -375,7 +467,7 @@ namespace ext::net::http
 		m_stop_state = other.m_stop_state;
 		m_flags = other.m_flags;
 
-		m_body = other.m_body;
+		m_strbody = other.m_strbody;
 		m_headers = other.m_headers;
 		m_header_value = other.m_header_value;
 		m_response = other.m_response;

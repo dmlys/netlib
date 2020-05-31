@@ -1,8 +1,6 @@
 #pragma once
 #include <ext/net/http/parse_header.hpp>
 #include <ext/net/http/blocking_http_parser.hpp>
-#include <ext/net/http/nonblocking_http_parser.hpp>
-#include <ext/net/http/nonblocking_http_writer.hpp>
 
 namespace ext::net
 {

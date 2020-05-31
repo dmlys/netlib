@@ -27,20 +27,27 @@ namespace ext::net
 	/// calls WSACleanup
 	void wsacleanup();
 
-	/// initializes libraries needed for working with sockets.
-	/// this are winosock2 and, if enabled, OpenSSL.
-	/// in fact calls ext::net::wsastratup(); ext::net::openssl_init()
+	/// Initializes libraries needed for working with sockets.
+	/// This are winsock2 and, if enabled, OpenSSL.
+	/// In fact calls ext::net::wsastratup(); ext::net::openssl_init()
 	void socket_stream_init();
-
+	/// Deinitializes libraries needed for working with sockets.
+	/// This are winsock2 and, if enabled, OpenSSL.
+	/// In fact calls ext::net::wsacleanup(); ext::net::openssl_cleanup()
+	void socket_stream_cleanup();
+	
 #else
 
 	using addrinfo_type = addrinfo;
 	using sockaddr_type = sockaddr;
 
-	/// initializes libraries needed for working with sockets.
-	/// this is, if enabled, OpenSSL. In fact calls ext::net::openssl_init()
+	/// Initializes libraries needed for working with sockets.
+	/// This is, if enabled, OpenSSL. In fact calls ext::net::openssl_init()
 	void socket_stream_init();
-
+	/// Deinitializes libraries needed for working with sockets.
+	/// This is, if enabled, OpenSSL. In fact calls ext::net::openssl_cleanup()
+	void socket_stream_cleanup();
+	
 #endif
 
 	/// socket error condition, this is NOT error codes,

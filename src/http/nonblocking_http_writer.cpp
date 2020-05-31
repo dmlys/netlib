@@ -3,7 +3,7 @@
 #include <ext/config.hpp>
 #include <ext/net/http/nonblocking_http_writer.hpp>
 
-namespace ext::net::http
+namespace ext::net::http::http_server_utils
 {
 	bool nonblocking_http_writer::write_string(char *& first, char * last)
 	{
@@ -86,14 +86,14 @@ namespace ext::net::http
 			case 9: // write headers end crlf
 				if (not write_string(first, last)) return first - buffer;
 
-				m_string_first = m_resp->body.c_str();
-				m_string_last  = m_string_first + m_resp->body.size();
+				//m_string_first = m_resp->body.c_str();
+				//m_string_last  = m_string_first + m_resp->body.size();
+				//m_state = 10;
+			//case 10:
+				//if (not write_string(first, last)) return first - buffer;
+
 				m_state = 10;
 			case 10:
-				if (not write_string(first, last)) return first - buffer;
-
-				m_state = 11;
-			case 11:
 				return first - buffer;
 
 			default:
@@ -171,14 +171,14 @@ namespace ext::net::http
 			case 9: // write headers end crlf
 				if (not write_string(first, last)) return first - buffer;
 
-				m_string_first = m_resp->body.c_str();
-				m_string_last  = m_string_first + m_resp->body.size();
+				//m_string_first = m_resp->body.c_str();
+				//m_string_last  = m_string_first + m_resp->body.size();
+				//m_state = 10;
+			//case 10:
+				//if (not write_string(first, last)) return first - buffer;
+
 				m_state = 10;
 			case 10:
-				if (not write_string(first, last)) return first - buffer;
-
-				m_state = 11;
-			case 11:
 				return first - buffer;
 
 			default:

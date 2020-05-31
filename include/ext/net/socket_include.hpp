@@ -41,6 +41,9 @@
 #include <arpa/inet.h>  // for inet_ntop/inet_pton
 #include <netdb.h>      // for getaddrinfo/freeaddrinfo
 
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+
 #if EXT_NET_USE_POLL
 #include <sys/poll.h>
 #endif

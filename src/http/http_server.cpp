@@ -1,8 +1,6 @@
-#include <fmt/format.h>
 #include <ext/itoa.hpp>
 #include <ext/reverse_lock.hpp>
 #include <ext/errors.hpp>
-#include <ext/library_logger/logging_macros.hpp>
 #include <ext/functors/ctpred.hpp>
 #include <ext/hexdump.hpp>
 
@@ -13,31 +11,18 @@
 #include <ext/net/socket_include.hpp>
 #include <ext/net/http/http_server.hpp>
 #include <ext/net/http/http_server_ext.hpp>
-
-#define LOG_FATAL(...) EXTLL_FATAL_FMT(m_logger, __VA_ARGS__)
-#define LOG_ERROR(...) EXTLL_ERROR_FMT(m_logger, __VA_ARGS__)
-#define LOG_WARN(...) EXTLL_WARN_FMT(m_logger, __VA_ARGS__)
-#define LOG_INFO(...) EXTLL_INFO_FMT(m_logger, __VA_ARGS__)
-#define LOG_DEBUG(...) EXTLL_DEBUG_FMT(m_logger, __VA_ARGS__)
-#define LOG_TRACE(...) EXTLL_TRACE_FMT(m_logger, __VA_ARGS__)
-
-//#define LOG_FATAL(f, ...) EXTLL_FATAL_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-//#define LOG_ERROR(f, ...) EXTLL_ERROR_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-//#define LOG_WARN(f, ...) EXTLL_WARN_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-//#define LOG_INFO(f, ...) EXTLL_INFO_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-//#define LOG_DEBUG(f, ...) EXTLL_DEBUG_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-//#define LOG_TRACE(f, ...) EXTLL_TRACE_STR(m_logger, fmt::format("http_server {}, " f, fmt::ptr(this), ##__VA_ARGS__))
-
-#define SOCK_LOG_FATAL(f, ...) EXTLL_FATAL_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
-#define SOCK_LOG_ERROR(f, ...) EXTLL_ERROR_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
-#define SOCK_LOG_WARN(f, ...) EXTLL_WARN_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
-#define SOCK_LOG_INFO(f, ...) EXTLL_INFO_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
-#define SOCK_LOG_DEBUG(f, ...) EXTLL_DEBUG_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
-#define SOCK_LOG_TRACE(f, ...) EXTLL_TRACE_STR(m_logger, fmt::format("sock={}, " f, sock.handle(), ##__VA_ARGS__))
+#include <ext/net/http/http_server_logging_helpers.hpp>
 
 
 namespace ext::net::http
 {
+	template <class Type>
+	inline static void release_atomic_ptr(std::atomic<Type *> & pointer)
+	{
+		auto old = pointer.exchange(nullptr, std::memory_order_relaxed);
+		if (old) ext::intrusive_ptr_release(old);
+	}
+	
 	void http_server::delayed_async_executor_task_continuation::continuate(shared_state_basic * caller) noexcept
 	{
 		auto owner = m_owner;
@@ -46,29 +31,17 @@ namespace ext::net::http
 		if (not mark_marked())
 			// http_server is destructed or destructing
 			return;
-
+		
 		// remove ourself from m_delayed and add m_task to http_server tasks list
 		{
 			std::lock_guard lk(owner->m_mutex);
 
 			auto & list = owner->m_delayed;
 			auto & delayed_count = owner->m_delayed_count;
-			auto & executor = owner->m_processing_executor;
 			auto it = list.iterator_to(*this);
 			list.erase(it);
 
-			if (not executor)
-			{
-				auto task = std::bind(&http_server::executor_handle_runner, owner, std::move(m_method), m_context);
-				owner->submit_task(lk, std::move(task));
-			}
-			else
-			{
-				auto fres = executor->submit(&http_server::executor_handle_runner, owner, std::move(m_method), m_context);
-				auto handle = fres.handle();
-				auto old = m_context->m_executor_state.exchange(handle.release(), std::memory_order_relaxed);
-				if (old) old->release();
-			}
+			owner->submit_handler(lk, std::move(m_method), m_context);
 
 			notify = delayed_count == 0 or --delayed_count == 0;
 			running = owner->m_running;
@@ -79,18 +52,24 @@ namespace ext::net::http
 		if (notify)  owner->m_event.notify_one();
 
 		// we were removed from m_delayed - intrusive list,
-		// which does not manage lifetime, decrement refcount
+		// who does not manage lifetime, decrement refcount
 		release();
 	}
 
 	void http_server::delayed_async_executor_task_continuation::abandone() noexcept
 	{
+		// This method is called only after this task is marked -> can't be ran/completed in concurrent,
+		// so it's safe to use at least some of it's contents
+		if (m_method.is_async())
+			m_method.future()->cancel();
+		
 		m_method = nullptr;
 	}
 
 	void http_server::do_reset(std::unique_lock<std::mutex> & lk)
 	{
 		assert(lk.owns_lock());
+		assert(m_running == false);
 
 		// clean everything,
 		// close any socks and listeners
@@ -115,15 +94,36 @@ namespace ext::net::http
 
 		// wait until all delayed_tasks are finished
 		m_event.wait(lk, [this] { return m_delayed_count == 0; });
-
+		
+		std::vector<ext::future<void>> waiting_tasks;
+		waiting_tasks.reserve(m_processing_contexts.size());
+		
+		{ // close(and interrupt) any http_body stream/source
+			for (auto * context : m_processing_contexts)
+			{
+				auto state = context->body_closer.exchange(reinterpret_cast<closable_http_body *>(1), std::memory_order_relaxed);
+				if (not state) continue;
+			
+				ext::intrusive_ptr state_ptr(state, ext::noaddref);
+				waiting_tasks.push_back(state_ptr->close());
+			}
+			
+			ext::reverse_lock rlk(lk);
+			LOG_DEBUG("waiting http_body streams and source to close, contexts = {}, waiting = {}", m_processing_contexts.size(), waiting_tasks.size());
+			auto all_tasks = ext::when_all(std::make_move_iterator(waiting_tasks.begin()), std::make_move_iterator(waiting_tasks.end()));
+			all_tasks.wait();
+			
+			waiting_tasks.clear();
+			LOG_DEBUG("http_body streams and source are closed");
+		}
+		
 		if (m_processing_executor)
 		{
 			// we must wait until all our executor tasks are finished, because those task use this http_server and it's members
-			std::vector<ext::future<void>> waiting_tasks;
 			std::size_t task_count = 0;
 			for (auto * context : m_processing_contexts)
 			{
-				auto state = context->m_executor_state.exchange(nullptr, std::memory_order_relaxed);
+				auto state = context->executor_state.exchange(nullptr, std::memory_order_relaxed);
 				ext::future<void> task(ext::intrusive_ptr<ext::shared_state_basic>(state, ext::noaddref));
 				if (not task.valid()) continue;
 
@@ -136,9 +136,21 @@ namespace ext::net::http
 			LOG_DEBUG("waiting executor tasks to finish, tasks = {}, cancelled = {}, waiting = {}", task_count, task_count - waiting_tasks.size(), waiting_tasks.size());
 			auto all_tasks = ext::when_all(std::make_move_iterator(waiting_tasks.begin()), std::make_move_iterator(waiting_tasks.end()));
 			all_tasks.wait();
+			waiting_tasks.clear();
 
 			LOG_DEBUG("executor tasks are finished");
 			m_processing_executor = nullptr;
+		}
+		
+		// cancel pending async handlers, we will not process them anyway
+		for (auto * context : m_processing_contexts)
+		{
+			//auto state = context->async_task_state.load(std::memory_order_relaxed);
+			auto state = context->async_task_state.exchange(nullptr, std::memory_order_relaxed);
+			if (not state) continue;
+			
+			ext::intrusive_ptr state_ptr(state, ext::noaddref);
+			state->cancel();
 		}
 
 		// dispose pending tasks
@@ -161,6 +173,7 @@ namespace ext::net::http
 		m_handlers.clear();
 		m_listener_contexts.clear();
 	}
+
 
 	void http_server::do_start(std::unique_lock<std::mutex> & lk)
 	{
@@ -246,8 +259,11 @@ namespace ext::net::http
 				throw std::logic_error("ext::net::http::http_server::join_thread misuse, already started background thread");
 			else
 			{
-				m_started = m_running = m_joined = true;
+				m_started = m_running = true;
+				std::atomic_signal_fence(std::memory_order_release);
+				m_joined = true;
 				ext::promise<void> started_promise;
+
 				ext::future<void> started = started_promise.get_future();
 
 				{
@@ -267,7 +283,10 @@ namespace ext::net::http
 	void http_server::interrupt()
 	{
 		bool joined = m_joined;
-		std::atomic_thread_fence(std::memory_order_acquire);
+		// TODO: there should interrupted atomic flag, that is set by ths method, and checked join_thread
+		//       currently we have a race condition here, when interrupt comes earlier then join_thread sets m_joined = true
+		// forbid reordering m_joined read after anything below
+		std::atomic_signal_fence(std::memory_order_acquire);
 		if (joined)
 		{
 			m_running = false;
@@ -423,11 +442,11 @@ namespace ext::net::http
 		{
 			auto fres = m_processing_executor->submit(&http_server::executor_handle_runner, this, next_method, context);
 			auto handle = fres.handle();
-			auto old = context->m_executor_state.exchange(handle.release(), std::memory_order_relaxed);
+			auto old = context->executor_state.exchange(handle.release(), std::memory_order_relaxed);
 			if (old) old->release();
 		}
 	}
-
+	
 	void http_server::executor_handle_runner(handle_method_type next_method, processing_context * context)
 	{
 		try
@@ -436,6 +455,9 @@ namespace ext::net::http
 			{
 				default: EXT_UNREACHABLE();
 
+				// explicit nullptr next_method - do nothing
+				case handle_method_type::null: return;
+				
 				case handle_method_type::method:
 					context->cur_method = next_method.regular_ptr();
 					next_method = (this->*context->cur_method)(std::move(context));
@@ -449,7 +471,13 @@ namespace ext::net::http
 						return submit_async_executor_task(std::move(ptr), std::move(next_method), std::move(context));
 					else
 					{
-						next_method = (this->*next_method.async_ptr())(context, std::move(ptr));
+						auto * old = context->async_task_state.exchange((ptr.addref(), ptr.get()), std::memory_order_relaxed);
+						// actually old should always be null, unless we got some exception from line below(calling next_method),
+						// and nobody cleared async_task_state in context. RAII will fix this
+						if (old) old->release();
+						
+						next_method = (this->*next_method.regular_ptr())(context);
+						release_atomic_ptr(context->async_task_state); // TODO: should be done in RAII manner
 						goto again;
 					}
 				}
@@ -471,7 +499,7 @@ namespace ext::net::http
 		}
 		catch (std::exception & ex)
 		{
-			context->conn_action = close;
+			context->conn_action = connection_action_type::close;
 			next_method = &http_server::handle_finish;
 			LOG_ERROR("exception while processing socket = {}: class - {}; what - {}", context->sock.handle(), boost::core::demangle(typeid(ex).name()), ex.what());
 		}
@@ -567,7 +595,7 @@ namespace ext::net::http
 			openssl::openssl_clear_errors();
 	#endif
 			//sock.set_last_error(errc);
-			context->conn_action = close;
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 
@@ -630,7 +658,7 @@ namespace ext::net::http
 			openssl::openssl_clear_errors();
 	#endif
 			//sock.set_last_error(errc);
-			context->conn_action = close;
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 
@@ -692,7 +720,7 @@ namespace ext::net::http
 		openssl::openssl_clear_errors();
 	#endif
 		//sock.set_last_error(errc);
-		context->conn_action = close;
+		context->conn_action = connection_action_type::close;
 		return &http_server::handle_finish;
 	}
 
@@ -978,7 +1006,7 @@ namespace ext::net::http
 				if (context->read_count >= context->maximum_discard_message_size)
 				{
 					SOCK_LOG_WARN("http request is to long, {} >= {}, closing connection", context->read_count, context->maximum_discard_message_size);
-					context->conn_action = close;
+					context->conn_action = connection_action_type::close;
 					return &http_server::handle_finish;
 				}
 
@@ -1004,6 +1032,67 @@ namespace ext::net::http
 		}
 	}
 
+	auto http_server::handle_request_async_body_source_parsing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & parser = context->parser;
+		auto * ptr = context->body_closer.load(std::memory_order_acquire);
+		assert(ptr);
+		
+		auto * body = static_cast<async_http_body_source_impl::closable_http_body_impl *>(ptr);
+		auto & promise = body->m_read_promise;
+		auto & data = body->m_data;
+		
+		assert(body->m_pending_request.load(std::memory_order_relaxed));
+		
+		SOCK_LOG_DEBUG("parsing http request body for async source");
+		
+		try
+		{
+			for (;;)
+			{
+				if (parser.message_parsed()) // finished - return eof
+				{
+					body->m_finished.store(true, std::memory_order_relaxed);
+					body->m_pending_request.store(false, std::memory_order_relaxed);
+					promise.set_value(std::nullopt);
+					return nullptr;
+				}
+				
+				char * first = sock.gptr();
+				char * last  = sock.egptr();
+				int len = last - first;
+	
+				if (first != last) goto parse;
+				
+				std::tie(first, last) = sock.getbuf();
+				if (auto next = recv(context, first, last - first, len))
+					return next;
+
+				sock.setg(first, first, first + len);
+				log_read_buffer(sock.handle(), first, len);
+			parse:
+				auto read = parser.parse_message(first, len);
+				sock.gbump(static_cast<int>(read));
+				
+				// no data available after parsing - we either finished or need more data from socket
+				if (data.empty()) continue;
+				
+				body->m_pending_request.store(false, std::memory_order_relaxed);
+				promise.set_value(std::move(data));
+				return nullptr;
+			};
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got parsing error while processing request: {}", ex.what());
+			promise.set_exception(std::current_exception());
+			return nullptr;
+		}
+	}
+	
 	auto http_server::handle_parsed_headers(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
@@ -1013,7 +1102,7 @@ namespace ext::net::http
 
 		request.method = parser.http_method();
 		request.http_version = parser.http_version();
-		static_assert(connection_action_type::close == 1 and connection_action_type::keep_alive == 2);
+		static_assert(static_cast<unsigned>(connection_action_type::close) == 1 and static_cast<unsigned>(connection_action_type::keep_alive) == 2);
 		context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 
 		return &http_server::handle_prefilters_headers;
@@ -1029,7 +1118,7 @@ namespace ext::net::http
 				auto res = filter->prefilter_headers(context->request);
 				if (not res) continue;
 
-				context->response = *res;
+				context->response = std::move(*res);
 				return &http_server::handle_request_header_processing;
 			}
 
@@ -1081,23 +1170,20 @@ namespace ext::net::http
 		auto & sock = context->sock;
 		auto & request = context->request;
 
-		auto next_method = context->handler ? &http_server::handle_request_body_parsing
-		                                    : &http_server::handle_discarded_request_body_parsing;
-
 		/// We should handle Expect extension, described in RFC7231 section 5.1.1.
 		/// https://tools.ietf.org/html/rfc7231#section-5.1.1
 
 		/// Only HTTP/1.1 should handle it
-		if (request.http_version < 11) return next_method;
+		if (request.http_version < 11) return &http_server::handle_request_init_body_parsing;
 
 		ext::ctpred::not_equal_to<ext::aci_char_traits> nieq;
 		ext::ctpred::    equal_to<ext::aci_char_traits> ieq;
 		/// only for POST and PUT
 		if (nieq(request.method, "POST") and nieq(request.method, "PUT"))
-			return next_method;
+			return &http_server::handle_request_init_body_parsing;
 
 		auto expect = get_header_value(request.headers, "Expect");
-		if (expect.empty()) return next_method;
+		if (expect.empty()) return &http_server::handle_request_init_body_parsing;
 
 		/// Expect can only have one value - 100-contine, others are errors
 		context->expect_extension = ieq(expect, "100-continue");
@@ -1129,6 +1215,33 @@ namespace ext::net::http
 			return &http_server::handle_processing;
 		}
 	}
+	
+	auto http_server::handle_request_init_body_parsing(processing_context * context) -> handle_method_type
+	{
+		if (not context->handler)
+			return &http_server::handle_discarded_request_body_parsing;
+		
+		auto want_type = context->handler->wanted_body_type();
+		switch (want_type)
+		{
+			case http_body_type::string:
+				context->request.body = std::string();
+				return &http_server::handle_request_body_parsing;
+			case http_body_type::vector:
+				context->request.body = std::vector<char>();
+				return &http_server::handle_request_body_parsing;
+			case http_body_type::stream:
+				context->request.body = std::make_unique<http_body_streambuf_impl>(this, context);
+				return &http_server::handle_parsed_request;
+			case http_body_type::async:
+				context->request.body = std::make_unique<async_http_body_source_impl>(this, context);
+				return &http_server::handle_parsed_request;
+			case http_body_type::null:
+				return &http_server::handle_discarded_request_body_parsing;
+			default:
+				EXT_UNREACHABLE();
+		}
+	}
 
 	auto http_server::handle_parsed_request(processing_context * context) -> handle_method_type
 	{
@@ -1154,7 +1267,7 @@ namespace ext::net::http
 				auto res = filter->prefilter_full(context->request);
 				if (not res) continue;
 
-				context->response = *res;
+				context->response = std::move(*res);
 				return &http_server::handle_processing;
 			}
 
@@ -1211,19 +1324,20 @@ namespace ext::net::http
 			{
 				if (val.is_ready() or val.is_deferred())
 				{
+					SOCK_LOG_INFO("async http_handler response ready");
 					response = process_ready_response(std::move(val), context->sock, context->request);
 					return &http_server::handle_processing_result;
 				}
 				else
 				{
 					SOCK_LOG_INFO("async http_handler response, scheduling async processing");
-					return async_method(val.handle(), &http_server::handle_async_processing_result);
+					return async_method(val.handle(), &http_server::handle_processing_result);
 				}
 			}
 			else if constexpr (std::is_same_v<arg_type, std::nullopt_t>)
 			{
 				SOCK_LOG_TRACE("got nullopt response from http_handler, connection will be closed");
-				context->conn_action = close;
+				context->conn_action = connection_action_type::close;
 				return &http_server::handle_finish;
 			}
 			else // http_response
@@ -1236,14 +1350,6 @@ namespace ext::net::http
 		};
 
 		return std::visit(visitor, context->response);
-	}
-
-	auto http_server::handle_async_processing_result(processing_context * context, ext::intrusive_ptr<ext::shared_state_basic> resp_handle) -> handle_method_type
-	{
-		auto & sock = context->sock;
-		SOCK_LOG_INFO("async http_handler response ready");
-
-		return &http_server::handle_processing_result;
 	}
 
 	auto http_server::handle_postfilters(processing_context * context) -> handle_method_type
@@ -1286,10 +1392,10 @@ namespace ext::net::http
 		context->output_buffer.reserve(bufsize);
 		context->writer.reset(&response);
 
-		return &http_server::handle_response_writting;
+		return &http_server::handle_response_headers_writting;
 	}
 
-	auto http_server::handle_response_writting(processing_context * context) -> handle_method_type
+	auto http_server::handle_response_headers_writting(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
@@ -1297,72 +1403,413 @@ namespace ext::net::http
 		auto & writer = context->writer;
 		auto & output_buffer = context->output_buffer;
 
-		SOCK_LOG_TRACE("writting http response");
+		SOCK_LOG_TRACE("writting http response headers");
 
 		try
 		{
 			char * first, * last;
-			int len = output_buffer.size();
-			if (len) goto write;
+			int written = output_buffer.size();
+			if (written) goto write;
 
 			do {
 				assert(output_buffer.capacity() > 0);
 				output_buffer.resize(output_buffer.capacity());
 
-				len = writer.write_some(output_buffer.data(), output_buffer.size());
-				output_buffer.resize(len);
+				written = writer.write_some(output_buffer.data(), output_buffer.size());
+				output_buffer.resize(written);
 
 			write:
 				first = output_buffer.data();
-				last = first + len;
+				last = first + output_buffer.size();
+				first += context->written_count;
 
-				if (auto next = send(context, first, last - first, len))
+				if (auto next = send(context, first, last - first, written))
 					return next;
 
-				log_write_buffer(sock.handle(), first, len);
-				output_buffer.erase(0, len);
-				if (first + len < last)
+				log_write_buffer(sock.handle(), first, written);
+				context->written_count += written;
+				if (first + written < last)
 				{
 					SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-					return async_method(socket_queue::writable, &http_server::handle_response_writting);
+					return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
 				}
 
 			} while(not writer.finished());
 
-			return &http_server::handle_response_written;
+			context->written_count = 0;
+			output_buffer.clear();
+			return &http_server::handle_response_headers_written;
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got writting error while processing response: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while writting response headers: {}", ex.what());
 			return &http_server::handle_finish;
 		}
 	}
-
-	auto http_server::handle_response_written(processing_context * context) -> handle_method_type
+	
+	auto http_server::handle_response_headers_written(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
-		SOCK_LOG_TRACE("http response written");
-
+		SOCK_LOG_TRACE("http response headers written");
+		
 		if (context->expect_extension and context->continue_answer)
 		{
 			SOCK_LOG_DEBUG("continue http request processing after 100 Continue, now parsing body");
 			context->first_response_written = true, context->continue_answer = false;
 			context->response = std::nullopt; // important! reset 100 Continue request, some code checks it before normal response is generated
-			return &http_server::handle_request_body_parsing;
+			return &http_server::handle_request_init_body_parsing;
 		}
 		else
 		{
-			context->final_response_written = true;
-			context->response = std::nullopt;
-			SOCK_LOG_DEBUG("http request completely processed");
+			// at this moment, context->response should only contain http_response
+			assert(std::holds_alternative<http_response>(context->response));
+			auto & resp = std::get<http_response>(context->response);
+			switch(static_cast<http_body_type>(resp.body.index()))
+			{
+				case http_body_type::string:
+				case http_body_type::vector:
+					return &http_server::handle_response_simple_body_writting;
+				case http_body_type::stream:
+					return &http_server::handle_response_stream_body_writting;
+				case http_body_type::async:
+					return &http_server::handle_response_async_body_writting;
+				case http_body_type::null:
+					return &http_server::handle_response_written;
+					
+				default: EXT_UNREACHABLE();
+			}
+		}
+	}
+	
+	auto http_server::handle_response_simple_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_TRACE("writting http response simple body");
+		
+		try
+		{
+			const char * first, * last;
+			const http_body & body = std::get<http_response>(context->response).body;
+			std::tie(first, last) = std::visit([](auto & val) -> std::pair<const char *, const char *>
+			{
+				using type = std::decay_t<decltype(val)>;
+				if constexpr(std::is_same_v<std::string, type> or std::is_same_v<std::vector<char>, type>)
+				{
+					auto * first = val.data();
+					auto * last  = first + val.size();
+					return std::make_pair(first, last);
+				}
+				
+				EXT_UNREACHABLE();
+				
+			}, body);
+		
+			first += context->written_count;
+			int written = last - first;
+
+			if (auto next = send(context, first, last - first, written))
+				return next;
+
+			log_write_buffer(sock.handle(), first, written);
+			context->written_count += written;
+			if (first + written < last)
+			{
+				SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+				return async_method(socket_queue::writable, &http_server::handle_response_simple_body_writting);
+			}
+
+			context->written_count = 0;
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting simple response body: {}", ex.what());
 			return &http_server::handle_finish;
 		}
+	}
+
+	auto http_server::handle_response_stream_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_TRACE("writting http response stream body");
+		
+		auto & output_buffer = context->output_buffer;
+		auto & chunk_prefix = context->chunk_prefix;
+		const http_body & body = std::get<http_response>(context->response).body;
+		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
+		constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
+		
+		try
+		{
+			char * first, * last;
+			int written;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
+					case 0: // prepare and write chunk header
+						written = chunk_prefix.size();
+						if (written != 0) goto write_chunk_prefix;
+						
+						// read next chunk
+						assert(output_buffer.capacity() > 0);
+						output_buffer.resize(output_buffer.capacity());
+						// 2 for crlf after chunk
+						written = stream_ptr->sgetn(output_buffer.data(), output_buffer.size() - 2);
+						output_buffer.resize(written + 2);
+						output_buffer.data()[written + 0] = '\r';
+						output_buffer.data()[written + 1] = '\n';
+						
+						// now prepare chunk header, print size into buffer with crlf
+						chunk_prefix.resize(chunkprefix_size + 2); // +2 for crlf
+						first = ext::unsafe_itoa(written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = '\r';
+						chunk_prefix[chunkprefix_size + 1] = '\n';
+						chunk_prefix.erase(0, first - chunk_prefix.data());
+						
+					write_chunk_prefix:
+						first = chunk_prefix.data();
+						last  = first + chunk_prefix.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+						}
+						
+						chunk_prefix.clear();
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					case 1:
+					//write_chunk:
+						// now send buffer itself after chunk prefix
+						first = output_buffer.data();
+						last  = first + output_buffer.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+		
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+						}
+						
+						//output_buffer.clear();
+						context->async_state = 0;
+						context->written_count = 0;
+						
+						// last empty chunk written(still holding \r\n) -> we are finished
+						if (output_buffer.size() <= 2) goto finished;
+						
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+
+		finished:
+			context->async_state = 0;
+			context->written_count = 0;
+			chunk_prefix.clear();
+			output_buffer.clear();
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting stream response body: {}", ex.what());
+			return &http_server::handle_finish;
+		}
+	}
+	
+	auto http_server::handle_response_async_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_TRACE("writting http response async source body");
+		
+		auto & output_buffer = context->output_buffer;
+		auto & chunk_prefix = context->chunk_prefix;
+		ext::future<async_http_body_source::chunk_type> fresult;
+		
+		constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
+		constexpr std::string_view crlf = "\r\n";
+		
+		
+		try
+		{
+			char * first, * last;
+			int written;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
+					// request new data chunk
+					case 0:
+						{
+							const http_body & body = std::get<http_response>(context->response).body;
+							auto & async_source_ptr = std::get<std::unique_ptr<async_http_body_source>>(body);
+							
+							fresult = async_source_ptr->read_some(std::move(output_buffer));
+							if (fresult.is_ready() or fresult.is_deferred())
+								goto data_ready;
+							
+							SOCK_LOG_INFO("async source respose, scheduling async processing");
+							context->async_state += 1;
+							return async_method(fresult.handle(), &http_server::handle_response_async_body_writting);
+						}
+						
+					// extract ready future from context
+					case 1:
+						{
+							assert(context->async_task_state.load(std::memory_order_relaxed));
+							auto * state = context->async_task_state.exchange(nullptr, std::memory_order_relaxed);
+							fresult = ext::future<async_http_body_source::chunk_type>(ext::intrusive_ptr(state, ext::noaddref));
+							assert(fresult.is_ready());
+						}
+						
+					// processing ready data chunk
+					data_ready:
+						context->async_state = 2;
+					case 2:
+						{
+							auto result = fresult.get();
+							if (not result)
+							{
+								output_buffer.clear();
+								written = 0;
+							}
+							else
+							{
+								output_buffer = *result;
+								written = std::min<std::size_t>(INT_MAX, output_buffer.size());
+								if (output_buffer.empty()) // no data, write nothing, repeat data request
+								{
+									context->async_state = 0;
+									continue;
+								}
+							}
+						}
+						
+						// append crlf after chunk
+						output_buffer.insert(output_buffer.end(), crlf.data(), crlf.data() + crlf.size());
+						// now prepare chunk header, print size into buffer with crlf
+						chunk_prefix.resize(chunkprefix_size + 2); // +2 for crlf
+						first = ext::unsafe_itoa(written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = '\r';
+						chunk_prefix[chunkprefix_size + 1] = '\n';
+						chunk_prefix.erase(0, first - chunk_prefix.data());
+						
+					//write_chunk_prefix:
+					case 3:
+						first = chunk_prefix.data();
+						last  = first + std::min<std::size_t>(INT_MAX, chunk_prefix.size());
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+						}
+						
+						chunk_prefix.clear();
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					//write_chunk:
+					case 4:
+						// now send buffer itself after chunk prefix
+						first = output_buffer.data();
+						last  = first + std::min<std::size_t>(INT_MAX, output_buffer.size());
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+						}
+						
+						//output_buffer.clear();
+						context->async_state = 0;
+						context->written_count = 0;
+						
+						// last empty chunk written(still holding \r\n) -> we are finished
+						if (output_buffer.size() <= 2) goto finished;
+						
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+			
+		finished:
+			context->async_state = 0;
+			context->written_count = 0;
+			chunk_prefix.clear();
+			output_buffer.clear();
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting stream response body: {}", ex.what());
+			return &http_server::handle_finish;
+		}
+	}
+	
+	auto http_server::handle_response_written(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		SOCK_LOG_TRACE("http response written");
+
+		context->final_response_written = true;
+		context->response = std::nullopt;
+		SOCK_LOG_DEBUG("http request completely processed");
+		return &http_server::handle_finish;
 	}
 
 	void http_server::handle_finish(processing_context * context)
 	{
 		assert(std::this_thread::get_id() == m_threadid);
-		if (context->conn_action == close)
+		if (context->conn_action == connection_action_type::close)
 			close_connection(std::move(context->sock));
 		else
 			submit_connection(std::move(context->sock));
@@ -1393,11 +1840,12 @@ namespace ext::net::http
 			return context.release();
 		}
 	}
-
+	
 	void http_server::release_context(processing_context * context)
 	{
-		auto old = context->m_executor_state.exchange(nullptr, std::memory_order_relaxed);
-		if (old) old->release();
+		release_atomic_ptr(context->executor_state);
+		release_atomic_ptr(context->async_task_state);
+		release_atomic_ptr(context->body_closer);
 
 		if (m_free_contexts.size() < m_minimum_contexts)
 		{
@@ -1416,7 +1864,7 @@ namespace ext::net::http
 	void http_server::prepare_context(processing_context * context, socket_streambuf sock, bool newconn)
 	{
 		context->sock = std::move(sock);
-		context->conn_action = close;
+		context->conn_action = connection_action_type::close;
 		context->next_method = nullptr;
 
 		context->handler = nullptr;
@@ -1426,6 +1874,10 @@ namespace ext::net::http
 
 		context->parser.reset(&context->request);
 		context->writer.reset(nullptr);
+		
+		context->async_state = 0;
+		context->chunk_prefix.clear();
+		context->output_buffer.clear();
 
 		context->response = std::nullopt;
 		// parser.reset already cleans request
@@ -1558,7 +2010,7 @@ namespace ext::net::http
 			sock.throw_errors(false);
 
 			assert(sock.is_valid());
-			return resp.conn_action == keep_alive;
+			return resp.conn_action == connection_action_type::keep_alive;
 		}
 		catch (std::system_error & ex)
 		{
@@ -1571,11 +2023,18 @@ namespace ext::net::http
 
 	void http_server::postprocess_response(http_response & resp) const
 	{
-		if (resp.conn_action == close)
+		if (resp.conn_action == connection_action_type::close)
 			set_header(resp.headers, "Connection", "close");
 
-		if (resp.body.size() != 0 or resp.conn_action != close)
-			set_header(resp.headers, "Content-Length", std::to_string(resp.body.size()));
+		auto opt_bodysize = size(resp.body);
+		if (opt_bodysize)
+			set_header(resp.headers, "Content-Length", std::to_string(*opt_bodysize));
+		else
+		{
+			assert(std::holds_alternative<std::unique_ptr<std::streambuf>>(resp.body)
+			    or std::holds_alternative<std::unique_ptr<async_http_body_source>>(resp.body));
+			set_header(resp.headers, "Transfer-Encoding", "chunked");
+		}
 	}
 
 	auto http_server::process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result
@@ -1775,11 +2234,27 @@ namespace ext::net::http
 		record.push();
 	}
 
+
+	std::pair<double, double> http_server::parse_accept(const http_request & request)
+	{
+		double text_weight = 0.0, html_weight = 0.0, def_weight = 0.0;
+		auto accept_header = get_header_value(request.headers, "Accept");
+		if (accept_header.empty())
+			return std::make_pair(text_weight, html_weight);
+
+		def_weight  = extract_weight(accept_header, "*",   def_weight);
+		def_weight  = extract_weight(accept_header, "*/*", def_weight);
+		text_weight = extract_weight(accept_header, "text/plain", def_weight);
+		html_weight = extract_weight(accept_header, "text/html",  def_weight);
+
+		return std::make_pair(text_weight, html_weight);
+	}
+
 	http_response http_server::create_bad_request_response(const socket_streambuf & sock, connection_action_type conn /*= close*/) const
 	{
 		http_response response;
 		response.http_code = 400;
-		response.status = response.body = "BAD REQUEST";
+		response.body = response.status = "BAD REQUEST";
 		response.conn_action = conn;
 		set_header(response.headers, "Content-Type", "text/plain");
 
@@ -1802,8 +2277,9 @@ namespace ext::net::http
 	{
 		http_response response;
 		response.http_code = 404;
-		response.status = response.body = "Not found";
+		response.status = "Not found";
 		response.conn_action = request.conn_action;
+		response.body = "404 Not found";
 		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;
@@ -1837,7 +2313,7 @@ namespace ext::net::http
 	{
 		http_response response;
 		response.http_code = 500;
-		response.status = response.body = "Internal Server Error";
+		response.body = response.status = "Internal Server Error";
 		response.conn_action = request.conn_action;
 		set_header(response.headers, "Content-Type", "text/plain");
 
@@ -1848,7 +2324,7 @@ namespace ext::net::http
 	{
 		http_response response;
 		response.http_code = 417;
-		response.status = response.body = "Expectation Failed";
+		response.body = response.status = "Expectation Failed";
 		response.conn_action = context->request.conn_action;
 		set_header(response.headers, "Content-Type", "text/plain");
 
@@ -1984,21 +2460,36 @@ namespace ext::net::http
 		});
 	}
 
-	void http_server::add_handler(std::vector<std::string> methods, std::string url, function_type function)
+	void http_server::add_handler(std::vector<std::string> methods, std::string url, simple_handler_body_function_type function)
 	{
 		return add_handler(std::make_unique<simple_http_server_handler>(std::move(methods), std::move(url), std::move(function)));
 	}
 
-	void http_server::add_handler(std::string url, function_type function)
+	void http_server::add_handler(std::string url, simple_handler_body_function_type function)
 	{
 		return add_handler(std::vector<std::string>(), std::move(url), std::move(function));
 	}
 
-	void http_server::add_handler(std::string method, std::string url, function_type function)
+	void http_server::add_handler(std::string method, std::string url, simple_handler_body_function_type function)
 	{
 		return add_handler(std::vector<std::string>{std::move(method)}, std::move(url), std::move(function));
 	}
 
+	void http_server::add_handler(std::vector<std::string> methods, std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type)
+	{
+		return add_handler(std::make_unique<simple_http_server_handler>(std::move(methods), std::move(url), std::move(function), wanted_request_body_type));
+	}
+
+	void http_server::add_handler(std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type)
+	{
+		return add_handler(std::vector<std::string>(), std::move(url), std::move(function), wanted_request_body_type);
+	}
+
+	void http_server::add_handler(std::string method, std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type)
+	{
+		return add_handler(std::vector<std::string>{std::move(method)}, std::move(url), std::move(function), wanted_request_body_type);
+	}
+	
 	void http_server::add_listener(listener listener, ssl_ctx_iptr ssl_ctx)
 	{
 		return add_listener(std::move(listener), 0, std::move(ssl_ctx));

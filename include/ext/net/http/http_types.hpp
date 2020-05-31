@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <ostream>
 #include <algorithm>
+#include <variant>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -10,6 +11,9 @@
 #include <boost/range.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <ext/range/range_traits.hpp>
+
+#include <ext/future.hpp>
+#include <ext/iostreams/streambuf.hpp>
 
 namespace ext::net::http
 {
@@ -39,7 +43,7 @@ namespace ext::net::http
 
 
 	/// what should be done with connection: close, keep-alive, or some default action
-	enum connection_action_type : unsigned
+	enum class connection_action_type : unsigned
 	{
 		/// default(def): close or keep_alive, which can be choosed based on some heuristics.
 		/// For http_server that can mean choose response action based on request action.
@@ -48,15 +52,109 @@ namespace ext::net::http
 		keep_alive = 2,
 	};
 
+	enum class http_body_type : unsigned
+	{
+		            // http request/response body holds:
+		string = 0, //  * std::string
+		vector = 1, //  * std::vector
+		stream = 2, //  * http_body_streambuf
+		async  = 3, //  * async_http_body_source
+		null   = 4, //  * no body required/produced, represented as nullbody
+	};
+
+	/// special type representing null body, std::nullopt probably can be used instead, but we use it already for "no response at all",
+	/// to make things less ambiguous we use different type.
+	struct null_body_type {} constexpr null_body;
+	
+	
+	/// Exception thrown from http_body_streambuf and async_http_body_source, when http_server is stopped, and read operation is called.
+	/// See http_body_streambuf, async_http_body_source description
+	class closed_exception : public std::runtime_error
+	{
+	public:
+		using std::runtime_error::runtime_error;
+	};
+	
+	/// Interface for closable http_body types(http_body_streambuf, async_http_body_source). Used by mainly by http_server.
+	/// 
+	/// Lifetime and close method:
+	///  http_body_streambuf, async_http_body_source and alike classes can be bound to some parent object, in case of request - http_server.
+	///  Life time of parent object should not linger on those classes, yet it can require some resources from it.
+	///
+	///  Thats what for close method is: whenever parent object can no longer/don't want to serve child objects
+	///  like http_body_streambuf, async_http_body_source - it should close them via close method, severing any connections with those objects.
+	///
+	///  Implementation of close should interrupt any current blocking operations and change state of this class to interrupted -
+	///  current and any new requests for data should report error via closed_exception.
+	///
+	///  Close method returns ext::future - it will become ready when interruption is finished, through interrupting should not take/block long.
+	///  Also close probably should not throw runtime_errors(or any other errors except very fatal, like out of memory).
+	///  NOTE: This method should be called only once by parent object(and not called at all by anyone else, TODO: remove this restriction).
+	class closable_http_body
+	{
+	public:
+		virtual ext::future<void> close() = 0;
+		virtual ~closable_http_body() = default;
+	};
+	
+	/// http body streambuf, internally reads from socket and parses, reading is done in blocking maner.
+	/// Read operations can throw, also NOTE that if you place this streambuf into istream - it will catch and eat exceptions.
+	/// See also closable_http_body
+	class http_body_streambuf : public ext::streambuf /* optionally can also implement closable_http_body */
+	{
+	public:
+		/// just a destructor
+		virtual ~http_body_streambuf() = default;
+	};
+
+	/// Async http body source. This is both for http request body and http response body.
+	/// This interface used both for http requests and response, http_server and some other abstract http handlers.
+	///
+	///
+	/// read_some - async reading data method:
+	///  New data is returned via read_some method via ext::future object:
+	///   In case of http response - source is abstract: just some internal buffer, or some iterational calculation, or even another socket.
+	///   In case of http request - data is lazily read and parsed from socket, data is returned through future object.
+	///    Internally this class reads and parses data from associated socket, reading is done non blockingly.
+	///    if no data available - socket would be submited for waiting into internal socket queue.
+	///    in case of errors - exception will transfered through returned future.
+	///
+	///  NOTE: read_some should only be called once per iteration, call read_some -> get some result -> call it again.
+	///        concurrent calls	to read_some(from same/different thread) - is a error.
+	/// See also closable_http_body
+	class async_http_body_source /* optionally can also implement closable_http_body */
+	{
+	public:
+		/// std::nullopt -> http body end. 
+		/// chunks of 0 size are allowed, but they will be skipped for Transfer-Encoding: chunked, because chunk of 0 size means end. 
+		using chunk_type = std::optional<std::vector<char>>;
+		/// prepares/generates some data, writes into buffer and returns it, in case of errors returns future with exception.
+		/// Overall any exception can be thrown, http_server will throw std::runtime_error/std::system_error through.
+		virtual auto read_some(std::vector<char> buffer) -> ext::future<chunk_type> = 0;
+
+	public:
+		/// just a destructor
+		virtual ~async_http_body_source() = default;
+	};
+
+
+	using http_body = std::variant<
+		std::string,
+		std::vector<char>,
+		std::unique_ptr<std::streambuf>,
+		std::unique_ptr<async_http_body_source>,
+		null_body_type
+	>;
+
 	struct http_request
 	{
 		int http_version = 11;
 		std::string method;
 		std::string url;
-		std::string body;
+		http_body   body;
 		http_headers_vector headers;
 
-		connection_action_type conn_action = def;
+		connection_action_type conn_action = connection_action_type::def;
 	};
 
 	struct http_response
@@ -64,16 +162,18 @@ namespace ext::net::http
 		int http_version = 11;
 		int http_code = 404;
 		std::string status;
-		std::string body;
+		http_body   body;
 		http_headers_vector headers;
 
-		connection_action_type conn_action = def;
+		connection_action_type conn_action = connection_action_type::def;
 	};
 
+	std::optional<std::size_t> size(const http_body & body) noexcept;
 
+	void clear(http_body     & body)    noexcept;
 	void clear(http_request  & request) noexcept;
 	void clear(http_response & request) noexcept;
-
+	
 	void write_http_request (std::streambuf & os, const http_request  & request,  bool with_body = true);
 	void write_http_response(std::streambuf & os, const http_response & response, bool with_body = true);
 

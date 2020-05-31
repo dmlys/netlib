@@ -58,7 +58,7 @@ namespace ext::net::http
 	class http_server::handle_method_type
 	{
 	public:
-		enum method_type : unsigned { method, final, async, wait_socket };
+		enum method_type : unsigned { null, method, final, async, wait_socket };
 
 	private:
 		unsigned m_type;
@@ -68,25 +68,25 @@ namespace ext::net::http
 		{
 			regular_handle_methed m_regular_ptr;
 			finalizer_handle_method m_final_ptr;
-			async_handle_method m_async_ptr;
 		};
 
 		ext::intrusive_ptr<ext::shared_state_basic> m_future;
 
 	public:
-		handle_method_type(std::nullptr_t ptr) noexcept : m_type(method), m_regular_ptr(ptr) {}
-		handle_method_type(regular_handle_methed ptr) noexcept : m_type(method), m_regular_ptr(ptr) {}
-		handle_method_type(finalizer_handle_method ptr) noexcept : m_type(final),  m_final_ptr(ptr) {}
+		handle_method_type(std::nullptr_t ptr) noexcept : m_type(null), m_regular_ptr(ptr) {}
+		handle_method_type(regular_handle_methed ptr) noexcept : m_type(ptr ? method : null), m_regular_ptr(ptr) {}
+		handle_method_type(finalizer_handle_method ptr) noexcept : m_type(ptr ? final : null),  m_final_ptr(ptr) {}
 
-		handle_method_type(ext::intrusive_ptr<ext::shared_state_basic> future_handle, async_handle_method ptr) noexcept
-		    : m_type(async),  m_async_ptr(ptr), m_future(std::move(future_handle)) {}
+		handle_method_type(ext::intrusive_ptr<ext::shared_state_basic> future_handle, regular_handle_methed ptr) noexcept
+		    : m_type(ptr ? async : null),  m_regular_ptr(ptr), m_future(std::move(future_handle)) {}
 
 		handle_method_type(socket_queue::wait_type wait_type, regular_handle_methed ptr) noexcept
-		    : m_type(wait_socket), m_wait_type(wait_type), m_regular_ptr(ptr) {}
+		    : m_type(ptr ? wait_socket : null), m_wait_type(wait_type), m_regular_ptr(ptr) {}
 
-		explicit operator bool() const noexcept { return m_regular_ptr; }
+		explicit operator bool() const noexcept { return m_type != null; }
 
 		auto type() const noexcept { return m_type; }
+		bool is_null() const noexcept { return m_type == null; }
 		bool is_method() const noexcept { return m_type == method; }
 		bool is_final() const noexcept { return m_type == final; }
 		bool is_async() const noexcept { return m_type == async; }
@@ -94,7 +94,6 @@ namespace ext::net::http
 
 		auto regular_ptr() const noexcept { return m_regular_ptr; }
 		auto finalizer_ptr() const noexcept { return m_final_ptr; }
-		auto async_ptr() const noexcept { return m_async_ptr; }
 
 		auto & future() noexcept { return m_future; }
 		const auto & future() const noexcept { return m_future; }
@@ -102,7 +101,7 @@ namespace ext::net::http
 		auto socket_wait_type() const noexcept { return m_wait_type; }
 	};
 
-	inline auto http_server::async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, async_handle_method async_method) -> handle_method_type
+	inline auto http_server::async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, regular_handle_methed async_method) -> handle_method_type
 	{
 		return handle_method_type(std::move(future_handle), async_method);
 	}
@@ -160,13 +159,6 @@ namespace ext::net::http
 	ext::future<void> http_server::processing_executor_impl<ExecutorImpl>::
 	    submit(method_type method, http_server * server, handle_method_type method_ptr, processing_context * context)
 	{
-		//auto task = [method, server, method_ptr = std::move(method_ptr), context = std::move(context)]()
-		//{
-		//	(server->*method)(std::move(method_ptr), std::move(context));
-		//};
-		//
-		//return m_executor->submit(std::move(task));
-		
 		return m_executor->submit(method, server, std::move(method_ptr), std::move(context));
 	}
 
@@ -206,6 +198,29 @@ namespace ext::net::http
 			return submit_task(lk, std::forward<Task>(task));
 		}
 	}
+	
+	inline void http_server::submit_handler(handle_method_type next_method, processing_context * context)
+	{
+		std::lock_guard lk(m_mutex);
+		return submit_handler(lk, std::move(next_method), context);
+	}
+	
+	template <class Lock>
+	void http_server::submit_handler(Lock & lk, handle_method_type next_method, processing_context * context)
+	{
+		if (not m_processing_executor)
+		{
+			auto task = std::bind(&http_server::executor_handle_runner, this, std::move(next_method), context);
+			submit_task(lk, std::move(task));
+		}
+		else
+		{
+			auto fres = m_processing_executor->submit(&http_server::executor_handle_runner, this, std::move(next_method), context);
+			auto handle = fres.handle();
+			auto old = context->executor_state.exchange(handle.release(), std::memory_order_relaxed);
+			if (old) old->release();
+		}
+	}
 
 	template <class Lock>
 	void http_server::process_tasks(Lock & lk)
@@ -220,4 +235,150 @@ namespace ext::net::http
 			task_ptr->task_execute();
 		}
 	}
+
+	class http_server::closable_http_body : public ext::net::http::closable_http_body, public ext::intrusive_atomic_counter<closable_http_body>
+	{
+	public:
+		virtual ~closable_http_body() = default;
+		virtual ext::future<void> close() = 0;
+	};
+	
+	/// http_server implementation of http_body_streambuf
+	class http_server::http_body_streambuf_impl : public http_body_streambuf
+	{
+		friend http_server;
+		
+	protected:
+		// GOAL - see ext::closable_http_body description: we must implement interruption of blocking reading from socket via close method,
+		// also if there is no reading operation at all at this moment - it will be good if we complete close promise immediately.
+		// so we have 2 scenarios:
+		//  * there is no reading operation at the moment when close was called    -> from close method mark state to interrupted, complete close promise.
+		//  * there is active reading operation at the moment when close was called -> somehow interrupt it,
+		//    that reading operation/thread will complete interruption, change state of this object to interrupted and complete close promise
+		//
+		// IMPLEMENTATION:
+		// We have ext::promise<void> as requested by interface and m_interrupt_work_flag - special atomic flag to handle interruption.
+		// Whenever socket reading operation is initiated - interrupt work flag is xor'ed with 0x1 beforehand:
+		//  if previous value was 0x0 - no interruption request was set -> continue reading. Flag new value is effectively 0x1.
+		//  if previous value was 0x1 - interrupt request was initiated -> read nothing from socket,
+		//                              change state to interrupted, report interrupt condition to client. Flag new value is effectively 0x0.
+		// 
+		// after reading was completed before analizing result - compare exchange interrupt work flag to 0x0, expecting 0x1:
+		//  if success - no interruption request was set -> continue processing, Flag new value is 0x0.
+		//  if failed  - interruption request was set    -> do no more processing, !!! complete close promise
+		//               change state to interrupted, report interrupt condition to client. Flag new value is effectively 0x0.
+		//
+		// Whenever close is called - interrupt work flag is xor'ed with 0x1:
+		//  if previous value was 0x0 - no reading operation is in progress - complete close promise. Flag new value is effectively 0x1
+		//  if previous value was 0x1 - reading operation is in progress - !!! other side must complete promise. Flag new value is effectively 0x0
+		//
+		// NOTE: close must be called only once by owning parent object.
+		//       ext::promise<void> can provide future only once, otherwise it's a error and exception will be thrown.
+		// 
+		
+		class closable_http_body_impl : public http_server::closable_http_body
+		{
+			friend http_body_streambuf_impl;
+			friend http_server;
+			
+		protected:
+			std::atomic<unsigned> m_interrupt_work_flag = false;
+			bool m_finished = false;    // http body is finished, no more data
+			bool m_interrupted = false; // this object is interrupted any read operation will throw
+			
+			std::vector<char> m_parsed_data;     // buffer where parsed http body data is placed, and from were it is served by this std::streambuf
+			ext::promise<void> m_closed_promise; // close promise
+			http_server * m_server;              // owning http_server
+			processing_context * m_context;      // context of this http request
+			
+		protected:
+			void mark_working();
+			void unmark_working();
+			void check_interrupted();
+			EXT_NORETURN void throw_interrupted();
+			
+		public:
+			virtual ext::future<void> close() override;
+			
+		public:
+			closable_http_body_impl(http_server * server, processing_context * context);
+		};
+		
+	protected:
+		ext::intrusive_ptr<closable_http_body_impl> m_interrupt_state;
+		
+	protected:
+		virtual int_type underflow() override;
+		
+	public:
+		http_body_streambuf_impl(http_server * server, processing_context * context);
+		virtual ~http_body_streambuf_impl() = default;
+		
+		http_body_streambuf_impl(http_body_streambuf_impl &&) = default;
+		http_body_streambuf_impl & operator =(http_body_streambuf_impl &&) = default;
+		
+		http_body_streambuf_impl(const http_body_streambuf_impl &) = delete;
+		http_body_streambuf_impl & operator =(const http_body_streambuf_impl &) = delete;
+	};
+	
+	
+	
+	/// http_server implementation of async_http_body_source
+	class http_server::async_http_body_source_impl : public async_http_body_source
+	{
+		friend http_server;
+		
+	protected:
+		// GOAL - see ext::closable_http_body description: we must implement interruption,
+		// through there is no blocking read from socket, adding request into http_server for reading it not atomic, and take some time.
+		// Also if there is no reading operation at all at this moment - it will be good if we complete close promise immediately.
+		// so we have 2 scenarios:
+		//  * there is no read_some call at the moment when close was called    -> from close method mark state to interrupted, complete close promise.
+		//  * there is active processing of read_some(request scheduling) at the moment when close was called -> mark interruption state,
+		//    that reading operation/thread will complete interruption, change state of this object to interrupted and complete close promise
+
+		class closable_http_body_impl : public http_server::closable_http_body
+		{
+			friend async_http_body_source_impl;
+			friend http_server;
+			
+		protected:
+			std::atomic<bool> m_pending_request = false; // have pending read_some request
+			std::atomic<bool> m_finished = false;        // http body is finished, no more data
+			std::atomic<bool> m_interrupted = false;     // this object is interrupted any read operation will throw
+			
+			std::vector<char> m_data;
+			ext::promise<void> m_closed_promise;
+			ext::promise<chunk_type> m_read_promise;
+			
+			http_server * m_server;              // owning http_server
+			processing_context * m_context;      // context of this http request
+			
+		public:
+			virtual ext::future<void> close() override;
+			
+		public:
+			closable_http_body_impl(http_server * server, processing_context * context);
+		};
+		
+	protected:
+		ext::intrusive_ptr<closable_http_body_impl> m_interrupt_state;
+		
+	protected:
+		ext::future<chunk_type> make_closed_result() const;
+			
+	public:
+		virtual auto read_some(std::vector<char> buffer) -> ext::future<chunk_type> override;
+		
+	public:
+		async_http_body_source_impl(http_server * server, processing_context * context);
+		virtual ~async_http_body_source_impl() = default;
+		
+		async_http_body_source_impl(async_http_body_source_impl &&) = default;
+		async_http_body_source_impl & operator =(async_http_body_source_impl &&) = default;
+		
+		async_http_body_source_impl(const async_http_body_source_impl &) = delete;
+		async_http_body_source_impl & operator =(const async_http_body_source_impl &) = delete;
+	};
+
 }

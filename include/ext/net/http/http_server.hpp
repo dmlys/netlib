@@ -25,6 +25,8 @@
 #include <ext/net/http/http_types.hpp>
 #include <ext/net/http/http_server_handler.hpp>
 #include <ext/net/http/http_server_filter.hpp>
+#include <ext/net/http/nonblocking_http_parser.hpp>
+#include <ext/net/http/nonblocking_http_writer.hpp>
 
 
 namespace ext::net::http
@@ -54,8 +56,9 @@ namespace ext::net::http
 		using time_point    = socket_queue::time_point;
 
 		using handler_result_type = http_server_handler::result_type;
-		using funtion_result_type = simple_http_server_handler::result_type;
-		using function_type = simple_http_server_handler::function_type;
+		using simple_handler_result_type = simple_http_server_handler::result_type;
+		using simple_handler_body_function_type = simple_http_server_handler::body_function_types;
+		using simple_handler_request_function_type = simple_http_server_handler::request_function_type;
 
 #ifdef EXT_ENABLE_OPENSSL
 		using SSL          = ::SSL;
@@ -102,10 +105,7 @@ namespace ext::net::http
 		// handle_* group:
 		//  http request is handled by handle_* method group. All methods can be overridden, also to allow more customization, each method returns what must be done next:
 		//   handle_request -> handle_prefilters -> .... -> handle_finish
-		//
-		// TODO: http request and response should be read/written in non blocking mode
-		//
-
+		
 	protected:
 		using process_result = http_server_handler::result_type;
 		using async_process_result = std::variant<ext::future<http_response>, ext::future<std::nullopt_t>>;
@@ -123,18 +123,21 @@ namespace ext::net::http
 		template <class ExecutorPtr>
 		class processing_executor_impl;
 
+		class async_http_body_source_impl;
+		class http_body_streambuf_impl;
+
 	protected:
 		using list_option = boost::intrusive::base_hook<hook_type>;
 		using task_list = boost::intrusive::list<task_base, list_option, boost::intrusive::constant_time_size<false>>;
 		using delayed_async_executor_task_continuation_list = boost::intrusive::list<delayed_async_executor_task_continuation, list_option, boost::intrusive::constant_time_size<false>>;
 
 	protected:
+		class  closable_http_body;
 		struct processing_context;
 
 		/// sort of union of bellow methods;
 		class handle_method_type;
 
-		using async_handle_method     = auto (http_server::*)(processing_context * context, ext::intrusive_ptr<ext::shared_state_basic> ptr) -> handle_method_type;
 		using regular_handle_methed   = auto (http_server::*)(processing_context * context) -> handle_method_type ;
 		using finalizer_handle_method = void (http_server::*)(processing_context * context);
 
@@ -146,7 +149,7 @@ namespace ext::net::http
 			ssl_ctx_iptr ssl_ctx;
 			ext::net::listener listener; // valid until it placed into sock_queue
 		};
-
+		
 		/// groups some context parameters for processing http request
 		struct processing_context
 		{
@@ -163,7 +166,7 @@ namespace ext::net::http
 
 			// should this connection be closed after request processed, determined by Connection header,
 			// but also - were there errors while processing request.
-			connection_action_type conn_action = close;
+			connection_action_type conn_action = connection_action_type::close;
 
 			std::vector<const http_server_handler *>    handlers;            // http handlers registered in server
 			std::vector<const http_headers_prefilter *> headers_prefilters;  // http headers prefilters  registered in server, sorted by order
@@ -179,16 +182,22 @@ namespace ext::net::http
 			std::size_t read_count, written_count;
 			std::size_t maximum_headers_size, maximum_discard_message_size;
 
-			nonblocking_http_parser parser; // http parser with state
-			nonblocking_http_writer writer; // http writer with state
-			http_request request;     // current http request, valid after is was parsed
-			process_result response;  // current http response, valid after handler was called
+			http_server_utils::nonblocking_http_parser parser; // http parser with state
+			http_server_utils::nonblocking_http_writer writer; // http writer with state
 
-			std::string output_buffer;
+			http_request request;                    // current http request, valid after is was parsed
+			process_result response = std::nullopt;  // current http response, valid after handler was called
+
+			unsigned async_state = 0;         // state used by some handle_methods, value for switch
+			std::string chunk_prefix;         // buffer for preparing and holding chunk prefix(chunked transfer encoding)
+			std::vector<char> output_buffer;  // output buffer for stream and async response bodies
+			
 			ssl_iptr ssl_ptr = nullptr; // ssl session, created from listener ssl context
-			std::atomic<ext::shared_state_basic *> m_executor_state = nullptr; // holds current pending async execution, used for internal synchronization
+			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
+			std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization
+			std::atomic<http_server::closable_http_body *> body_closer = nullptr; // async_http_body_source/http_body_streambuf closing closer
 		};
-
+		
 	protected:
 		socket_queue m_sock_queue; // intenal socket and listener queue
 		boost::container::flat_set<socket_streambuf::handle_type> m_sock_handles; // set of current pending sockets, used to detect new connections
@@ -303,13 +312,13 @@ namespace ext::net::http
 		virtual void run_sockqueue();
 		/// Reads, parses, process http request and writes http_response back, full cycle for single http request on socket.
 		virtual void run_socket(processing_context * context);
-
+		
 		/// Runs handle_* circuit, updates context->cur_method for regular methods
 		virtual void executor_handle_runner(handle_method_type next_method, processing_context * context);
-		/// Submits and schedules processing of async result, currently async http handler
+		/// Submits and schedules processing of async result
 		virtual void submit_async_executor_task(ext::intrusive_ptr<ext::shared_state_basic> handle, handle_method_type method, processing_context * context);
 		/// Helper method for creating async handle_method
-		static  auto async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, async_handle_method async_method) -> handle_method_type;
+		static  auto async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, regular_handle_methed async_method) -> handle_method_type;
 		static  auto async_method(socket_queue::wait_type wait,                              regular_handle_methed async_method) -> handle_method_type;
 
 		/// non blocking recv with MSG_PEEK:
@@ -341,21 +350,27 @@ namespace ext::net::http
 		virtual auto handle_request_headers_parsing(processing_context * context) -> handle_method_type;
 		virtual auto handle_request_body_parsing(processing_context * context) -> handle_method_type;
 		virtual auto handle_discarded_request_body_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_async_body_source_parsing(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_parsed_headers(processing_context * context) -> handle_method_type;
 		virtual auto handle_prefilters_headers(processing_context * context) -> handle_method_type;
 		virtual auto handle_find_handler(processing_context * context) -> handle_method_type;
 		virtual auto handle_request_header_processing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_init_body_parsing(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_parsed_request(processing_context * context) -> handle_method_type;
 		virtual auto handle_prefilters_full(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing_result(processing_context * context) -> handle_method_type;
-		virtual auto handle_async_processing_result(processing_context * context, ext::intrusive_ptr<ext::shared_state_basic> resp_handle) -> handle_method_type;
 		virtual auto handle_postfilters(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_response(processing_context * context) -> handle_method_type;
-		virtual auto handle_response_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_headers_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_headers_written(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_simple_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_stream_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_async_body_writting(processing_context * context) -> handle_method_type;
+		
 		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
 		virtual void handle_finish(processing_context * context);
 
@@ -413,6 +428,12 @@ namespace ext::net::http
 
 		template <class Task>
 		auto submit_task(Task && task) -> ext::future<std::invoke_result_t<std::decay_t<Task>>>;
+		
+		/// submits task for running handle_* circuit
+		void submit_handler(handle_method_type next_method, processing_context * context);
+		
+		template <class Lock>
+		void submit_handler(Lock & lk, handle_method_type next_method, processing_context * context);
 
 	protected:
 		virtual auto do_add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx) -> ext::future<void>;
@@ -433,10 +454,12 @@ namespace ext::net::http
 		/// logs write buffer in hex dump format
 		virtual void log_write_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
 
+		static std::pair<double, double> parse_accept(const http_request & request);
+
 		/// Creates HTTP 400 BAD REQUEST answer
-		virtual http_response create_bad_request_response(const socket_streambuf & sock, connection_action_type conn = close) const;
+		virtual http_response create_bad_request_response(const socket_streambuf & sock, connection_action_type conn = connection_action_type::close) const;
 		/// Creates HTTP 503 Service Unavailable answer
-		virtual http_response create_server_busy_response(const socket_streambuf & sock, connection_action_type conn = close) const;
+		virtual http_response create_server_busy_response(const socket_streambuf & sock, connection_action_type conn = connection_action_type::close) const;
 		/// Creates HTTP 404 Not found answer
 		virtual http_response create_unknown_request_response(const socket_streambuf & sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer, body = Request processing abandoned
@@ -465,11 +488,17 @@ namespace ext::net::http
 		/// Adds http handler
 		virtual void add_handler(std::unique_ptr<const http_server_handler> handler);
 		/// Adds simple http handler
-		virtual void add_handler(std::vector<std::string> methods, std::string url, function_type function);
+		virtual void add_handler(std::vector<std::string> methods, std::string url, simple_handler_body_function_type function);
 		/// Adds simple http handler
-		virtual void add_handler(std::string url, function_type function);
+		virtual void add_handler(std::string url, simple_handler_body_function_type function);
 		/// Adds simple http handler
-		virtual void add_handler(std::string method, std::string url, function_type function);
+		virtual void add_handler(std::string method, std::string url, simple_handler_body_function_type function);
+		/// Adds simple http handler
+		virtual void add_handler(std::vector<std::string> methods, std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type = http_body_type::string);
+		/// Adds simple http handler
+		virtual void add_handler(std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type = http_body_type::string);
+		/// Adds simple http handler
+		virtual void add_handler(std::string method, std::string url, simple_handler_request_function_type function, http_body_type wanted_request_body_type = http_body_type::string);
 
 	public:
 		/// Configures processing context limits

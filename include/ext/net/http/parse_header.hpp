@@ -81,4 +81,11 @@ namespace ext::net::http
 	///   }
 	bool extract_query(std::string_view qurey_str, std::string_view name, std::string & value); // can throw bad_alloc on string assignment
 	bool extract_query(std::string_view qurey_str, std::string_view name, std::string_view & value) noexcept;
+
+
+	double parse_weight(std::string_view str, double invval = 0.0);
+
+	double extract_weight(std::string_view field, std::string_view name, double defval = 0.0);
+
+
 }

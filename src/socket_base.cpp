@@ -133,6 +133,15 @@ namespace ext::net
 #endif
 	}
 
+	void socket_stream_cleanup()
+	{
+#ifdef EXT_ENABLE_OPENSSL
+		openssl_cleanup();
+#endif
+
+		wsacleanup();
+	}
+	
 	int last_socket_error() noexcept
 	{
 		return ::WSAGetLastError();
@@ -635,6 +644,13 @@ namespace ext::net
 	{
 #ifdef EXT_ENABLE_OPENSSL
 		openssl_init();
+#endif
+	}
+	
+	void socket_stream_cleanup()
+	{
+#ifdef EXT_ENABLE_OPENSSL
+		openssl_cleanup();
 #endif
 	}
 

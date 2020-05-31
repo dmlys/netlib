@@ -113,10 +113,10 @@ namespace ext::net::http
 		throw std::runtime_error(std::move(msg));
 	}
 
-	BOOST_NORETURN void blocking_http_parser::throw_stream_read_failure()
-	{
-		throw std::runtime_error("ext::net::http_parser: stream read failure");
-	}
+	//BOOST_NORETURN void blocking_http_parser::throw_stream_read_failure()
+	//{
+	//	throw std::runtime_error("ext::net::http_parser: stream read failure");
+	//}
 
 	void blocking_http_parser::init_parser_internals()
 	{
@@ -264,7 +264,7 @@ namespace ext::net::http
 
 		for (;;)
 		{
-			if (not peek(sb)) throw_stream_read_failure();
+			peek(sb);
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();
@@ -313,7 +313,7 @@ namespace ext::net::http
 
 		for (;;)
 		{
-			if (not peek(sb)) throw_stream_read_failure();
+			peek(sb);
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();
@@ -355,7 +355,7 @@ namespace ext::net::http
 		m_buffer_size = 0;
 		while (not message_parsed())
 		{
-			if (not peek(sb)) throw_stream_read_failure();
+			peek(sb);
 
 			auto & esb = static_cast<ext::streambuf &>(sb);
 			auto * ptr = esb.gptr();

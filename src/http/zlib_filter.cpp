@@ -11,32 +11,9 @@
 
 namespace ext::net::http
 {
-	double zlib_filter::parse_weight(std::string_view str) const
-	{
-		std::istringstream ss(std::string(str.data(), str.data() + str.size()));
-		ss.imbue(std::locale::classic());
-
-		double result = 0.0;
-		ss >> result;
-
-		return result;
-	}
-
-	double zlib_filter::extract_weight(std::string_view field, std::string_view name, double defval) const
-	{
-		std::string_view parstr, parval;
-		if (not extract_header_value(field, name, parstr))
-			return 0;
-
-		if (extract_header_parameter(parstr, "q", parval))
-			return parse_weight(parval);
-		else
-			return defval;
-	}
-
 	auto zlib_filter::parse_accept_encoding(std::string_view accept_encoding_field) const -> std::tuple<double, double>
 	{
-		double gzip_weight = 1, deflate_weight = 1;
+		double gzip_weight = 0.0, deflate_weight = 0.0;
 
 		if (double weight = extract_weight(accept_encoding_field, "*", 1.0); weight > 0)
 			gzip_weight = deflate_weight = weight;
@@ -174,13 +151,13 @@ namespace ext::net::http
 		auto * hdr = find_header(req.headers, "Content-Encoding");
 		if (not hdr) return std::nullopt;
 
-		const auto & encoding = hdr->value;
-		if (encoding == "gzip" or encoding == "deflate")
-		{
-			EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
-			req.body = inflate(req.body);
-			remove_header(req.headers, "Content-Encoding");
-		}
+		//const auto & encoding = hdr->value;
+		//if (encoding == "gzip" or encoding == "deflate")
+		//{
+		//	EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
+		//	req.body = inflate(req.body);
+		//	remove_header(req.headers, "Content-Encoding");
+		//}
 
 		return std::nullopt;
 	}
@@ -200,16 +177,16 @@ namespace ext::net::http
 		double gzip_weight, deflate_weight;
 		std::tie(gzip_weight, deflate_weight) = parse_accept_encoding(encoding);
 
-		if (gzip_weight > 0 and gzip_weight >= deflate_weight)
-		{
-			set_header(resp.headers, "Content-Encoding", "gzip");
-			resp.body = deflate(resp.body, true);
-		}
-		else if (deflate_weight > 0)
-		{
-			set_header(resp.headers, "Content-Encoding", "deflate");
-			resp.body = deflate(resp.body, false);
-		}
+		//if (gzip_weight > 0 and gzip_weight >= deflate_weight)
+		//{
+		//	set_header(resp.headers, "Content-Encoding", "gzip");
+		//	resp.body = deflate(resp.body, true);
+		//}
+		//else if (deflate_weight > 0)
+		//{
+		//	set_header(resp.headers, "Content-Encoding", "deflate");
+		//	resp.body = deflate(resp.body, false);
+		//}
 	}
 }
 

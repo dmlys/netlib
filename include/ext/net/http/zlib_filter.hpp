@@ -19,9 +19,6 @@ namespace ext::net::http
 		unsigned postorder() const noexcept override { return m_order; }
 
 	protected:
-		double parse_weight(std::string_view str) const;
-		double extract_weight(std::string_view field, std::string_view name, double defval) const;
-
 		// gzip_weight, deflate_weight
 		auto parse_accept_encoding(std::string_view accept_encoding_field) const -> std::tuple<double, double>;
 		std::string inflate(const std::string & data) const;
