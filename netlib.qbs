@@ -35,6 +35,8 @@ Project
 
 		Export
 		{
+			property bool with_openssl: project.with_openssl
+			
 			Depends { name: "cpp" }
 
 			cpp.cxxLanguageVersion : "c++17"

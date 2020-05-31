@@ -20,12 +20,18 @@ CppApplication
 	cpp.libraryPaths: project.additionalLibraryPaths
 
 
-	cpp.dynamicLibraries: [
-		"stdc++fs", "fmt", "z",
-		//"boost_system",
-		//"boost_test_exec_monitor",
-		"boost_unit_test_framework",
-	]
+	cpp.dynamicLibraries: {
+		var libs = ["stdc++fs", "fmt", "z",
+			//"boost_system",
+			//"boost_test_exec_monitor",
+			"boost_unit_test_framework",
+		]
+		
+		if (netlib.with_openssl)
+			libs = libs.concat(["ssl", "crypto"])
+		
+		return libs
+	}
 
 	files: [
 		"tests/**",
