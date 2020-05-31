@@ -83,6 +83,10 @@ namespace ext::net
 	using addrinfo_ptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
 	constexpr socket_handle_type invalid_socket = -1;
 
+	// special tag type, to disambiguate some overloaded constructors accepting socket handles(int type) and port(unsigned short type)
+	// ext::net::listener listener(handle_arg, handle);
+	struct handle_arg_type {} constexpr handle_arg;
+	
 	/// on POSIX systems - return ::close(sock)
 	/// on WINDOWS       - return ::closesocket(sock);
 	int close(socket_handle_type sock);

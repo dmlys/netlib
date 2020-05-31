@@ -26,7 +26,7 @@ namespace ext::net
 	/// simple socket listener class for use in very simple socket server applications,
 	/// for more complex ones - use more appropriate libraries, for example boost::asio
 	class listener
-	{	
+	{
 	private:
 		socket_handle_type m_listening_socket = -1;
 
@@ -76,6 +76,9 @@ namespace ext::net
 		/// Throws std::system_error in case or errors
 		void bind(unsigned short port, int af = af_unspec) { bind("", port, af); }
 		void bind(std::string ipaddr, unsigned short port, int af = af_unspec);
+		/// binds this listener to given address, protocol and family is taken from address
+		void bind(sockaddr * sockaddr, socklen_t addrlen, int socktype, int protocol = 0);
+		
 		/// calls ::listen and checks result,
 		/// throws std::system_error in case or errors
 		void listen(int backlog);
@@ -93,6 +96,7 @@ namespace ext::net
 		listener() = default;
 		~listener();
 
+		listener(ext::net::handle_arg_type, socket_handle_type handle) : m_listening_socket(handle) {}
 		listener(unsigned short port, int af = af_unspec) { bind(port, af); }
 		listener(std::string ipaddr, unsigned short port, int af = af_unspec) { bind(std::move(ipaddr), port, af); }
 

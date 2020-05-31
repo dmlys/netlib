@@ -126,22 +126,26 @@ namespace ext::net
 		int res = ::getaddrinfo(host, service, &hint, &addrres);
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::getaddrinfo failed");
 
-		m_listening_socket = ::socket(addrres->ai_family, addrres->ai_socktype, addrres->ai_protocol);
+		addrinfo_ptr addrinfo_ptr(addrres); // will call freeaddrinfo
+		bind(addrres->ai_addr, addrres->ai_addrlen, addrres->ai_socktype, addrres->ai_protocol);
+	}
+	
+	void listener::bind(sockaddr * sockaddr, socklen_t addrlen, int socktype, int protocol/* = 0 */)
+	{
+		m_listening_socket = ::socket(sockaddr->sa_family, socktype, protocol);
 		if (m_listening_socket == invalid_socket) throw_last_socket_error("ext::net::listener::bind: ::socket failed");
 
 		//int enabled = 0;
 		//res = ::setsockopt(m_listening_socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
 		//if (res != 0) throw_last_socket_error("::setsockopt IPV6_V6ONLY failed");
 
-		int enabled = 1;
+		int res, enabled = 1;
 		res = ::setsockopt(m_listening_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::setsockopt SO_REUSEADDR failed");
 
-		std::string sock_endpoint = sock_addr_noexcept(addrres->ai_addr);
-		res = ::bind(m_listening_socket, addrres->ai_addr, addrres->ai_addrlen);
+		std::string sock_endpoint = sock_addr_noexcept(sockaddr);
+		res = ::bind(m_listening_socket, sockaddr, addrlen);
 		if (res != 0) throw_last_listener_error(sock_endpoint, "ext::net::listener::bind: ::bind failed");
-
-		freeaddrinfo(addrres);
 	}
 
 	void listener::listen(int backlog)
@@ -168,7 +172,7 @@ namespace ext::net
 #else
 		constexpr int how = SHUT_RDWR;
 #endif
-		
+
 		int res = ::shutdown(m_listening_socket, how);
 		if (res != 0) throw_last_socket_error("shutdown failed");
 		//assert(res == 0);
