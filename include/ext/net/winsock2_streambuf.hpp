@@ -220,10 +220,10 @@ namespace ext::net
 		/// возвращает последнюю ошибку возникшую в ходе выполнения операции
 		/// или ok если ошибок не было
 		const error_code_type & last_error() const noexcept { return m_lasterror; }
-		/// возвращает контекст последней ошибки, контекс - 1-2 слова опиывающее контекст в котором произошла ошибка:
+		/// возвращает контекст последней ошибки, контекст - 1-2 слова описывающее контекст в котором произошла ошибка:
 		/// read, connect, getaddrinfo, socket close, etc
 		const char * last_error_context() const noexcept { return m_lasterror_context; }
-		/// устанавливает полсденюю ошибкку и опционально контекст
+		/// устанавливает последнюю ошибку и опционально контекст
 		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
 		/// возвращает имя данного класса, для логирования
 		static const char * class_name() noexcept { return "winsock2_streambuf"; }
@@ -232,8 +232,8 @@ namespace ext::net
 		/// Устанавливает последную ошибку и бросает ее
 		EXT_NORETURN void throw_last_error(error_code_type errc, const char * context = nullptr) { set_last_error(errc, context); throw_last_error(); }
 
-		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависиммые от первых
-		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщеаться через return значение.
+		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависимые от первых
+		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщается через return значение.
 		/// !!! по умолчанию включено, но sock_stream, а так же любой std::iostream не будет пропускать эти исключения.
 		/// !!! sock_stream будет выключать данное поведение во внутреннем sock_streambuf.
 		bool throw_errors() const noexcept { return m_throw_errors; }

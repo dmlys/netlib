@@ -29,7 +29,7 @@ namespace ext::net
 	///   
 	/// дополнительно от socket_streambuf_base:
 	/// * установка пользовательского буфера, буфер делиться пополам на ввод/вывод(подробное смотри соотв метод)
-	///   класс всегда буферезирован, минимальный размер буфера - смотри socket_streambuf_base,
+	///   класс всегда буферизованн, минимальный размер буфера - смотри socket_streambuf_base,
 	///   если пользователь попытается убрать буфер или предоставить слишком маленький буфер - класс откатится на буфер по умолчанию
 	/// * входящая область по умолчанию автоматически синхронизируется с исходящей. Подобно std::ios::tie,
 	///   как только входящий буфер исчерпан, прежде чем он будет заполнен из сокета - исходящий буфер будет сброшен в сокет
@@ -115,7 +115,7 @@ namespace ext::net
 		/// или бросает system_error_type(last_error())
 		bool process_result(bool result);
 
-		/// выполняет resolve с помощью getaddrinfo
+		/// выполняет resolve с помощью ::getaddrinfo
 		/// в случае ошибки - устанавливает m_lasterror и возвращает false
 		bool do_resolve(const char * host, const char * service, addrinfo_type ** result) noexcept;
 		/// устанавливает не блокирующий режим работы сокета.
@@ -154,7 +154,7 @@ namespace ext::net
 #ifdef EXT_ENABLE_OPENSSL
 		error_code_type ssl_error(SSL * ssl, int error) noexcept;
 		/// анализирует ошибку ssl read/write операции.
-		/// res[in] - результат операции(возращаяемое значение ::SSL_read, ::SSL_write).
+		/// res[in] - результат операции(возвращаемое значение ::SSL_read, ::SSL_write).
 		/// res[out] - результат ::SSL_get_error(ctx, res);
 		/// В err_code записывает итоговую ошибку.
 		/// возвращает была ли действительно ошибка, или нужно повторить операцию(реакция на EINTR).
@@ -209,10 +209,10 @@ namespace ext::net
 		/// возвращает последнюю ошибку возникшую в ходе выполнения операции
 		/// или ok если ошибок не было
 		const error_code_type & last_error() const noexcept { return m_lasterror; }
-		/// возвращает контекст последней ошибки, контекс - 1-2 слова опиывающее контекст в котором произошла ошибка:
+		/// возвращает контекст последней ошибки, контекст - 1-2 слова описывающее контекст в котором произошла ошибка:
 		/// read, connect, getaddrinfo, socket close, etc
 		const char * last_error_context() const noexcept { return m_lasterror_context; }
-		/// устанавливает полсденюю ошибкку и опционально контекст
+		/// устанавливает последнюю ошибку и опционально контекст
 		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
 		/// возвращает имя данного класса, для логирования
 		static const char * class_name() noexcept { return "bsdsock_streambuf"; }
@@ -221,8 +221,8 @@ namespace ext::net
 		/// Устанавливает последную ошибку и бросает ее
 		EXT_NORETURN void throw_last_error(error_code_type errc, const char * context = nullptr) { set_last_error(errc, context); throw_last_error(); }
 
-		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависиммые от первых
-		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщеаться через return значение.
+		/// в случае если throw_errors - true - операции read/write/connect/shutdown/close, std::streambuf методы зависимые от первых
+		/// будет бросать system_error_type исключения с последней ошибкой, иначе же ошибка будет сообщаться через return значение.
 		/// !!! по умолчанию включено, но sock_stream, а так же любой std::iostream не будет пропускать эти исключения.
 		/// !!! sock_stream будет выключать данное поведение во внутреннем sock_streambuf.
 		bool throw_errors() const noexcept { return m_throw_errors; }
@@ -288,7 +288,7 @@ namespace ext::net
 		/// инициализирует объект заданным socket handle'ом.
 		/// переводит сокет в не блокирующий режим.
 		/// если объект уже был открыт/инициализирован или возникли какие либо ошибки,
-		/// в том числе interrupt - бросает std::system_error с соотвествующей ошибкой.
+		/// в том числе interrupt - бросает std::system_error с соответствующей ошибкой.
 		void init_handle(handle_type handle);
 
 		/// выполняет подключение по заданным параметрам - в случае успеха возвращает true
