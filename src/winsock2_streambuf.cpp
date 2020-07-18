@@ -1296,9 +1296,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getpeername(addr, &addrlen);
 
-		// in winsock2 both sockaddr_in6 and sockaddr_in have port member on same offset
-		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ::ntohs(port);
+		return ext::net::sock_port(addr);
 	}
 
 	unsigned short winsock2_streambuf::sock_port() const
@@ -1308,9 +1306,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		// in winsock2 both sockaddr_in6 and sockaddr_in have port member on same offset
-		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ::ntohs(port);
+		return ext::net::sock_port(addr);
 	}
 
 	void winsock2_streambuf::peer_name(std::string & name, unsigned short & port) const

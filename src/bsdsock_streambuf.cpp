@@ -1232,9 +1232,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getpeername(addr, &addrlen);
 
-		// both sockaddr_in6 and sockaddr_in have port member on same offset
-		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ::ntohs(port);
+		return ext::net::sock_port(addr);
 	}
 
 	unsigned short bsdsock_streambuf::sock_port() const
@@ -1244,9 +1242,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		// both sockaddr_in6 and sockaddr_in have port member on same offset
-		auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ::ntohs(port);
+		return ext::net::sock_port(addr);
 	}
 
 	void bsdsock_streambuf::peer_name(std::string & name, unsigned short & port) const

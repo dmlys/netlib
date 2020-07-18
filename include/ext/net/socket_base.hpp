@@ -11,12 +11,20 @@
 
 namespace ext::net
 {
+	extern const int af_unspec;  // AF_UNSPEC
+	extern const int af_inet;    // AF_INET
+	extern const int af_inet6;   // AF_INET6
+	
+	extern const int sock_stream;    // SOCK_STREAM
+	extern const int sock_dgram;     // SOCK_DGRAM
+	extern const int sock_seqpacket; // SOCK_SEQPACKET
+
 
 #if BOOST_OS_WINDOWS
 
 	using addrinfo_type = addrinfoW;
 	using sockaddr_type = sockaddr;
-
+	
 	/// winsock initialization functons, brouht here for windows include isolation
 	/// calss WSAstartup and returns call result
 	int wsastartup(std::uint16_t version);
@@ -161,25 +169,33 @@ namespace ext::net
 	/// возвращает строку адреса подключения вида $addr:$port, например 127.0.0.1:22, для ipv6 - [::1]:22
 	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
 	std::string sock_addr(sockaddr * addr);
-	/// safe версия sock_add - не кидает ошибок(за исключением std::bad_alloc),
+	/// safe версия sock_addr - не кидает ошибок(за исключением std::bad_alloc),
 	/// в случае ошибки возвращает <ERR:code>. Например - <ENOTCONN:107>
 	std::string sock_addr_noexcept(sockaddr * addr);
-
+	/// возвращает порт подключения,
+	/// если address family не поддерживает порт как таковой - кидает std::runtime_error / std::system_error
+	unsigned short sock_port(sockaddr * addr);
+	/// safe версия sock_port - не кидает исключений,
+	/// если address family не поддерживает порт как таковой - возвращает 0
+	unsigned short sock_port_noexcept(sockaddr * addr);
+	
 	/// \{
 	///
 	/// ::getaddrinfo wrapper, все строки в utf8
-	/// hints.ai_family = AF_UNSPEC
-	/// hints.ai_protocol = IPPROTO_TCP
-	/// hints.ai_socktype = SOCK_STREAM
 	///
 	/// @Param host имя или адрес как в ::getaddrinfo
 	/// @Param service/port имя сервиса или номер порта как в ::getaddrinfo
+	/// @Param hints передается как есть в вызов ::getaddrinfo,
+	///              null допустимое значение - в таком случае как привило используются некие default значение
 	/// @Param err для nothrow overload, out параметр, тут будет ошибка, а возвращаемое значение будет null
 	/// @Returns std::unique_ptr<addrinfo> resolved адрес, в случае ошибки - nullptr для error overloads
 	/// @Throws std::system_error в случае системной ошибки
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service);
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, std::error_code & err);
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints);
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err);
+	
+	inline addrinfo_ptr getaddrinfo(const char * host, const char * service)                          { return getaddrinfo(host, service, nullptr); }
+	inline addrinfo_ptr getaddrinfo(const char * host, const char * service, std::error_code & err)   { return getaddrinfo(host, service, nullptr, err); }
 
 	inline addrinfo_ptr getaddrinfo(const std::string & host, const std::string & service, std::error_code & err) { return getaddrinfo(host.c_str(), service.c_str(), err); }
 	inline addrinfo_ptr getaddrinfo(const std::string & host, std::error_code & err)                              { return getaddrinfo(host.c_str(), nullptr, err); }
@@ -187,9 +203,12 @@ namespace ext::net
 	inline addrinfo_ptr getaddrinfo(const std::string & host)                                                     { return getaddrinfo(host.c_str(), nullptr); }
 
 #if BOOST_OS_WINDOWS
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service);
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, std::error_code & err);
+	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints);
+	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err);
 
+	inline addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service)                           { return getaddrinfo(host, service, nullptr); }
+	inline addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, std::error_code & err)    { return getaddrinfo(host, service, nullptr, err); }
+	
 	inline addrinfo_ptr getaddrinfo(const std::wstring & host, const std::wstring & service, std::error_code & err)  { return getaddrinfo(host.c_str(), service.c_str(), err); }
 	inline addrinfo_ptr getaddrinfo(const std::wstring & host, std::error_code & err)                                { return getaddrinfo(host.c_str(), nullptr, err); }
 	inline addrinfo_ptr getaddrinfo(const std::wstring & host, const std::wstring & service)                         { return getaddrinfo(host.c_str(), service.c_str()); }
@@ -197,4 +216,19 @@ namespace ext::net
 #endif
 
 	/// \}
+
+	/// Returns loopback addr with port = 0 for given address family, socket type and protocol.
+	/// Resolution will be done with AI_ADDRCONFIG, so addr family in case of AF_UNSPEC, will depend on system configuration
+	addrinfo_ptr loopback_addr(int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	addrinfo_ptr loopback_addr(std::error_code & err, int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
+	
+	/// manual implementation of socket pair function.
+	/// This function creates listener on with loopback interface and zero port(port will be assigned by OS),
+	/// connect socket to created listener and returns connected socket pair.
+	void manual_socketpair(socket_handle_type fds[2], int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	bool manual_socketpair(socket_handle_type fds[2], std::error_code & err, int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	
+	/// socket pair wrapper, if socketpair is not available on this platform, it will be done via manual_socketpair
+	void socketpair(socket_handle_type fds[2], int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	bool socketpair(socket_handle_type fds[2], std::error_code & err, int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
 }

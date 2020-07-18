@@ -7,12 +7,9 @@
 #include <ext/net/socket_include.hpp>
 #include <ext/net/listener.hpp>
 
+
 namespace ext::net
 {
-	const int listener::af_unspec = AF_UNSPEC;
-	const int listener::af_inet   = AF_INET;
-	const int listener::af_inet6  = AF_INET6;
-
 	listener_exception::listener_exception(std::string sock_endpoint, std::error_code errc, std::string msg)
 	    : std::system_error(errc, std::move(msg) + ", sock_endpoint = " + sock_endpoint), m_sock_endpoint(std::move(sock_endpoint))
 	{
@@ -99,7 +96,7 @@ namespace ext::net
 
 	void listener::bind(std::string ipaddr, unsigned short port, int af)
 	{
-		addrinfo hint, *addrres;
+		addrinfo_type hints;
 
 		ext::itoa_buffer<unsigned short> service_buffer;
 		auto * service = ext::itoa(port, service_buffer);
@@ -117,17 +114,17 @@ namespace ext::net
 		///  then return IPv4-mapped IPv6 addresses in the list pointed to by res.
 		///  If both AI_V4MAPPED and AI_ALL are specified in hints.ai_flags, then return both IPv6 and IPv4-mapped IPv6 addresses in the list pointed to by res.
 		///  AI_ALL is ignored if AI_V4MAPPED is not also specified.
-		std::memset(&hint, 0, sizeof(hint));
-		hint.ai_flags = AI_PASSIVE | AI_ADDRCONFIG | AI_V4MAPPED | AI_ALL;
-		hint.ai_family = af;
-		hint.ai_protocol = IPPROTO_TCP;
-		hint.ai_socktype = SOCK_STREAM;
+		std::memset(&hints, 0, sizeof(hints));
+		hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG | AI_V4MAPPED | AI_ALL;
+		hints.ai_family = af;
+		hints.ai_protocol = IPPROTO_TCP;
+		hints.ai_socktype = SOCK_STREAM;
 
-		int res = ::getaddrinfo(host, service, &hint, &addrres);
-		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::getaddrinfo failed");
+		std::error_code err;
+		addrinfo_ptr addrinfo = getaddrinfo(host, service, &hints, err);
+		if (err) throw std::system_error(err, "ext::net::listener::bind: ::getaddrinfo failed");
 
-		addrinfo_ptr addrinfo_ptr(addrres); // will call freeaddrinfo
-		bind(addrres->ai_addr, addrres->ai_addrlen, addrres->ai_socktype, addrres->ai_protocol);
+		bind(addrinfo->ai_addr, addrinfo->ai_addrlen, addrinfo->ai_socktype, addrinfo->ai_protocol);
 	}
 	
 	void listener::bind(sockaddr * sockaddr, socklen_t addrlen, int socktype, int protocol/* = 0 */)

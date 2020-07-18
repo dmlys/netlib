@@ -43,6 +43,7 @@ namespace ext::net::http::test_utils
 	
 	auto make_listener() -> ext::net::listener
 	{
+#if BOOST_OS_LINUX
 		// According to man 7 ip:
 		// When listen(2) is called on an unbound socket,
 		// the socket is automatically bound to a random free port with the local address set to INADDR_ANY.
@@ -55,11 +56,19 @@ namespace ext::net::http::test_utils
 		listener.listen(1);
 		
 		return listener;
+#else
+		auto addrinfo = loopback_addr(AF_UNSPEC, SOCK_STREAM);
+		ext::net::listener listener;
+		listener.bind(addrinfo->ai_addr, addrinfo->ai_addrlen, addrinfo->ai_socktype, addrinfo->ai_protocol);
+		listener.listen(1);
+		
+		return listener;
+#endif
 	}
 	
 	auto configure(http_server & server) -> std::tuple<std::string, unsigned short>
 	{
-		//static ext::library_logger::stream_logger logger(std::clog, ext::library_logger::Trace);
+		//static ext::library_logger::stream_logger logger(std::cout, ext::library_logger::Trace);
 		//server.set_logger(&logger);
 		
 		auto listener = make_listener();

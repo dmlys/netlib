@@ -42,11 +42,6 @@ namespace ext::net
 		socket_handle_type handle() const noexcept { return m_listening_socket; }
 
 	public:
-		static const int af_unspec; // = AF_UNSPEC
-		static const int af_inet;   // = AF_INET
-		static const int af_inet6;  // = AF_INET6
-
-	public:
 		/// calls ::getsockname(handle(), addr, namelen),
 		/// throws std::system_error in case or errors
 		void getsockname(sockaddr_type * addr, socklen_t * addrlen) const;

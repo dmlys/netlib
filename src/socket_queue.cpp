@@ -24,7 +24,7 @@
 
 #if _MSC_VER
 #pragma warning(disable: 4244) // C4244 'argument' : conversion from 'type1' to 'type2', possible loss of data
-#endif 
+#endif
 
 #undef EWOULDBLOCK
 #undef EAGAIN
@@ -38,9 +38,14 @@
 #define poll  WSAPoll
 using ioctl_type = unsigned long;
 
-inline static int read(socket_handle_type sock, char * buffer, int max_count)
+inline static int read(socket_handle_type sock, char * buffer, int count)
 {
-	return ::recv(sock, buffer, max_count, 0);
+	return ::recv(sock, buffer, count, 0);
+}
+
+inline static int write(socket_handle_type sock, const char * buffer, int count)
+{
+	return ::send(sock, buffer, count, 0);
 }
 
 #else  // BOOST_OS_POSIX
@@ -52,10 +57,9 @@ namespace ext::net
 	static auto create_interrupt_pair() -> std::tuple<socket_handle_type, socket_handle_type>
 	{
 #if BOOST_OS_WINDOWS
-		auto handle = ::socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-		if (handle == invalid_socket) throw_last_socket_error("ext::net::socket_queue: failed to create interrupt UDP socket");
-
-		return std::make_tuple(handle, invalid_socket);
+		socket_handle_type socks[2];
+		manual_socketpair(socks);
+		return std::make_tuple(socks[0], socks[1]);
 #else
 		int pipefd[2];
 		int res = ::pipe(pipefd);
@@ -78,27 +82,17 @@ namespace ext::net
 	{
 		if (not m_interrupted.exchange(true, std::memory_order_release))
 		{
-#if BOOST_OS_WINDOWS
-			int res = close(m_interrupt_listen);
-			assert(res == 0); EXT_UNUSED(res);
-#else
 			char dummy = 0;
 			int res = ::write(m_interrupt_write, &dummy, 1);
 			//int err = errno;
 			assert(res == 1); EXT_UNUSED(res);
-#endif // BOOST_OS_WINDOWS
 		}
 	}
 
 	auto socket_queue::process_interrupted()
 	{
 		LOG_DEBUG("ext::net::socket_queue interrupted");
-
-#if BOOST_OS_WINDOWS
-		std::tie(m_interrupt_listen, m_interrupt_write) = create_interrupt_pair();
-#else
 		consume_all_input(m_interrupt_listen);
-#endif
 
 		m_interrupted.store(false, std::memory_order_relaxed);
 		return interrupted;

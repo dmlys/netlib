@@ -159,7 +159,7 @@ BOOST_DATA_TEST_CASE(lingering_request_stream_test, make(configurations), config
 	server.start();
 	async_request_queue request_queue;
 	server.add_handler("/", request_queue.handler(), http_body_type::stream);
-	
+
 	auto sock = connect_socket(addr);
 	//sock.timeout(std::chrono::seconds(0));
 	

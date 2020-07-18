@@ -9,6 +9,8 @@
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_include.hpp>
 
+#include <boost/scope_exit.hpp>
+
 #if BOOST_OS_WINDOWS
 #include <codecvt> // for std::codecvt_utf8<wchar_t>
 #include <ext/codecvt_conv.hpp>
@@ -25,6 +27,14 @@
 
 namespace ext::net
 {
+	const int af_unspec = AF_UNSPEC;
+	const int af_inet   = AF_INET;
+	const int af_inet6  = AF_INET6;
+	
+	const int sock_stream = SOCK_STREAM;
+	const int sock_dgram  = SOCK_DGRAM;
+	const int sock_seqpacket = SOCK_SEQPACKET;
+	
 	/************************************************************************/
 	/*                platform independent stuff                            */
 	/************************************************************************/
@@ -529,6 +539,32 @@ namespace ext::net
 		return host;
 	}
 
+	unsigned short sock_port(sockaddr * addr)
+	{
+		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
+		{
+			// both sockaddr_in6 and sockaddr_in have port member on same offset
+			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			return ::ntohs(port);
+		}
+		
+		throw std::system_error(
+		    std::make_error_code(std::errc::address_family_not_supported),
+		    "sock_port unsupported address family"
+		);
+	}
+	
+	unsigned short sock_port_noexcept(sockaddr * addr)
+	{
+		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
+		{
+			// both sockaddr_in6 and sockaddr_in have port member on same offset
+			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			return ::ntohs(port);
+		}
+		
+		return 0;
+	}
 
 	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
 	{
@@ -543,17 +579,10 @@ namespace ext::net
 	/************************************************************************/
 	/*                   getaddrinfo                                        */
 	/************************************************************************/
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, std::error_code & err)
+	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err)
 	{
-		addrinfo_type hints;
-
-		::ZeroMemory(&hints, sizeof(hints));
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_protocol = IPPROTO_TCP;
-		hints.ai_socktype = SOCK_STREAM;
-
 		addrinfo_type * ptr;
-		int res = ::GetAddrInfoW(host, service, &hints, &ptr);
+		int res = ::GetAddrInfoW(host, service, hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();
@@ -565,25 +594,18 @@ namespace ext::net
 			return nullptr;
 		}
 	}
-
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service)
+	
+	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints)
 	{
-		addrinfo_type hints;
-
-		::ZeroMemory(&hints, sizeof(hints));
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_protocol = IPPROTO_TCP;
-		hints.ai_socktype = SOCK_STREAM;
-
 		addrinfo_type * ptr;
-		int res = ::GetAddrInfoW(host, service, &hints, &ptr);
+		int res = ::GetAddrInfoW(host, service, hints, &ptr);
 		if (res == 0)
 			return addrinfo_ptr(ptr);
 		else
 			throw_socket_error(res, "GetAddrInfoW failed");
 	}
-
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, std::error_code & err)
+	
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
 	{
 		std::codecvt_utf8<wchar_t> cvt;
 
@@ -606,10 +628,10 @@ namespace ext::net
 			wservice = wservicestr.c_str();
 		}
 
-		return getaddrinfo(whost, wservice, err);
+		return getaddrinfo(whost, wservice, hints, err);
 	}
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service)
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
 	{
 		std::codecvt_utf8<wchar_t> cvt;
 
@@ -632,9 +654,20 @@ namespace ext::net
 			wservice = wservicestr.c_str();
 		}
 
-		return getaddrinfo(whost, wservice);
+		return getaddrinfo(whost, wservice, hints);
 	}
 
+	void socketpair(socket_handle_type fds[2], int address_family, int sock_type, int sock_proto)
+	{
+		return manual_socketpair(fds, address_family, sock_type, sock_proto);
+	}
+	
+	bool socketpair(socket_handle_type fds[2], std::error_code & err, int address_family, int sock_type, int sock_proto)
+	{
+		return manual_socketpair(fds, err, address_family, sock_type, sock_proto);
+	}
+	
+	
 #else
 
 	/************************************************************************/
@@ -1015,6 +1048,32 @@ namespace ext::net
 		return host;
 	}
 
+	unsigned short sock_port(sockaddr * addr)
+	{
+		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
+		{
+			// both sockaddr_in6 and sockaddr_in have port member on same offset
+			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			return ::ntohs(port);
+		}
+		
+		throw std::system_error(
+		    std::make_error_code(std::errc::address_family_not_supported),
+		    "sock_port unsupported address family"
+		);
+	}
+	
+	unsigned short sock_port_noexcept(sockaddr * addr)
+	{
+		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
+		{
+			// both sockaddr_in6 and sockaddr_in have port member on same offset
+			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			return ::ntohs(port);
+		}
+		
+		return 0;
+	}
 
 	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
 	{
@@ -1025,27 +1084,20 @@ namespace ext::net
 	{
 		return ::close(sock);
 	}
-
-	addrinfo_ptr getaddrinfo(const char * host, const char * service)
+	
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
 	{
 		std::error_code err;
-		auto result = getaddrinfo(host, service, err);
+		auto result = getaddrinfo(host, service, hints, err);
 		if (result) return result;
 
 		throw std::system_error(err, "getaddrinfo failed");
 	}
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, std::error_code & err)
+	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
 	{
-		addrinfo_type hints;
-
-		std::memset(&hints, 0, sizeof(hints));
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_protocol = IPPROTO_TCP;
-		hints.ai_socktype = SOCK_STREAM;
-
 		addrinfo_type * ptr;
-		int res = ::getaddrinfo(host, service, &hints, &ptr);
+		int res = ::getaddrinfo(host, service, hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();
@@ -1063,6 +1115,166 @@ namespace ext::net
 			return addrinfo_ptr(nullptr);
 		}
 	}
-
+	
+	void socketpair(socket_handle_type fds[2], int address_family, int sock_type, int sock_proto)
+	{
+		int res = ::socketpair(address_family, sock_type, sock_proto, fds);
+		if (res != 0) throw_last_socket_error("socketpair failed");
+	}
+	
+	bool socketpair(socket_handle_type fds[2], std::error_code & err, int address_family, int sock_type, int sock_proto)
+	{
+		int res = ::socketpair(address_family, sock_type, sock_proto, fds);
+		if (res == 0) return true;
+		
+		err = last_socket_error_code();
+		return false;
+	}
+	
 #endif // #if BOOST_OS_WINDOWS
+
+
+	/************************************************************************/
+	/*                platform independent stuff                            */
+	/************************************************************************/
+	addrinfo_ptr loopback_addr(int address_family, int sock_type, int sock_proto)
+	{
+		std::error_code err;
+		auto result = loopback_addr(err, address_family, sock_type, sock_proto);
+		if (result) return result;
+		
+		throw std::system_error(err, "loopback_addr failed");
+	}
+	
+	addrinfo_ptr loopback_addr(std::error_code & err, int address_family, int sock_type, int sock_proto)
+	{
+		// AI_ADDRCONFIG - Use configuration of this host to choose returned address type..
+		//   If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4 addresses are returned in the list pointed to by res only
+		//   if the local system has at least one IPv4 address configured, and IPv6 addresses are returned only if the local system has at least one IPv6 address configured.
+		//   The loopback address is not considered for this case as valid as a configured address.
+		//   This flag is useful on, for example, IPv4-only systems, to ensure that getaddrinfo() does not return IPv6 socket addresses that would always fail in connect(2) or bind(2).
+		// AI_ALL - Return IPv4 mapped and IPv6 addresses.
+		//   If hints.ai_flags specifies the AI_V4MAPPED flag, and hints.ai_family was specified as AF_INET6, and no matching IPv6 addresses could be found,
+		///  then return IPv4-mapped IPv6 addresses in the list pointed to by res.
+		///  If both AI_V4MAPPED and AI_ALL are specified in hints.ai_flags, then return both IPv6 and IPv4-mapped IPv6 addresses in the list pointed to by res.
+		///  AI_ALL is ignored if AI_V4MAPPED is not also specified.
+		addrinfo_type hints;
+		std::memset(&hints, 0, sizeof(hints));
+		hints.ai_flags = AI_ADDRCONFIG | AI_ALL /*| AI_NUMERICHOST | AI_NUMERICSERV*/;
+		hints.ai_family = address_family;
+		hints.ai_socktype = sock_type;
+		hints.ai_protocol = sock_proto;
+		
+		return getaddrinfo(nullptr, "0", &hints, err);
+	}
+
+	void manual_socketpair(socket_handle_type fds[2], int address_family, int sock_type, int sock_proto)
+	{
+		socket_handle_type listen_sock = invalid_socket, sock1 = invalid_socket, sock2 = invalid_socket;
+		auto addr_info = loopback_addr(address_family, sock_type, sock_proto);
+		
+		BOOST_SCOPE_EXIT_ALL(&listen_sock, &sock1, &sock2)
+		{
+			if (listen_sock != invalid_socket) close(listen_sock);
+			if (sock1       != invalid_socket) close(sock1);
+			if (sock2       != invalid_socket) close(sock2);
+		};
+		
+		listen_sock = ::socket(addr_info->ai_family, addr_info->ai_socktype, addr_info->ai_protocol);
+		if (listen_sock == invalid_socket) throw_last_socket_error("ext::net::manual_socketpair: failed to create listen socket");
+		
+		sock1 = ::socket(addr_info->ai_family, addr_info->ai_socktype, addr_info->ai_protocol);
+		if (sock1 == invalid_socket) throw_last_socket_error("ext::net::manual_socketpair: failed to create socket");
+		
+		int res;
+		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
+		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock1 ::fcntl nonblocking failed");
+		
+		assert(sock_port(addr_info->ai_addr) == 0);
+		res = ::bind(listen_sock, addr_info->ai_addr, addr_info->ai_addrlen);
+		if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: ::bind failed");
+
+		sockaddr_storage sockstore;
+		auto * addrptr = reinterpret_cast<sockaddr *>(&sockstore);
+		socklen_t addrlen = sizeof(sockstore);
+		
+		res = ::getsockname(listen_sock, addrptr, &addrlen);
+		if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: ::getsockname failed");
+		
+		res = ::listen(listen_sock, 1);
+		if (res < 0) throw_last_socket_error("ext::net::manual_socketpair: ::listen failed");
+		
+		res = ::connect(sock1, addrptr, addrlen);
+		if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: ::connect failed");
+		
+		sock2 = ::accept(listen_sock, nullptr, nullptr);
+		if (sock2 == invalid_socket) throw_last_socket_error("ext::net::manual_socketpair: ::accept failed");
+		
+		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
+		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock2 ::fcntl nonblocking failed");
+		
+		close(listen_sock);
+		
+		fds[0] = sock1;
+		fds[1] = sock2;
+		
+		sock1 = sock2 = listen_sock = invalid_socket;
+	}
+	
+	bool manual_socketpair(socket_handle_type fds[2], std::error_code & err, int address_family, int sock_type, int sock_proto)
+	{
+		int res;
+		
+		sockaddr_storage sockstore;
+		auto * addrptr = reinterpret_cast<sockaddr *>(&sockstore);
+		socklen_t addrlen = sizeof(sockstore);
+		
+		socket_handle_type listen_sock = invalid_socket, sock1 = invalid_socket, sock2 = invalid_socket;
+		auto addr_info = loopback_addr(address_family, sock_type, sock_proto);
+		
+		listen_sock = ::socket(addr_info->ai_family, addr_info->ai_socktype, addr_info->ai_protocol);
+		if (listen_sock == invalid_socket) goto error;
+		
+		sock1 = ::socket(addr_info->ai_family, addr_info->ai_socktype, addr_info->ai_protocol);
+		if (sock1 == invalid_socket) goto error;
+		
+		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
+		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock1 ::fcntl nonblocking failed");
+		
+		assert(sock_port(addr_info->ai_addr) == 0);
+		res = ::bind(listen_sock, addr_info->ai_addr, addr_info->ai_addrlen);
+		if (res != 0) goto error;
+		
+		res = ::getsockname(listen_sock, addrptr, &addrlen);
+		if (res != 0) goto error;
+		
+		res = ::listen(listen_sock, 1);
+		if (res < 0)  goto error;
+		
+		res = ::connect(sock1, addrptr, addrlen);
+		if (res != 0) goto error;
+		
+		sock2 = ::accept(listen_sock, nullptr, nullptr);
+		if (sock2 == invalid_socket) goto error;
+		
+		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
+		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock2 ::fcntl nonblocking failed");
+		
+		close(listen_sock);
+		
+		fds[0] = sock1;
+		fds[1] = sock2;
+		
+		return true;
+		
+	error:
+		err = last_socket_error_code();
+		
+		if (listen_sock != invalid_socket) close(listen_sock);
+		if (sock1       != invalid_socket) close(sock1);
+		if (sock2       != invalid_socket) close(sock2);
+		
+		return false;
+	}
+	
 } // namespace ext
