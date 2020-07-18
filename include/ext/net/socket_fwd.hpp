@@ -30,11 +30,11 @@
     typedef int              socklen_t;
     typedef socklen_t        sockoptlen_t;
 
-	//#if _WIN32_WINNT >= 0x0600 // Starting from Windows Vista WSAPoll is availiable
-	//#define EXT_NET_POLL_AVAILIABLE 1
-	//#else
-	//#define EXT_NET_POLL_AVAILIABLE 0
-	//#endif
+	#if _WIN32_WINNT >= 0x0600 // Starting from Windows Vista WSAPoll is availiable
+	#define EXT_NET_POLL_AVAILIABLE 1
+	#else
+	#define EXT_NET_POLL_AVAILIABLE 0
+	#endif
 
 #elif BOOST_OS_CYGWIN
 
@@ -87,11 +87,7 @@
 #endif
 
 #ifndef EXT_NET_USE_POLL
-    #if BOOST_OS_WINDOWS
-    #define EXT_NET_USE_POLL 0
-    #else
-    #define EXT_NET_USE_POLL EXT_NET_POLL_AVAILIABLE
-    #endif
+#define EXT_NET_USE_POLL EXT_NET_POLL_AVAILIABLE
 #endif // EXT_NET_USE_POLL
 
 #ifdef EXT_ENABLE_OPENSSL
