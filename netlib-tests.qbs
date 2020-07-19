@@ -20,7 +20,8 @@ CppApplication
 	cpp.libraryPaths: project.additionalLibraryPaths
 
 
-	cpp.dynamicLibraries: {
+	cpp.dynamicLibraries:
+	{
 		var libs = ["stdc++fs", "fmt", "z",
 			//"boost_system",
 			//"boost_test_exec_monitor",
@@ -29,6 +30,9 @@ CppApplication
 		
 		if (netlib.with_openssl)
 			libs = libs.concat(["ssl", "crypto"])
+		
+		if (qbs.toolchain.contains("mingw"))
+			libs = libs.concat(["ws2_32", "crypt32", "ssp"]) // ssp is for mingw(gcc) stack protector, _FORTIFY_SOURCE stuff
 		
 		return libs
 	}
