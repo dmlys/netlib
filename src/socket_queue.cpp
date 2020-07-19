@@ -38,19 +38,31 @@
 #define poll  WSAPoll
 using ioctl_type = unsigned long;
 
-inline static int read(socket_handle_type sock, char * buffer, int count)
+inline static int interrupt_read(socket_handle_type sock, char * buffer, int count)
 {
 	return ::recv(sock, buffer, count, 0);
 }
 
-inline static int write(socket_handle_type sock, const char * buffer, int count)
+inline static int interrupt_write(socket_handle_type sock, const char * buffer, int count)
 {
 	return ::send(sock, buffer, count, 0);
 }
 
 #else  // BOOST_OS_POSIX
 using ioctl_type = int;
+
+inline static int interrupt_read(socket_handle_type sock, char * buffer, int count)
+{
+	return ::read(sock, buffer, count);
+}
+
+inline static int interrupt_write(socket_handle_type sock, const char * buffer, int count)
+{
+	return ::write(sock, buffer, count);
+}
+
 #endif // BOOST_OS_WINDOWS
+
 
 namespace ext::net
 {
@@ -83,7 +95,7 @@ namespace ext::net
 		if (not m_interrupted.exchange(true, std::memory_order_release))
 		{
 			char dummy = 0;
-			int res = ::write(m_interrupt_write, &dummy, 1);
+			int res = ::interrupt_write(m_interrupt_write, &dummy, 1);
 			//int err = errno;
 			assert(res == 1); EXT_UNUSED(res);
 		}
@@ -109,7 +121,7 @@ namespace ext::net
 
 		while (avail)
 		{
-			int res = read(sock, buffer, std::min(buffer_size, avail));
+			int res = ::interrupt_read(sock, buffer, std::min(buffer_size, avail));
 			if (res == -1) throw_last_socket_error("ext::net::socket_queue::consume_all_input: ::read failed");
 
 			avail -= res;
@@ -363,6 +375,7 @@ namespace ext::net
 
 	auto socket_queue::wait_ready(time_point until) -> wait_status
 	{
+		unsigned ncall = 0;
 		int res, err;
 		sock_list::iterator socks_first, socks_last, socks_it;
 		time_point now, sock_until;
@@ -397,7 +410,7 @@ namespace ext::net
 			goto interrupted;
 
 		now = time_point::clock::now();
-		if (now >= until) return timeout;
+		if (++ncall and now >= until) return timeout;
 
 #if EXT_NET_USE_POLL
 		std::tie(sock_until, plfirst, pllast, psfirst, pslast) = helper::fill_pollfds(*this, now, pollfds);

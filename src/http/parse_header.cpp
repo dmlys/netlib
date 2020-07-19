@@ -280,7 +280,10 @@ namespace ext::net::http
 		return false;
 	}
 
-#if BOOST_LIB_STD_GNU or BOOST_LIB_STD_CXX
+#if BOOST_OS_WINDOWS
+	static _locale_t cloc = _create_locale(LC_NUMERIC, "C");
+	#define strtod_l _strtod_l
+#elif BOOST_LIB_STD_GNU or BOOST_LIB_STD_CXX
 	static locale_t cloc = newlocale(LC_ALL_MASK, "C", nullptr);
 #endif
 

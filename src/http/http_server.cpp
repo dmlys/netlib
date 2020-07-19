@@ -70,7 +70,8 @@ namespace ext::net::http
 	{
 		assert(lk.owns_lock());
 		assert(m_running == false);
-
+		LOG_DEBUG("stopping and cleaning server state");
+		
 		// clean everything,
 		// close any socks and listeners
 		m_listener_contexts.clear();
@@ -300,11 +301,13 @@ namespace ext::net::http
 		bool got_exception = false;
 		m_threadid = std::this_thread::get_id();
 		std::unique_lock lk(m_mutex);
-
+		LOG_TRACE("executing run_proc");
+		
 		try
 		{
 			assert(m_sock_queue.empty());
-
+			
+			LOG_INFO("configuring {} listeners", m_listener_contexts.size());
 			for (auto & [addr, context] : m_listener_contexts)
 			{
 				auto & listener = context.listener;
@@ -329,7 +332,7 @@ namespace ext::net::http
 			}
 
 			started_promise.set_value();
-
+			LOG_TRACE("running main loop");
 			for (;;)
 			{
 				process_tasks(lk);
@@ -367,6 +370,7 @@ namespace ext::net::http
 		}
 
 	exit:
+		LOG_TRACE("exiting run_proc");
 		// tasks should be empty, unless we got exception
 		EXT_UNUSED(got_exception);
 		assert(got_exception or m_tasks.empty());
@@ -2086,29 +2090,36 @@ namespace ext::net::http
 
 	auto http_server::get_listener_context(const socket_streambuf & sock) const -> const listener_context &
 	{
-		std::string addr = sock.peer_endpoint();
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addrptr = reinterpret_cast<sockaddr *>(&addrstore);
+		sock.getsockname(addrptr, &addrlen);
+		
+		auto addr = sock_addr(addrptr);
 		auto it = m_listener_contexts.find(addr);
 		if (it == m_listener_contexts.end())
 		{
-			if (addr.find('.') != addr.npos)
+			if (addrptr->sa_family == AF_INET)
 			{   // IP4
 				addr = "0.0.0.0";
 				addr += ":";
 				ext::itoa_buffer<unsigned short> buffer;
-				addr += ext::itoa(sock.sock_port(), buffer);
+				addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
+				it = m_listener_contexts.find(addr);
 			}
-			else
+			else if (addrptr->sa_family == AF_INET6)
 			{   // IP6
 				addr = "[::]";
 				addr += ":";
 				ext::itoa_buffer<unsigned short> buffer;
-				addr += ext::itoa(sock.sock_port(), buffer);
+				addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
+				it = m_listener_contexts.find(addr);
 			}
-
-			it = m_listener_contexts.find(addr);
 		}
 
-		assert(it != m_listener_contexts.end());
+		if (it == m_listener_contexts.end())
+			throw std::runtime_error(fmt::format("can't find listener context for socket {}", sock.handle()));
+
 		return it->second;
 	}
 
