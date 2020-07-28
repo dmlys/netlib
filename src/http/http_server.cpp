@@ -1562,11 +1562,10 @@ namespace ext::net::http
 				
 				switch (context->async_state)
 				{
-					case 0: // prepare and write chunk header
-						written = chunk_prefix.size();
-						if (written != 0) goto write_chunk_prefix;
+					case 0: // prepare chunk header
 						
 						// read next chunk
+						assert(chunk_prefix.empty());
 						assert(output_buffer.capacity() > 0);
 						output_buffer.resize(output_buffer.capacity());
 						// 2 for crlf after chunk
@@ -1581,8 +1580,11 @@ namespace ext::net::http
 						chunk_prefix[chunkprefix_size + 0] = '\r';
 						chunk_prefix[chunkprefix_size + 1] = '\n';
 						chunk_prefix.erase(0, first - chunk_prefix.data());
+					
+						context->written_count = 0;
+						context->async_state += 1;
 						
-					write_chunk_prefix:
+					case 1: //write_chunk_prefix:
 						first = chunk_prefix.data();
 						last  = first + chunk_prefix.size();
 						first += context->written_count;
@@ -1602,8 +1604,7 @@ namespace ext::net::http
 						context->async_state += 1;
 						context->written_count = 0;
 					
-					case 1:
-					//write_chunk:
+					case 2: //write_chunk:
 						// now send buffer itself after chunk prefix
 						first = output_buffer.data();
 						last  = first + output_buffer.size();
