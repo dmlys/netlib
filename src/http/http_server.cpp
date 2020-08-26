@@ -284,8 +284,9 @@ namespace ext::net::http
 	void http_server::interrupt()
 	{
 		bool joined = m_joined;
-		// TODO: there should interrupted atomic flag, that is set by ths method, and checked join_thread
+		// TODO: there should be "interrupted" atomic flag, that is set by this method, and checked in join_thread
 		//       currently we have a race condition here, when interrupt comes earlier then join_thread sets m_joined = true
+		
 		// forbid reordering m_joined read after anything below
 		std::atomic_signal_fence(std::memory_order_acquire);
 		if (joined)

@@ -164,7 +164,7 @@ namespace ext::net
 #endif
 
 	/// создает строку вида <ERR:code>, например <ENOTCONN:107>,
-	/// поддерживает только ряд кодов, связанных с функциями получения.конвертация адресов: getpeername, getsockname, inet_pton, etc
+	/// поддерживает только ряд кодов, связанных с функциями получения/конвертация адресов: getpeername, getsockname, inet_pton, etc
 	std::string make_addr_error_description(int err);
 	/// возвращает строку адреса подключения вида $addr:$port, например 127.0.0.1:22, для ipv6 - [::1]:22
 	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
@@ -223,12 +223,12 @@ namespace ext::net
 	addrinfo_ptr loopback_addr(std::error_code & err, int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
 	
 	/// manual implementation of socket pair function.
-	/// This function creates listener on with loopback interface and zero port(port will be assigned by OS),
-	/// connect socket to created listener and returns connected socket pair.
+	/// This function creates listener with loopback address and zero port(port will be assigned by OS),
+	/// connects socket to created listener and returns connected socket pair.
 	void manual_socketpair(socket_handle_type fds[2], int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
 	bool manual_socketpair(socket_handle_type fds[2], std::error_code & err, int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
 	
-	/// socket pair wrapper, if socketpair is not available on this platform, it will be done via manual_socketpair
+	/// socket pair wrapper, if socketpair system call is not available on this platform, it will be done via manual_socketpair
 	void socketpair(socket_handle_type fds[2], int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
 	bool socketpair(socket_handle_type fds[2], std::error_code & err, int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
 }

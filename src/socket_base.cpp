@@ -1160,7 +1160,7 @@ namespace ext::net
 		///  AI_ALL is ignored if AI_V4MAPPED is not also specified.
 		addrinfo_type hints;
 		std::memset(&hints, 0, sizeof(hints));
-		hints.ai_flags = AI_ADDRCONFIG | AI_ALL /*| AI_NUMERICHOST | AI_NUMERICSERV*/;
+		hints.ai_flags = AI_ADDRCONFIG | AI_ALL | AI_NUMERICHOST | AI_NUMERICSERV;
 		hints.ai_family = address_family;
 		hints.ai_socktype = sock_type;
 		hints.ai_protocol = sock_proto;
