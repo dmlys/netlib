@@ -154,12 +154,18 @@ namespace ext::net
 
 	socket_streambuf listener::accept()
 	{
-		socket_handle_type sock = ::accept(m_listening_socket, nullptr, nullptr);
-		if (sock == invalid_socket) throw_last_socket_error("ext::net::listener::accept: ::accept failed");
-
+		socket_handle_type sock = accept_handle();
 		return socket_streambuf(sock);
 	}
 
+	socket_handle_type listener::accept_handle()
+	{
+		socket_handle_type sock = ::accept(m_listening_socket, nullptr, nullptr);
+		if (sock == invalid_socket) throw_last_socket_error("ext::net::listener::accept: ::accept failed");
+		
+		return sock;
+	}
+	
 	void listener::shutdown()
 	{
 		if (m_listening_socket == invalid_socket) return;

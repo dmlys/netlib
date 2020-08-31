@@ -454,7 +454,7 @@ namespace ext::net
 		}
 	}
 	
-	void bsdsock_streambuf::init_handle(handle_type sock)
+	bool bsdsock_streambuf::init_handle(handle_type sock)
 	{
 		StateType prev;
 		bool pubres;
@@ -462,9 +462,17 @@ namespace ext::net
 		if (is_open())
 		{
 			m_lasterror = std::make_error_code(std::errc::already_connected);
+			m_lasterror_context = "init_handle";
 			goto error;
 		}
 
+		if (sock == invalid_socket)
+		{
+			m_lasterror = std::make_error_code(std::errc::not_a_socket);
+			m_lasterror_context = "init_handle";
+			goto error;
+		}
+		
 		if (not do_setnonblocking(sock))
 			goto error;
 
@@ -475,18 +483,20 @@ namespace ext::net
 		if (pubres)
 		{
 			init_buffers();
-			return;
+			return true;
 		}
 
 	//interrupted:
+		// нас interrupt'нули - выставляем соответствующий код ошибки
 		m_lasterror = std::make_error_code(std::errc::interrupted);
+		m_lasterror_context = "init_handle";
 	error:
-		// нас interrupt'нули - выставляем соотвествующий код ошибки
+		// в случае ошибок - закрываем сокет, если только это не плохой дескриптор
 		int code = m_lasterror.value();
 		if (m_lasterror.category() != std::generic_category() || (code != EBADF and code != ENOTSOCK))
 			::close(sock);
-
-		throw std::system_error(m_lasterror, "bsdsock_streambuf::init_handle failure");
+		
+		return process_result(false);
 	}
 
 	/************************************************************************/
@@ -1307,20 +1317,25 @@ namespace ext::net
 		close();
 	}
 
-	bsdsock_streambuf::bsdsock_streambuf(socket_handle_type sock_handle)
+	bsdsock_streambuf::bsdsock_streambuf(socket_handle_type sock_handle, std::size_t buffer_size)
 	{
+		if (sock_handle == invalid_socket)
+			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "bsdsock_streambuf::<ctor> failure");
+		
 		if (not do_setnonblocking(sock_handle))
 		{
+			// в случае ошибок - закрываем сокет, если только это не плохой дескриптор
 			int code = m_lasterror.value();
-			if (m_lasterror.category() != std::generic_category() || (code != EBADF && code != ENOTCONN))
+			if (m_lasterror.category() != std::generic_category() || (code != EBADF and code != ENOTSOCK))
 				::close(sock_handle);
-
-			throw std::system_error(m_lasterror, "bsdsock_streambuf::setnonblocking failure");
+			
+			throw_last_error();
 		}
+			
 
 		m_sockhandle = sock_handle;
 		m_state.store(Opened, std::memory_order_relaxed);
-		init_buffers();
+		init_buffers(buffer_size);
 	}
 
 	bsdsock_streambuf::bsdsock_streambuf(bsdsock_streambuf && right) noexcept

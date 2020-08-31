@@ -299,9 +299,9 @@ namespace ext::net
 
 		/// инициализирует объект заданным socket handle'ом.
 		/// если объект уже был открыт/инициализирован немедленно возвращает false
-		/// socket ожидается уже открытым
-		/// и выставляет std::errc::already_connected в last_error.
-		void init_handle(handle_type handle);
+		/// в том числе interrupt - возвращает false или бросает исключение бросает std::system_error с соответствующей ошибкой(смотри throws_errors).
+		/// в случае ошибок handle будет закрыт
+		bool init_handle(handle_type handle);
 
 		/// выполняет подключение по заданным параметрам - в случае успеха возвращает true
 		/// если подключение уже было выполнено - немедленно возвращает false
@@ -394,7 +394,7 @@ namespace ext::net
 		winsock2_streambuf() noexcept;
 		~winsock2_streambuf() noexcept;
 
-		explicit winsock2_streambuf(socket_handle_type sock_handle);
+		explicit winsock2_streambuf(socket_handle_type sock_handle, std::size_t buffer_size = default_buffer_size);
 
 		winsock2_streambuf(const winsock2_streambuf &) = delete;
 		winsock2_streambuf & operator =(const winsock2_streambuf &) = delete;

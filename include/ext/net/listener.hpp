@@ -80,6 +80,9 @@ namespace ext::net
 		/// calls ::accept and checks result,
 		/// throws std::system_error in case or errors
 		socket_streambuf accept();
+		/// calls ::accept and checks result,
+		/// throws std::system_error in case or errors
+		socket_handle_type accept_handle();
 		/// calls ::shutdown and checks result,
 		/// throws std::system_error in case or errors
 		void shutdown();

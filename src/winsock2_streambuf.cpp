@@ -494,7 +494,7 @@ namespace ext::net
 		}
 	}
 
-	void winsock2_streambuf::init_handle(handle_type sock)
+	bool winsock2_streambuf::init_handle(handle_type sock)
 	{
 		StateType prev;
 		bool pubres;
@@ -502,9 +502,17 @@ namespace ext::net
 		if (is_open())
 		{
 			m_lasterror = std::make_error_code(std::errc::already_connected);
+			m_lasterror_context = "init_handle";
 			goto error;
 		}
 
+		if (sock == invalid_socket)
+		{
+			m_lasterror = std::make_error_code(std::errc::not_a_socket);
+			m_lasterror_context = "init_handle";
+			goto error;
+		}
+		
 		if (not do_setnonblocking(sock))
 			goto error;
 
@@ -515,18 +523,20 @@ namespace ext::net
 		if (pubres)
 		{
 			init_buffers();
-			return;
+			return true;
 		}
 
 	//interrupted:
+		// нас interrupt'нули - выставляем соответствующий код ошибки
 		m_lasterror = std::make_error_code(std::errc::interrupted);
+		m_lasterror_context = "init_handle";
 	error:
-		// нас interrupt'нули - выставляем соотвествующий код ошибки
+		// в случае ошибок - закрываем сокет, если только это не плохой дескриптор
 		int code = m_lasterror.value();
 		if (m_lasterror.category() != std::generic_category() || (code != EBADF and code != ENOTSOCK))
 			::closesocket(sock);
 
-		throw std::system_error(m_lasterror, "winsock2_streambuf::init_handle failed");
+		return process_result(false);
 	}
 
 	/************************************************************************/
@@ -1371,20 +1381,23 @@ namespace ext::net
 		close();
 	}
 
-	winsock2_streambuf::winsock2_streambuf(socket_handle_type sock_handle)
+	winsock2_streambuf::winsock2_streambuf(socket_handle_type sock_handle, std::size_t buffer_size)
 	{
+		if (sock_handle == invalid_socket)
+			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "winsock_streambuf::<ctor> failure");
+		
 		if (not do_setnonblocking(sock_handle))
 		{
 			int code = m_lasterror.value();
-			if (m_lasterror.category() != std::generic_category() || (code != EBADF && code != ENOTCONN))
+			if (m_lasterror.category() != std::generic_category() || (code != EBADF and code != ENOTSOCK))
 				::closesocket(sock_handle);
-
-			throw std::system_error(m_lasterror, "winsock2_streambuf::setnonblocking failed");
+			
+			throw_last_error();
 		}
 
 		m_sockhandle = sock_handle;
 		m_state.store(Opened, std::memory_order_relaxed);
-		init_buffers();
+		init_buffers(buffer_size);
 	}
 
 	winsock2_streambuf::winsock2_streambuf(winsock2_streambuf && right) noexcept
