@@ -13,25 +13,42 @@ namespace ext::net
 	{
 		if (m_input_buffer)
 		{
-			reset_buffers();
+			set_buffers();
 			return;
 		}
 
 		// default internal buffer
-		buffer_size = std::clamp<std::size_t>(128, buffer_size, INT_MAX);
+		buffer_size = std::clamp<std::size_t>(minimum_buffer_size, buffer_size, INT_MAX);
 
-		if (m_own_input_buffer) delete [] m_input_buffer;
+		if (m_own_input_buffer)  delete [] m_input_buffer;
+		if (m_own_output_buffer) delete [] m_output_buffer;
 
+		m_default_internal_buffer = true;
 		m_own_input_buffer = true;
+		m_own_output_buffer = false;
+		
 		m_input_buffer = new char_type[buffer_size];
 		m_input_buffer_size = buffer_size / 2;
 		m_output_buffer = m_input_buffer + m_input_buffer_size;
 		m_output_buffer_size = m_input_buffer_size;
 
-		reset_buffers();
+		set_buffers();
+	}
+	
+	void socket_streambuf_base::reset_buffers(std::size_t buffer_size)
+	{
+		if (not m_default_internal_buffer)
+		{
+			if (m_own_input_buffer)  delete [] m_input_buffer;
+			if (m_own_output_buffer) delete [] m_output_buffer;
+			m_own_input_buffer = m_own_output_buffer = false;
+			m_input_buffer = m_output_buffer = nullptr;
+		}
+
+		init_buffers(buffer_size);
 	}
 
-	void socket_streambuf_base::reset_buffers() noexcept
+	void socket_streambuf_base::set_buffers() noexcept
 	{
 		assert(m_input_buffer && m_output_buffer && m_input_buffer_size && m_output_buffer_size);
 
@@ -217,78 +234,84 @@ namespace ext::net
 
 	std::streambuf * socket_streambuf_base::setbuf(char_type * buffer, std::streamsize size)
 	{
-		if (size < 128)     throw std::logic_error("socket_streambuf_base::setbuf size should >= 128");
-		if (size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf size should <= INT_MAX");
+		if (size < minimum_buffer_size) throw std::logic_error("socket_streambuf_base::setbuf size should >= minimum_buffer_size");
+		if (size > INT_MAX)             throw std::logic_error("socket_streambuf_base::setbuf size should <= INT_MAX");
 
 		if (buffer == nullptr)
 		{
-			if (m_own_input_buffer) delete [] m_input_buffer;
-			m_input_buffer = m_output_buffer = nullptr;
-
-		    init_buffers(size);
+		    reset_buffers(size);
 		    return this;
 		}
 
-		if (m_own_input_buffer) delete [] m_input_buffer;
+		if (m_own_input_buffer)  delete [] m_input_buffer;
+		if (m_own_output_buffer) delete [] m_output_buffer;
 
+		m_default_internal_buffer = false;
 		m_own_input_buffer = false;
+		m_own_output_buffer = false;
+		
 		m_input_buffer = buffer;
 		m_input_buffer_size = static_cast<unsigned>(size / 2);
 		m_output_buffer = m_input_buffer + m_input_buffer_size;
 		m_output_buffer_size = m_input_buffer_size;
 
-		reset_buffers();
+		set_buffers();
 		return this;
 	}
 
-	std::streambuf * socket_streambuf_base::setbuf(char_type * buffer, std::streamsize input_size, std::streamsize output_size)
+	std::streambuf * socket_streambuf_base::setbuf(bool owning, char_type * buffer, std::streamsize input_size, std::streamsize output_size)
 	{
-		if (input_size < 128)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= 128");
-		if (output_size < 128)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= 128");
+		if (input_size < minimum_buffer_size)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= minimum_buffer_size");
+		if (output_size < minimum_buffer_size)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= minimum_buffer_size");
 		if (input_size > INT_MAX)  throw std::logic_error("socket_streambuf_base::setbuf input_size should <= INT_MAX");
 		if (output_size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf output_size should <= INT_MAX");
 
 		if (buffer == nullptr)
 		{
-			if (m_own_input_buffer) delete [] m_input_buffer;
-			m_input_buffer = m_output_buffer = nullptr;
-
-		    init_buffers(input_size + output_size);
+		    reset_buffers(input_size + output_size);
 		    return this;
 		}
 
-		if (m_own_input_buffer) delete [] m_input_buffer;
+		if (m_own_input_buffer)  delete [] m_input_buffer;
+		if (m_own_output_buffer) delete [] m_output_buffer;
 
-		m_own_input_buffer = false;
+		m_default_internal_buffer = false;
+		m_own_input_buffer = owning;
+		m_own_output_buffer = false;
+		
 		m_input_buffer = buffer;
 		m_input_buffer_size = static_cast<unsigned>(input_size);
 		m_output_buffer = m_input_buffer + m_input_buffer_size;
 		m_output_buffer_size = static_cast<unsigned>(output_size);
 
-		reset_buffers();
+		set_buffers();
 		return this;
 	}
 
-	std::streambuf * socket_streambuf_base::setbuf(char_type * input_buffer, std::streamsize input_size,
-	                                               char_type * output_buffer, std::streamsize output_size)
+	std::streambuf * socket_streambuf_base::setbuf(bool input_owning, char_type * input_buffer, std::streamsize input_size,
+	                                               bool output_owning, char_type * output_buffer, std::streamsize output_size)
 	{
 		if (not input_buffer)      throw std::logic_error("socket_streambuf_base::setbuf input_buffer must not be bull");
 		if (not output_buffer)     throw std::logic_error("socket_streambuf_base::setbuf output_buffer must not be bull");
 
-		if (input_size < 128)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= 128");
-		if (output_size < 128)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= 128");
+		if (input_size < minimum_buffer_size)      throw std::logic_error("socket_streambuf_base::setbuf input_size should >= minimum_buffer_size");
+		if (output_size < minimum_buffer_size)     throw std::logic_error("socket_streambuf_base::setbuf output_size should >= minimum_buffer_size");
 		if (input_size > INT_MAX)  throw std::logic_error("socket_streambuf_base::setbuf input_size should <= INT_MAX");
 		if (output_size > INT_MAX) throw std::logic_error("socket_streambuf_base::setbuf output_size should <= INT_MAX");
 
-		if (m_own_input_buffer) delete [] m_input_buffer;
+		if (m_own_input_buffer)  delete [] m_input_buffer;
+		if (m_own_output_buffer) delete [] m_output_buffer;
 
-		m_own_input_buffer = false;
+		m_default_internal_buffer = false;
+		m_own_input_buffer = input_owning;
+		m_own_output_buffer = output_owning;
+		
 		m_input_buffer = input_buffer;
 		m_input_buffer_size = static_cast<unsigned>(input_size);
 		m_output_buffer = output_buffer;
 		m_output_buffer_size = static_cast<unsigned>(output_size);
 
-		reset_buffers();
+		set_buffers();
 		return this;
 	}
 
@@ -297,7 +320,8 @@ namespace ext::net
 	/************************************************************************/
 	socket_streambuf_base::~socket_streambuf_base()
 	{
-		if (m_own_input_buffer) delete [] m_input_buffer;
+		if (m_own_input_buffer)  delete [] m_input_buffer;
+		if (m_own_output_buffer) delete [] m_output_buffer;
 	}
 
 	socket_streambuf_base::socket_streambuf_base(socket_streambuf_base && op) noexcept
@@ -305,9 +329,11 @@ namespace ext::net
 		  m_input_buffer(std::exchange(op.m_input_buffer, nullptr)),
 		  m_output_buffer(std::exchange(op.m_output_buffer, nullptr)),
 		  m_input_buffer_size(std::move(op.m_input_buffer_size)),
-	      m_output_buffer_size(std::move(op.m_output_buffer_size)),
-		  m_tie_io(std::move(op.m_tie_io)),
-	      m_own_input_buffer(std::exchange(op.m_own_input_buffer, true))
+		  m_output_buffer_size(std::move(op.m_output_buffer_size)),
+		  m_tie_io(std::exchange(op.m_tie_io, true)),
+		  m_default_internal_buffer(std::exchange(op.m_default_internal_buffer, false)),
+		  m_own_input_buffer(std::exchange(op.m_own_input_buffer, false)),
+		  m_own_output_buffer(std::exchange(op.m_own_output_buffer, false))
 	{}
 
 	socket_streambuf_base & socket_streambuf_base::operator =(socket_streambuf_base && op) noexcept
@@ -320,7 +346,9 @@ namespace ext::net
 			m_input_buffer_size = std::move(op.m_input_buffer_size);
 			m_output_buffer_size = std::move(op.m_output_buffer_size);
 			m_tie_io = std::move(op.m_tie_io);
-			m_own_input_buffer = std::exchange(op.m_own_input_buffer, true);
+			m_default_internal_buffer = std::exchange(op.m_default_internal_buffer, false);
+			m_own_input_buffer = std::exchange(op.m_own_input_buffer, false);
+			m_own_output_buffer = std::exchange(op.m_own_output_buffer, false);
 		}
 
 		return *this;

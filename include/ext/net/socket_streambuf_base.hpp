@@ -13,7 +13,7 @@ namespace ext::net
 	/// 
 	/// умеет:
 	/// * установка пользовательского буфера, буфер делиться пополам на ввод/вывод(подробное смотри соотв метод)
-	///   класс всегда буферезирован, минимальный размер буфера - 128 байт
+	///   класс всегда буферизованн, минимальный размер буфера - 128 байт
 	///   если пользователь попытается убрать буфер или предоставить слишком маленький буфер - класс откатится на буфер по умолчанию
 	/// * входящая область по умолчанию автоматически синхронизируется с исходящей. Подобно std::ios::tie
 	///   как только входящий буфер исчерпан, прежде чем он будет заполнен из сокета - исходящий буфер будет сброшен в сокет
@@ -29,24 +29,30 @@ namespace ext::net
 		unsigned    m_output_buffer_size = 0;
 		
 		bool m_tie_io = true;
-		bool m_own_input_buffer = true;
+		bool m_default_internal_buffer = false;
+		bool m_own_input_buffer = false;
+		bool m_own_output_buffer = false;
 
-	protected:
-		static constexpr std::size_t m_defbuffer_size = 2 * 4096;
+	public:
+		static constexpr std::size_t default_buffer_size = 2 * 4096;
+		static constexpr std::size_t minimum_buffer_size = 128;
 
 	private:
 		std::size_t write_all(const char_type * data, std::size_t count);
 		std::size_t read_all(char_type * data, std::size_t count);
 
 	protected:
-		/// если буфер не установлен посредством вызова pubsetbuf
-		/// аллоцирует внутренниие буфферы размером buffer_size,
+		/// если буфер не установлен посредством вызова setbuf
+		/// аллоцирует внутренние буферы размером buffer_size,
 		/// буфер делится пополам для input/output областей
-		/// в любом случае вызывает reset_buffers
-		/// buffer_size is clamped(128, ..., INT_MAX)
-		void init_buffers(std::size_t buffer_size = m_defbuffer_size);
-		/// переинициализирует get/put buffer areas. Буфферы никак не синхронизируеются с сокетом
-		void reset_buffers() noexcept;
+		/// в любом случае вызывает set_buffers
+		/// buffer_size is clamped(minimum_buffer_size, ..., INT_MAX)
+		void init_buffers(std::size_t buffer_size = default_buffer_size);
+		/// инициализирует внутренние буферы, даже если они были установленны посредством вызова setbuf,
+		/// если буферы по факту внутренние - оставляет их как есть
+		void reset_buffers(std::size_t buffer_size = default_buffer_size);
+		/// устанавливает get/put buffer areas. Буферы никак не синхронизируется с сокетом
+		void set_buffers() noexcept;
 
 		// input
 		std::streamsize xsgetn(char_type * ptr, std::streamsize n) override;
@@ -58,36 +64,37 @@ namespace ext::net
 		int_type overflow(int_type ch = traits_type::eof()) override;
 		int sync() override;
 	
-		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
-		/// Если buffer == nullptr - откатывается на дефолтный внутренний буффер.
-		/// Если or size < 128 - бросает std::logic_error
-		/// Таким образом класс всегда буферезирован.
-		///
-		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
-		/// Заданный буфер делиться попалам между input и output областей.
-		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize size) override;
-
-		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
-		/// Если buffer == nullptr - откатывается на дефолтный внутренний буффер.
-		/// Если or input_size < 64 or output_size < 64 - бросает std::logic_error
-		///
-		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
-		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
-		/// Подразумевается что общий размер буфера - input_size + output_size
-		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize input_size, std::streamsize output_size);
-
-		/// устанавливает пользовательский буфер, данный класс не владеет пользовательским буфером и никогда его не удаляет.
-		/// Если input_buffer or output_buffer == nullptr or input_size < 64 or output_size < 64 - бросает std::logic_error
-		///
-		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
-		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
-		/// Подразумевается что общий размер буфера - input_size + output_size
-		virtual std::streambuf * setbuf(char_type * input_buffer, std::streamsize input_size,
-		                                char_type * output_buffer, std::streamsize output_size);
-
 	protected:
 		virtual std::size_t read_some(char_type * data, std::size_t count) = 0;
 		virtual std::size_t write_some(const char_type * data, std::size_t count) = 0;
+		
+	public:
+		/// устанавливает пользовательский буфер, не владеет пользовательским буфером и не освобождает его.
+		/// Если buffer == nullptr - откатывается на дефолтный внутренний буфер.
+		/// Если or size < minimum_buffer_size - бросает std::logic_error
+		/// Таким образом класс всегда буферизованн.
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться поплам между input и output областей.
+		virtual std::streambuf * setbuf(char_type * buffer, std::streamsize size) override;
+
+		/// устанавливает пользовательский буфер, владение задается флагом owning.
+		/// Если buffer == nullptr - откатывается на дефолтный внутренний буфер.
+		/// Если or input_size < minimum_buffer_size or output_size < minimum_buffer_size - бросает std::logic_error
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
+		/// Подразумевается что общий размер буфера - input_size + output_size
+		virtual std::streambuf * setbuf(bool owning, char_type * buffer, std::streamsize input_size, std::streamsize output_size);
+
+		/// устанавливает пользовательский буфер, владение задается флагом owning.
+		/// Если input_buffer or output_buffer == nullptr or input_size < minimum_buffer_size or output_size < minimum_buffer_size - бросает std::logic_error
+		///
+		/// Вызов для уже открытого объекта - undefined behavior, скорее всего ничего хорошего.
+		/// Заданный буфер делиться между input и output областей в соответствии с input_size и output_size.
+		/// Подразумевается что общий размер буфера - input_size + output_size
+		virtual std::streambuf * setbuf(bool input_owning, char_type * input_buffer, std::streamsize input_size,
+		                                bool output_owning, char_type * output_buffer, std::streamsize output_size);
 
 	public:
 		auto getbuf() noexcept -> std::pair<char *, char *>                    { return {m_input_buffer, m_input_buffer + m_input_buffer_size}; }
