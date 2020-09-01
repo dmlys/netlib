@@ -35,6 +35,12 @@ namespace ext::net
 	const int sock_dgram  = SOCK_DGRAM;
 	const int sock_seqpacket = SOCK_SEQPACKET;
 	
+#ifdef MSG_NOSIGNAL
+	const int msg_nosignal = MSG_NOSIGNAL;
+#else
+	const int msg_nosignal = 0;
+#endif
+	
 	/************************************************************************/
 	/*                platform independent stuff                            */
 	/************************************************************************/

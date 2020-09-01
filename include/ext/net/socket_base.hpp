@@ -19,6 +19,8 @@ namespace ext::net
 	extern const int sock_dgram;     // SOCK_DGRAM
 	extern const int sock_seqpacket; // SOCK_SEQPACKET
 
+	extern const int msg_nosignal;   // MSG_NOSIGNAL or 0 if not defined
+	
 
 #if BOOST_OS_WINDOWS
 

@@ -695,7 +695,7 @@ namespace ext::net::http
 	#endif
 		{
 			SOCK_LOG_TRACE("calling send");
-			written = ::send(handle, data, len, 0);
+			written = ::send(handle, data, len, msg_nosignal);
 			if (written >= 0) return nullptr;
 			errc = socket_rw_error(written, last_socket_error());
 		}

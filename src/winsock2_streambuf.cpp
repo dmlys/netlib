@@ -713,7 +713,7 @@ namespace ext::net
 			}
 #endif // EXT_ENABLE_OPENSSL
 
-			int res = ::send(m_sockhandle, data, count, 0);
+			int res = ::send(m_sockhandle, data, count, msg_nosignal);
 			if (res > 0) return res;
 
 			if (rw_error(res, ::WSAGetLastError(), m_lasterror)) goto error;
