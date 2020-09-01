@@ -294,4 +294,30 @@ BOOST_DATA_TEST_CASE(body_destruction_test, make(configurations), configurator)
 	server.stop();
 }
 
+BOOST_AUTO_TEST_CASE(http_limits_test)
+{
+	http_server server;
+	auto addr = configure(server);
+	
+	// socket_streambuf internal default buffer size 4096, we limit it to 10,
+	// but send 4k to be sure that we do not read it in one pass
+	std::string huge_body;
+	huge_body.assign(4096, 'a');
+	
+	server.set_maximum_http_body_size(10);
+	
+	std::string actual_body;
+	int actual_code;
+	
+	server.start();
+	
+	server.add_handler("/test", [](std::string body) { return "test"; });
+	std::tie(actual_code, std::ignore, actual_body) = make_put_expect_request(addr, "/test", huge_body);
+	
+	BOOST_CHECK_EQUAL(actual_code, 400);
+	BOOST_CHECK_EQUAL(actual_body, "BAD REQUEST");
+		
+	server.stop();
+}
+
 BOOST_AUTO_TEST_SUITE_END()

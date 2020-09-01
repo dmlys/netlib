@@ -229,9 +229,8 @@ namespace ext::net::http::test_utils
 		
 		set_nodelay(sock.handle(), 1);
 		for (auto & part : request_body_parts)
-			sock << part;
+			sock << part << std::flush;
 		
-		sock << std::flush;
 		set_nodelay(sock.handle(), 0);
 	}
 	

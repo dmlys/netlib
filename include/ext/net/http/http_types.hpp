@@ -34,7 +34,7 @@ namespace ext::net::http
 		std::string name;
 		std::string value;
 
-		operator http_header_view () const noexcept;
+		operator http_header_view() const noexcept;
 		operator bool() const noexcept { return not name.empty(); }
 	};
 
@@ -75,7 +75,7 @@ namespace ext::net::http
 		using std::runtime_error::runtime_error;
 	};
 	
-	/// Interface for closable http_body types(http_body_streambuf, async_http_body_source). Used by mainly by http_server.
+	/// Interface for closable http_body types(http_body_streambuf, async_http_body_source). Used mainly by http_server.
 	/// 
 	/// Lifetime and close method:
 	///  http_body_streambuf, async_http_body_source and alike classes can be bound to some parent object, in case of request - http_server.
@@ -169,6 +169,8 @@ namespace ext::net::http
 	};
 
 	std::optional<std::size_t> size(const http_body & body) noexcept;
+	template <class Container> void copy(const http_body & body, Container & cont);
+	template <class Container> void copy(const Container & cont, http_body & body);
 
 	void clear(http_body     & body)    noexcept;
 	void clear(http_request  & request) noexcept;
@@ -183,8 +185,79 @@ namespace ext::net::http
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
 
+	/************************************************************************/
+	/*                   header manipulation functions                      */
+	/************************************************************************/
+	
+	template <class HeaderRange>
+	auto get_header_value(const HeaderRange & headers, std::string_view name) noexcept -> std::string_view;
+	
+	template <class HeaderRange> 
+	auto find_header(HeaderRange & headers, std::string_view name) noexcept -> http_header *;
+	
+	template <class HeaderRange> auto get_header(const HeaderRange & headers, std::string_view name) noexcept -> http_header_view;
+	template <class HeaderRange> void set_header(HeaderRange & headers, std::string_view name, std::string_view value);
+	
+	template <class HeaderRange> void set_header(HeaderRange & headers, http_header header);
+	template <class HeaderRange> auto get_headers(const HeaderRange & headers, std::string_view name) noexcept; // -> http_headers_view_vector
+	
+	template <class HeaderRange> void remove_header(HeaderRange & headers, std::string_view name) noexcept;
+	template <class HeaderRange> void add_header(HeaderRange & headers, std::string_view name, std::string_view value);
+	template <class HeaderRange> void add_header(HeaderRange & headers, http_header header);
 
+	template <class HeaderRange1, class HeaderRange2>
+	void copy_header(const HeaderRange1 & source_headers, HeaderRange2 & dest_headers, std::string_view name);
+	
+	template <class HeaderRange1, class HeaderRange2>
+	void copy_headers(HeaderRange1 & dest_headers, const HeaderRange2 & source_headers, std::string_view name);
+	
+	
+	
+	
+	
+	/************************************************************************/
+	/*                   template functions implementation                  */
+	/************************************************************************/
 
+	template <class Container>
+	struct http_body_copy_from_visitor
+	{
+		Container * cont;
+		http_body_copy_from_visitor(Container & cont) : cont(&cont) {}
+		
+		void operator()(const std::string       & str ) const { cont->assign(str.begin(), str.end()); }
+		void operator()(const std::vector<char> & data) const { cont->assign(data.begin(), data.end()); }
+		void operator()(const std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy from http_body:std::streambuf"); }
+		void operator()(const std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy from http_body:std::streambuf"); }
+		void operator()(const null_body_type) const { cont->clear(); }
+	};
+	
+	template <class Container>
+	struct http_body_copy_to_visitor
+	{
+		const Container * cont;
+		http_body_copy_to_visitor(const Container & cont) : cont(&cont) {}
+		
+		void operator()(std::string       & str ) const { str.assign(cont->begin(), cont->end()); }
+		void operator()(std::vector<char> & data) const { data.assign(cont->begin(), cont->end()); }
+		void operator()(std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy into http_body:std::streambuf"); }
+		void operator()(std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy into http_body:async_http_body_source"); }
+		void operator()(null_body_type) const { throw std::runtime_error("Can't copy into http_body/null_body_type"); }
+	};
+	
+	template <class Container>
+	inline void copy(const http_body & body, Container & cont)
+	{
+		std::visit(http_body_copy_from_visitor(cont), body);
+	}
+	
+	template <class Container>
+	inline void copy(const Container & cont, http_body & body)
+	{
+		std::visit(http_body_copy_to_visitor(cont), body);
+	}
+	
+	
 	template <class HeaderRange>
 	auto get_header_value(const HeaderRange & headers, std::string_view name) noexcept -> std::string_view
 	{
@@ -251,13 +324,14 @@ namespace ext::net::http
 		header.value = value;
 	}
 
-	template <class HeaderRange> void set_header(HeaderRange & headers, http_header header)
+	template <class HeaderRange>
+	inline void set_header(HeaderRange & headers, http_header header)
 	{
 		return set_header(headers, header.name, header.value);
 	}
 
 	template <class HeaderRange>
-	auto get_headers(const HeaderRange & headers, std::string_view name) noexcept // -> http_headers_view_vector
+	inline auto get_headers(const HeaderRange & headers, std::string_view name) noexcept // -> http_headers_view_vector
 	{
 		auto filter = [name](auto & header) { return header.name == name; };
 		return boost::adaptors::filter(headers, filter);
@@ -295,7 +369,7 @@ namespace ext::net::http
 	}
 
 	template <class HeaderRange>
-	void add_header(HeaderRange & headers, http_header header)
+	inline void add_header(HeaderRange & headers, http_header header)
 	{
 		headers.push_back(std::move(header));
 	}

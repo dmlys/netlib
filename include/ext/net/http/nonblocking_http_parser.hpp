@@ -110,6 +110,7 @@ namespace ext::net::http::http_server_utils
 		void reset(http_response * response);
 		void reset(std::nullptr_t) { m_request = nullptr; }
 		
+		// should only be called after headers are parsed
 		void set_body_destination(std::string & str);
 		void set_body_destination(std::vector<char> & vec);
 

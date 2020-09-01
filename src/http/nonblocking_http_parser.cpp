@@ -450,12 +450,14 @@ namespace ext::net::http::http_server_utils
 
 	void nonblocking_http_parser::set_body_destination(std::string & str)
 	{
+		assert(m_state == body_state);
 		m_strbody = &str;
 		m_settings_object = &settings_object_string_body;
 	}
 	
 	void nonblocking_http_parser::set_body_destination(std::vector<char> & vec)
 	{
+		assert(m_state == body_state);
 		m_vecbody = &vec;
 		m_settings_object = &settings_object_vector_body;
 	}

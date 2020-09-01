@@ -10,7 +10,7 @@
 
 #include <ext/net/socket_include.hpp>
 #include <ext/net/http/http_server.hpp>
-#include <ext/net/http/http_server_ext.hpp>
+#include <ext/net/http/http_server_impl_ext.hpp>
 #include <ext/net/http/http_server_logging_helpers.hpp>
 
 
@@ -168,13 +168,33 @@ namespace ext::net::http
 		m_pending_contexts.clear();
 		m_processing_contexts.clear();
 		m_free_contexts.clear();
-		m_state_ver = 0;
 
 		// remove any handlers and listener contexts
-		m_handlers.clear();
 		m_listener_contexts.clear();
+		do_clear_config(lk);
 	}
 
+	void http_server::do_clear_config(std::unique_lock<std::mutex> & lk)
+	{
+		// at this point there should not be any references except ours
+		assert(m_config_context.unique());
+		for (auto * handler : m_config_context->handlers)
+			delete handler;
+		
+		for (auto * filter : m_config_context->headers_prefilters)
+			intrusive_ptr_release(ext::unconst(filter));
+		
+		for (auto * filter : m_config_context->full_prefilters)
+			intrusive_ptr_release(ext::unconst(filter));
+		
+		for (auto * filter : m_config_context->postfilters)
+			intrusive_ptr_release(ext::unconst(filter));
+		
+		m_config_context->handlers.clear();
+		m_config_context->headers_prefilters.clear();
+		m_config_context->full_prefilters.clear();
+		m_config_context->postfilters.clear();
+	}
 
 	void http_server::do_start(std::unique_lock<std::mutex> & lk)
 	{
@@ -372,9 +392,7 @@ namespace ext::net::http
 
 	exit:
 		LOG_TRACE("exiting run_proc");
-		// tasks should be empty, unless we got exception
 		EXT_UNUSED(got_exception);
-		assert(got_exception or m_tasks.empty());
 		m_running = false;
 		do_reset(lk);
 	}
@@ -904,6 +922,7 @@ namespace ext::net::http
 
 		auto & response = context->response;
 		auto & parser = context->parser;
+		auto & config = *context->config;
 
 		SOCK_LOG_DEBUG("parsing http request headers");
 
@@ -917,17 +936,18 @@ namespace ext::net::http
 
 			do
 			{
-				if (context->read_count >= context->maximum_headers_size)
-				{
-					SOCK_LOG_WARN("http request is to long, {} >= {}", context->read_count, context->maximum_headers_size);
-					response = create_bad_request_response(sock, connection_action_type::close);
-					return &http_server::handle_response;
-				}
-
 				std::tie(first, last) = sock.getbuf();
 				if (auto next = recv(context, first, last - first, len))
 					return next;
 
+				context->read_count += len;
+				if (context->read_count >= config.maximum_http_headers_size)
+				{
+					SOCK_LOG_WARN("http request headers are to long, {} >= {}", context->read_count, config.maximum_http_headers_size);
+					response = create_bad_request_response(sock, connection_action_type::close);
+					return &http_server::handle_response;
+				}
+				
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
 			parse:
@@ -936,6 +956,7 @@ namespace ext::net::http
 
 			} while (not parser.headers_parsed());
 
+			context->read_count = 0;
 			return &http_server::handle_parsed_headers;
 		}
 		catch (std::runtime_error & ex)
@@ -953,6 +974,7 @@ namespace ext::net::http
 
 		auto & response = context->response;
 		auto & parser = context->parser;
+		auto & config = *context->config;
 
 		SOCK_LOG_DEBUG("parsing http request body");
 
@@ -970,6 +992,14 @@ namespace ext::net::http
 				if (auto next = recv(context, first, last - first, len))
 					return next;
 
+				context->read_count += len;
+				if (context->read_count >= config.maximum_http_body_size)
+				{
+					SOCK_LOG_WARN("http request body is to long, {} >= {}", context->read_count, config.maximum_http_body_size);
+					response = create_bad_request_response(sock, connection_action_type::close);
+					return &http_server::handle_response;
+				}
+				
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
 			parse:
@@ -978,6 +1008,8 @@ namespace ext::net::http
 
 			} while (not parser.message_parsed());
 
+			context->read_count = 0;
+			//copy(context->input_buffer, context->request.body);
 			return &http_server::handle_parsed_request;
 		}
 		catch (std::runtime_error & ex)
@@ -995,6 +1027,7 @@ namespace ext::net::http
 
 		auto & parser = context->parser;
 		auto & response = context->response;
+		auto & config = *context->config;
 
 		SOCK_LOG_TRACE("discarding http request body");
 
@@ -1008,17 +1041,18 @@ namespace ext::net::http
 
 			do
 			{
-				if (context->read_count >= context->maximum_discard_message_size)
-				{
-					SOCK_LOG_WARN("http request is to long, {} >= {}, closing connection", context->read_count, context->maximum_discard_message_size);
-					context->conn_action = connection_action_type::close;
-					return &http_server::handle_finish;
-				}
-
 				std::tie(first, last) = sock.getbuf();
 				if (auto next = recv(context, first, last - first, len))
 					return next;
 
+				context->read_count += len;
+				if (context->read_count >= config.maximum_discarded_http_body_size)
+				{
+					SOCK_LOG_WARN("http request is to long, {} >= {}, closing connection", context->read_count, config.maximum_discarded_http_body_size);
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
 			parse:
@@ -1027,6 +1061,7 @@ namespace ext::net::http
 
 			} while (not parser.message_parsed());
 
+			context->read_count = 0;
 			return &http_server::handle_parsed_request;
 		}
 		catch (std::runtime_error & ex)
@@ -1118,7 +1153,7 @@ namespace ext::net::http
 		auto & sock = context->sock;
 		try
 		{
-			for (const auto * filter : context->headers_prefilters)
+			for (const auto * filter : context->config->headers_prefilters)
 			{
 				auto res = filter->prefilter_headers(context->request);
 				if (not res) continue;
@@ -1190,7 +1225,7 @@ namespace ext::net::http
 		auto expect = get_header_value(request.headers, "Expect");
 		if (expect.empty()) return &http_server::handle_request_init_body_parsing;
 
-		/// Expect can only have one value - 100-contine, others are errors
+		/// Expect can only have one value - 100-continue, others are errors
 		context->expect_extension = ieq(expect, "100-continue");
 
 		if (not context->expect_extension)
@@ -1267,7 +1302,7 @@ namespace ext::net::http
 
 		try
 		{
-			for (const auto * filter : context->full_prefilters)
+			for (const auto * filter : context->config->full_prefilters)
 			{
 				auto res = filter->prefilter_full(context->request);
 				if (not res) continue;
@@ -1366,7 +1401,7 @@ namespace ext::net::http
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
 			auto & resp = std::get<http_response>(context->response);
-			for (const auto * filter : context->postfilters)
+			for (const auto * filter : context->config->postfilters)
 				filter->postfilter(context->request, resp);
 
 			return &http_server::handle_response;
@@ -1852,6 +1887,7 @@ namespace ext::net::http
 		release_atomic_ptr(context->executor_state);
 		release_atomic_ptr(context->async_task_state);
 		release_atomic_ptr(context->body_closer);
+		context->config = nullptr;
 
 		if (m_free_contexts.size() < m_minimum_contexts)
 		{
@@ -1879,39 +1915,32 @@ namespace ext::net::http
 		context->first_response_written = context->final_response_written = false;
 
 		context->parser.reset(&context->request);
-		context->writer.reset(nullptr);
+		context->writer.reset(nullptr);		
 		
 		context->async_state = 0;
 		context->chunk_prefix.clear();
+		context->input_buffer.clear();
 		context->output_buffer.clear();
 
 		context->response = std::nullopt;
-		// parser.reset already cleans request
+		clear(context->request); // parser.reset already cleans request
 
-		if (m_state_ver != context->state_ver)
+		if (m_config_context->dirty)
 		{
-			context->state_ver = m_state_ver;
-			context->maximum_headers_size = m_maximum_headers_size;
-			context->maximum_discard_message_size = m_maximum_discard_message_size;
-
-			using boost::make_transform_iterator;
-			auto get = [](const auto & sptr) { return sptr.get(); };
+			m_config_context->dirty = false;
+			
 			auto handler_sorter = [](const http_server_handler * ptr1, const http_server_handler * ptr2) noexcept { return ptr1->order() < ptr2->order(); };
 			auto headers_presorter = [](const http_headers_prefilter * ptr1, const http_headers_prefilter * ptr2) noexcept { return ptr1->preorder_headers() < ptr2->preorder_headers(); };
 			auto full_presorter = [](const http_full_prefilter * ptr1, const http_full_prefilter * ptr2) noexcept { return ptr1->preorder_full() < ptr2->preorder_full(); };
 			auto postsorter = [](const http_post_filter * ptr1, const http_post_filter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
 
-			context->handlers.assign(make_transform_iterator(m_handlers.begin(), get), make_transform_iterator(m_handlers.end(), get));
-			context->headers_prefilters.assign(make_transform_iterator(m_headers_prefilters.begin(), get), make_transform_iterator(m_headers_prefilters.end(), get));
-			context->full_prefilters.assign(make_transform_iterator(m_full_prefilters.begin(), get), make_transform_iterator(m_full_prefilters.end(), get));
-			context->postfilters.assign(make_transform_iterator(m_postfilters.begin(), get), make_transform_iterator(m_postfilters.end(), get));
-
-			std::stable_sort(context->handlers.begin(), context->handlers.end(), handler_sorter);
-			std::stable_sort(context->headers_prefilters.begin(), context->headers_prefilters.end(), headers_presorter);
-			std::stable_sort(context->full_prefilters.begin(), context->full_prefilters.end(), full_presorter);
-			std::stable_sort(context->postfilters.begin(), context->postfilters.end(), postsorter);
-			std::reverse(context->postfilters.begin(), context->postfilters.end());
+			std::stable_sort(m_config_context->handlers.begin(), m_config_context->handlers.end(), handler_sorter);
+			std::stable_sort(m_config_context->headers_prefilters.begin(), m_config_context->headers_prefilters.end(), headers_presorter);
+			std::stable_sort(m_config_context->full_prefilters.begin(), m_config_context->full_prefilters.end(), full_presorter);
+			std::stable_sort(m_config_context->postfilters.begin(), m_config_context->postfilters.end(), postsorter);
 		}
+		
+		context->config = m_config_context;
 
 		#ifdef EXT_ENABLE_OPENSSL
 		if (newconn)
@@ -2127,7 +2156,7 @@ namespace ext::net::http
 
 	auto http_server::find_handler(processing_context & context) const -> const http_server_handler *
 	{
-		for (auto & handler : context.handlers)
+		for (auto & handler : context.config->handlers)
 			if (handler->accept(context.request, context.sock))
 				return handler;
 
@@ -2352,35 +2381,15 @@ namespace ext::net::http
 		return response;
 	}
 
-	auto http_server::get_socket_timeout() const -> duration_type
+	auto http_server::current_config() -> config_context &
 	{
-		std::unique_lock lk(m_mutex);
-		return m_socket_timeout;
+		if (m_config_context->dirty) return *m_config_context;
+		
+		m_config_context = std::make_shared<config_context>(*m_config_context);
+		m_config_context->dirty = true;
+		return *m_config_context;
 	}
-
-	void http_server::set_socket_timeout(duration_type timeout)
-	{
-		submit_task([this, timeout]
-		{
-			m_socket_timeout = timeout;
-		});
-	}
-
-	auto http_server::get_keep_alive_timeout() const -> duration_type
-	{
-		std::unique_lock lk(m_mutex);
-		return m_keep_alive_timeout;
-	}
-
-	void http_server::set_keep_alive_timeout(duration_type timeout)
-	{
-		submit_task([this, timeout]
-		{
-			m_keep_alive_timeout = timeout;
-			m_sock_queue.set_default_timeout(m_keep_alive_timeout);
-		});
-	}
-
+	
 	auto http_server::do_add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx) -> ext::future<void>
 	{
 		//assert(listener.is_bound());
@@ -2436,25 +2445,26 @@ namespace ext::net::http
 
 	void http_server::do_add_handler(std::unique_ptr<const http_server_handler> handler)
 	{
+		auto & config = current_config();
+		
 		ext::unconst(handler.get())->set_logger(m_logger);
-		m_handlers.push_back(std::move(handler));
-		m_state_ver += 1;
+		config.handlers.push_back(handler.release());
 	}
 
 	void http_server::do_add_filter(ext::intrusive_ptr<http_filter_base> filter)
 	{
+		auto & config = current_config();
+		
 		filter->set_logger(m_logger);
 
 		if (auto ptr = ext::dynamic_pointer_cast<http_headers_prefilter>(filter))
-			m_headers_prefilters.push_back(std::move(ptr));
+			config.headers_prefilters.push_back((ptr.addref(), ptr.get()));
 
 		if (auto ptr = ext::dynamic_pointer_cast<http_full_prefilter>(filter))
-			m_full_prefilters.push_back(std::move(ptr));
+			config.full_prefilters.push_back((ptr.addref(), ptr.get()));
 
 		if (auto ptr = ext::dynamic_pointer_cast<http_post_filter>(filter))
-			m_postfilters.push_back(std::move(ptr));
-
-		m_state_ver += 1;
+			config.postfilters.push_back((ptr.addref(), ptr.get()));
 	}
 
 	void http_server::add_filter(ext::intrusive_ptr<http_filter_base> filter)
@@ -2566,6 +2576,88 @@ namespace ext::net::http
 		auto executor = std::make_shared<executor_type>(std::move(pool));
 		set_processing_executor(std::move(executor));
 	}
+	
+	auto http_server::get_socket_timeout() const -> duration_type
+	{
+		std::unique_lock lk(m_mutex);
+		return m_socket_timeout;
+	}
+
+	void http_server::set_socket_timeout(duration_type timeout)
+	{
+		submit_task([this, timeout]
+		{
+			m_socket_timeout = timeout;
+		});
+	}
+
+	auto http_server::get_keep_alive_timeout() const -> duration_type
+	{
+		std::unique_lock lk(m_mutex);
+		return m_keep_alive_timeout;
+	}
+
+	void http_server::set_keep_alive_timeout(duration_type timeout)
+	{
+		submit_task([this, timeout]
+		{
+			m_keep_alive_timeout = timeout;
+			m_sock_queue.set_default_timeout(m_keep_alive_timeout);
+		});
+	}
+	
+	void http_server::set_maximum_http_headers_size(std::size_t size)
+	{
+		submit_task([this, size]
+		{
+			m_config_context->dirty = true;
+			m_config_context->maximum_http_headers_size = size;
+		});
+	}
+	
+	auto http_server::get_maximum_http_headers_size() -> std::size_t
+	{
+		return submit_task([this]
+		{
+			return m_config_context->maximum_http_headers_size;
+		}).get();
+	}
+	
+	void http_server::set_maximum_http_body_size(std::size_t size)
+	{
+		submit_task([this, size]
+		{
+			m_config_context->dirty = true;
+			m_config_context->maximum_http_body_size = size;
+		});
+	}
+	
+	auto http_server::get_maximum_http_body_size() -> std::size_t
+	{
+		return submit_task([this]
+		{
+			return m_config_context->maximum_http_body_size;
+		}).get();
+	}
+	
+	void http_server::set_maximum_discarded_http_body_size(std::size_t size)
+	{
+		submit_task([this, size]
+		{
+			m_config_context->dirty = true;
+			m_config_context->maximum_discarded_http_body_size = size;
+		});
+	}
+	
+	auto http_server::get_maximum_discarded_http_body_size() -> std::size_t
+	{
+		return submit_task([this]
+		{
+			return m_config_context->maximum_discarded_http_body_size;
+		}).get();
+	}
+	
+	
 
 	http_server::http_server() = default;
 	http_server::~http_server()

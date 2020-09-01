@@ -72,20 +72,26 @@ namespace ext::net::http
 	bool parse_query(std::string & query_str, std::string & name, std::string & value); // can throw bad_alloc on string assignment
 	bool parse_query(std::string_view & query_str, std::string_view & name, std::string_view & value) noexcept;
 
-	/// Parses and extracts specific parameter from qurey_str, return true if parameter was found, false otherwise
+	/// Parses and extracts specific parameter from query_str, return true if parameter was found, false otherwise
 	///
 	/// Typical usage:
-	///   if (extract_query(qureey_str, "user", userval))
+	///   if (extract_query(query_str, "user", userval))
 	///   {
 	///       do something with userval and fact that user argument is given
 	///   }
 	bool extract_query(std::string_view qurey_str, std::string_view name, std::string & value); // can throw bad_alloc on string assignment
 	bool extract_query(std::string_view qurey_str, std::string_view name, std::string_view & value) noexcept;
 
-
+	/// parses weight string, which is basicly a float number written in C locale
+	/// if parsing fails(not a number, etc) - returns invval
 	double parse_weight(std::string_view str, double invval = 0.0);
-
+	
+	/// parses and extracts weight parameter from field string, returns it.
+	/// Typical usage:
+	///   std::string_view accept_header = ...
+	///   double default_weight = extract_weight(accept_header, "*");
+	///   double   plain_weight = extract_weight(accept_header, "text/plain");
+	///   double    html_weight = extract_weight(accept_header, "text/html");
 	double extract_weight(std::string_view field, std::string_view name, double defval = 0.0);
-
-
+	
 }

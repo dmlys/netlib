@@ -98,10 +98,6 @@ namespace ext::net::http
 		//  Some minimal numbers of contexts are cached and only reinitialized if needed, if there no cached contexts are available - one is allocated.
 		//  When maximum number exceeds - server busy is returned as http answer.
 		//
-		//  http filters, handlers can added when http server already started. What if we already processing some request and handler is added?
-		//  When processing starts context holds snapshot of currently registered handlers, filters and only they are used. It also handles multithreaded issues.
-		//  state_ver holds version: whenever filters, handlers changed -> version incremented, processing context snapshot only reinitializes when state_ver differs.
-		//
 		// handle_* group:
 		//  http request is handled by handle_* method group. All methods can be overridden, also to allow more customization, each method returns what must be done next:
 		//   handle_request -> handle_prefilters -> .... -> handle_finish
@@ -150,64 +146,91 @@ namespace ext::net::http
 			ext::net::listener listener; // valid until it placed into sock_queue
 		};
 		
+		struct config_context;
+		
 		/// groups some context parameters for processing http request
 		struct processing_context
 		{
 			socket_streambuf sock; // socket where http request came from
-
-			unsigned state_ver = 0; // current context state version
-
+			ssl_iptr ssl_ptr = nullptr; // ssl session, created from listener ssl context
+			
 			// socket waiting
 			socket_queue::wait_type wait_type;
 			// next method after waiting is complete
 			regular_handle_methed next_method;
 			// current method that is executed
 			regular_handle_methed cur_method;
-
+			
+			// byte counters, used in various scenarios
+			std::size_t read_count;    // number of bytes read from socket
+			std::size_t written_count; // number of bytes written socket
+			
+			unsigned async_state = 0;         // state used by some handle_methods, value for switch
+			std::string chunk_prefix;         // buffer for preparing and holding chunk prefix(chunked transfer encoding)
+			std::vector<char> input_buffer;   // input buffer where http_body is parsed, than it's copied/filtered to destination buffer
+			std::vector<char> output_buffer;  // output buffer for stream and async response bodies
+			
+			http_server_utils::nonblocking_http_parser parser; // http parser with state
+			http_server_utils::nonblocking_http_writer writer; // http writer with state
+			
 			// should this connection be closed after request processed, determined by Connection header,
 			// but also - were there errors while processing request.
 			connection_action_type conn_action = connection_action_type::close;
-
-			std::vector<const http_server_handler *>    handlers;            // http handlers registered in server
-			std::vector<const http_headers_prefilter *> headers_prefilters;  // http headers prefilters  registered in server, sorted by order
-			std::vector<const http_full_prefilter *>    full_prefilters;     // http full    prefilters  registered in server, sorted by order
-			std::vector<const http_post_filter *>       postfilters;         // http         postfilters registered in server, sorted by order
-
-			const http_server_handler * handler;
+			
+			http_request request;                    // current http request, valid after is was parsed
+			process_result response = std::nullopt;  // current http response, valid after handler was called
+			
+			//std::vector<char> input_raw_http_body_buffer;
+			//std::vector<char> input_filtered_http_body_buffer;
+			
+			std::shared_ptr<const config_context> config; // config snapshot
+			const http_server_handler * handler;          // found handler for request
+			
 			bool expect_extension;         // request with Expect: 100-continue header, see RFC7231 section 5.1.1.
 			bool continue_answer;          // context holds answer 100 Continue
 			bool first_response_written;   // wrote first 100-continue
 			bool final_response_written;   // wrote final(possibly second) response
-
-			std::size_t read_count, written_count;
-			std::size_t maximum_headers_size, maximum_discard_message_size;
-
-			http_server_utils::nonblocking_http_parser parser; // http parser with state
-			http_server_utils::nonblocking_http_writer writer; // http writer with state
-
-			http_request request;                    // current http request, valid after is was parsed
-			process_result response = std::nullopt;  // current http response, valid after handler was called
-
-			unsigned async_state = 0;         // state used by some handle_methods, value for switch
-			std::string chunk_prefix;         // buffer for preparing and holding chunk prefix(chunked transfer encoding)
-			std::vector<char> output_buffer;  // output buffer for stream and async response bodies
 			
-			ssl_iptr ssl_ptr = nullptr; // ssl session, created from listener ssl context
 			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
 			std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization
 			std::atomic<http_server::closable_http_body *> body_closer = nullptr; // async_http_body_source/http_body_streambuf closing closer
+		};
+		
+		/// holds some configuration parameters sharable by processing contexts
+		struct config_context
+		{
+			/// http filters, handlers can added when http server already started. What if we already processing some request and handler is added?
+			/// When processing starts - context holds snapshot of currently registered handlers, filters and only they are used; it also handles multithreaded issues.
+			/// whenever filters, handlers or anything config related changes -> new context is config_context as copy of current is created with dirty set to true.
+			/// sort of copy on write
+			unsigned dirty = true;
+			
+			std::vector<const http_server_handler *>    handlers;            // http handlers registered in server
+			std::vector<const http_headers_prefilter *> headers_prefilters;  // http headers prefilters  registered in server, sorted by order
+			std::vector<const http_full_prefilter *>    full_prefilters;     // http full    prefilters  registered in server, sorted by order
+			std::vector<const http_post_filter *>       postfilters;         // http         postfilters registered in server, sorted by order
+			
+			/// Maximum bytes read from socket while parsing HTTP request headers, -1 - unlimited.
+			/// If request headers are not parsed yet, and server read from socket more than maximum_http_headers_size, BAD request is returned
+			std::size_t maximum_http_headers_size = -1;
+			/// Maximum bytes read from socket while parsing HTTP body, -1 - unlimited.
+			/// This affects only simple std::vector<char>/std::string bodies, and never affects stream/async bodies.
+			/// If server read from socket more than maximum_http_body_size, BAD request is returned
+			std::size_t maximum_http_body_size = -1;
+			/// Maximum bytes read from socket while parsing discarded HTTP request, -1 - unlimited.
+			/// If there is no handler for this request, or some other error code is answered(e.g. unauthorized),
+			/// this request is considered to be discarded - in this case we still might read it's body,
+			/// but no more than maximum_discarded_http_body_size, otherwise connection is forcibly closed.
+			std::size_t maximum_discarded_http_body_size = -1;
 		};
 		
 	protected:
 		socket_queue m_sock_queue; // intenal socket and listener queue
 		boost::container::flat_set<socket_streambuf::handle_type> m_sock_handles; // set of current pending sockets, used to detect new connections
 		boost::container::flat_map<std::string, listener_context> m_listener_contexts; // listener contexts map by <addr:port>
-
-		unsigned m_state_ver = 0;
-		std::vector<std::unique_ptr<const http_server_handler>> m_handlers;            // registered http handlers
-		std::vector<ext::intrusive_ptr<http_headers_prefilter>> m_headers_prefilters;  // registered http headers prefilters, unspecified order
-		std::vector<ext::intrusive_ptr<http_full_prefilter>> m_full_prefilters;        // registered http full    prefilters, unspecified order
-		std::vector<ext::intrusive_ptr<http_post_filter>> m_postfilters;               // registered http        postfilters, unspecified order
+		
+		// sharable cow config context, see config_context description
+		std::shared_ptr<config_context> m_config_context = std::make_shared<config_context>();
 
 		ext::library_logger::logger * m_logger = nullptr;
 		// log level on which http request and reply headers are logged
@@ -273,16 +296,6 @@ namespace ext::net::http
 		/// timeout for socket operations when closing, basicly affects SSL shutdown
 		static constexpr duration_type m_close_socket_timeout = std::chrono::milliseconds(100);
 
-		/// Maximum bytes read from socket while parsing HTTP request headers, -1 - unlimited.
-		/// If request headers are not parsed yet, and server read from socket more than m_maximum_headers_size,
-		/// BAD request is returned
-		std::size_t m_maximum_headers_size = -1;
-		/// Maximum bytes read from socket while parsing discarded HTTP request, -1 - unlimited.
-		/// If there is no handler for this request, or some other error code is answered(e.g. unauthorized),
-		/// this request is considered to be discarded - in this case we still might read it's body,
-		/// but no more than m_maximum_discard_message_size in total, otherwise connection is forcibly closed.
-		std::size_t m_maximum_discard_message_size = -1;
-
 	protected:
 		/// Performs actual startup of http server, blocking
 		virtual void do_start(std::unique_lock<std::mutex> & lk);
@@ -291,6 +304,8 @@ namespace ext::net::http
 		/// Resets http server to default state: closes all sockets, deletes handlers, filters.
 		/// Some properties are not reset
 		virtual void do_reset(std::unique_lock<std::mutex> & lk);
+		/// clears m_config_context
+		virtual void do_clear_config(std::unique_lock<std::mutex> & lk);
 
 	public:
 		/// Starts http_server: internal background thread + listeners start listen
@@ -436,6 +451,10 @@ namespace ext::net::http
 		void submit_handler(Lock & lk, handle_method_type next_method, processing_context * context);
 
 	protected:
+		/// obtains current config context, copying one if needed
+		config_context & current_config();
+		
+	protected:
 		virtual auto do_add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx) -> ext::future<void>;
 		virtual void do_add_handler(std::unique_ptr<const http_server_handler> handler);
 		virtual void do_add_filter(ext::intrusive_ptr<http_filter_base> filter);
@@ -453,7 +472,7 @@ namespace ext::net::http
 		virtual void log_read_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
 		/// logs write buffer in hex dump format
 		virtual void log_write_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
-
+		/// parses Accept header and returns text/plain and text/html weights
 		static std::pair<double, double> parse_accept(const http_request & request);
 
 		/// Creates HTTP 400 BAD REQUEST answer
@@ -515,6 +534,16 @@ namespace ext::net::http
 		void set_keep_alive_timeout(duration_type timeout);
 		auto get_keep_alive_timeout() const -> duration_type;
 
+	public: // limits
+		void set_maximum_http_headers_size(std::size_t size);
+		auto get_maximum_http_headers_size() -> std::size_t;
+		
+		void set_maximum_http_body_size(std::size_t size);
+		auto get_maximum_http_body_size() -> std::size_t;
+		
+		void set_maximum_discarded_http_body_size(std::size_t size);
+		auto get_maximum_discarded_http_body_size() -> std::size_t;
+		
 	public:
 		void set_logger(ext::library_logger::logger * logger) { m_logger = logger; m_sock_queue.set_logger(logger); }
 		auto get_logger() const noexcept { return m_logger;   }
