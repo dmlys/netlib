@@ -1,7 +1,10 @@
 #include "http_server_tests_utils.hpp"
+#include "test_files.h"
 
 #include <algorithm>
 #include <numeric>
+
+#include <ext/stream_filtering/basexx.hpp>
 
 namespace ext::net::http::test_utils
 {
@@ -68,8 +71,11 @@ namespace ext::net::http::test_utils
 	
 	auto configure(http_server & server) -> std::tuple<std::string, unsigned short>
 	{
-		//static ext::library_logger::stream_logger logger(std::cout, ext::library_logger::Trace);
-		//server.set_logger(&logger);
+		if (LogLevel != -1)
+		{
+			static ext::library_logger::stream_logger logger(std::cout, LogLevel);
+			server.set_logger(&logger);
+		}
 		
 		auto listener = make_listener();
 		auto addr = listener.sock_name();
@@ -100,7 +106,7 @@ namespace ext::net::http::test_utils
 		return sock;
 	}
 	
-	void write_request(ext::net::socket_stream & sock, const std::tuple<std::string, unsigned short> & addr, const http_request & request)
+	void write_headers(ext::net::socket_stream & sock, const std::tuple<std::string, unsigned short> & addr, const http_request & request)
 	{
 		const std::string & host = std::get<0>(addr);
 		
@@ -128,20 +134,24 @@ namespace ext::net::http::test_utils
 			sock << name << ": " << value << "\r\n";
 		
 		sock << "Connection: " << connection_action << "\r\n"
-			<< "\r\n";
+			 << "\r\n";
 		
+		sock << std::flush;
+	}
+	
+	void write_request(ext::net::socket_stream & sock, const std::tuple<std::string, unsigned short> & addr, const http_request & request)
+	{
+		write_headers(sock, addr, request);
 		sock << std::get<std::string>(request.body);
 		sock << std::flush;
 	}
 	
-	auto parse_response(ext::net::socket_stream & sock) -> std::tuple<int, http_headers_vector, std::string>
+	auto receive_response(ext::net::socket_stream & sock) -> http_response
 	{
-		int code;
-		std::string status, name, value, body;
-		http_headers_vector headers;
-		
+		http_response resp;
+		std::string name, value, body;
 		ext::net::http_parser parser;
-		parser.parse_status(sock, status);
+		parser.parse_status(sock, resp.status);
 		
 		if (parser.http_code() == 100) // Expect answer, skip it
 		{
@@ -150,12 +160,13 @@ namespace ext::net::http::test_utils
 		}
 		
 		while (parser.parse_header(sock, name, value))
-			add_header(headers, name, value);
+			add_header(resp.headers, name, value);
 		
 		parser.parse_body(sock, body);
-		code = parser.http_code();
+		resp.body = std::move(body);
+		resp.http_code = parser.http_code();
 		
-		return std::make_tuple(code, std::move(headers), std::move(body));
+		return resp;
 	}
 	
 	http_response make_response(int code, std::string body)
@@ -165,6 +176,17 @@ namespace ext::net::http::test_utils
 		response.body = std::move(body);
 		
 		return response;
+	}
+	
+	http_request make_request(std::string method, std::string url, std::string body, http_headers_vector headers)
+	{
+		http_request request;
+		request.method = std::move(method);
+		request.url = std::move(url);
+		request.body = std::move(body);
+		request.headers = std::move(headers);
+		
+		return request;
 	}
 	
 	void write_get_request(ext::net::socket_stream & sock, const std::tuple<std::string, unsigned short> & addr, std::string_view url)
@@ -234,42 +256,47 @@ namespace ext::net::http::test_utils
 		set_nodelay(sock.handle(), 0);
 	}
 	
-	auto make_get_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url)
-		-> std::tuple<int, http_headers_vector, std::string>
+	auto send_get_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url) -> http_response
 	{
 		auto sock = connect_socket(addr);
 		write_get_request(sock, addr, url);
 		
-		return parse_response(sock);
+		return receive_response(sock);
 	}
 	
-	auto make_put_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::string_view request_body)
-		-> std::tuple<int, http_headers_vector, std::string>
+	auto send_put_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::string_view request_body) -> http_response
 	{
 		auto sock = connect_socket(addr);
 		write_put_request(sock, addr, url, request_body);
 	
-		return parse_response(sock);
+		return receive_response(sock);
 	}
 	
-	auto make_put_expect_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::string_view request_body)
-		-> std::tuple<int, http_headers_vector, std::string>
+	auto send_put_expect_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::string_view request_body) -> http_response
 	{
 		auto sock = connect_socket(addr);
 		write_put_expect_request(sock, addr, url, request_body);
 		
-		return parse_response(sock);
+		return receive_response(sock);
 	}
 	
-	auto make_put_expect_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::vector<std::string_view> request_body_parts)
-		-> std::tuple<int, http_headers_vector, std::string>
+	auto send_put_expect_request(const std::tuple<std::string, unsigned short> & addr, std::string_view url, std::vector<std::string_view> request_body_parts) -> http_response
 	{
 		auto sock = connect_socket(addr);
 		write_put_expect_request(sock, addr, url, request_body_parts);
 	
-		return parse_response(sock);
+		return receive_response(sock);
 	}
 	
+	void dumb_base64_filter::prefilter(http_server_filter_control & control) const
+	{
+		control.request_filter_append(std::make_unique<ext::stream_filtering::base64_decode_filter>());
+	}
+	
+	void dumb_base64_filter::postfilter(http_server_filter_control & control) const
+	{
+		control.response_filter_append(std::make_unique<ext::stream_filtering::base64_encode_filter>());
+	}
 	
 	auto parted_stream::underflow() -> int_type
 	{
@@ -294,7 +321,7 @@ namespace ext::net::http::test_utils
 		return traits_type::to_int_type(*first);
 	}
 	
-	auto parted_asource::read_some(std::vector<char> buffer) -> ext::future<chunk_type>
+	auto parted_asource::read_some(std::vector<char> buffer, std::size_t size) -> ext::future<chunk_type>
 	{
 		auto func = [this, buffer = std::move(buffer)]() mutable -> chunk_type
 		{
@@ -352,4 +379,10 @@ namespace ext::net::http::test_utils
 		
 		promise.set_value(std::move(response));
 	}
+	
+	std::vector<configurator> configurations = 
+	{
+		{"single", configure},
+		{"with_pool", [](auto & server) { return configure_with_pool(server); }},
+	};
 }

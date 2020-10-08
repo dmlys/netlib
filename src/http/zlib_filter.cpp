@@ -1,4 +1,5 @@
 #ifdef EXT_ENABLE_CPPZLIB
+#include <ext/stream_filtering/zlib.hpp>
 #include <ext/net/http/zlib_filter.hpp>
 #include <ext/net/http/parse_header.hpp>
 
@@ -13,7 +14,7 @@ namespace ext::net::http
 {
 	auto zlib_filter::parse_accept_encoding(std::string_view accept_encoding_field) const -> std::tuple<double, double>
 	{
-		double gzip_weight = 0.0, deflate_weight = 0.0;
+		double gzip_weight = 1.0, deflate_weight = 1.0;
 
 		if (double weight = extract_weight(accept_encoding_field, "*", 1.0); weight > 0)
 			gzip_weight = deflate_weight = weight;
@@ -23,170 +24,59 @@ namespace ext::net::http
 
 		return std::make_tuple(gzip_weight, deflate_weight);
 	}
-
-
-	std::string zlib_filter::inflate(const std::string & data) const
+	
+	void zlib_filter::prefilter(http_server_filter_control & control) const
 	{
-		zlib::inflate_stream inflator {MAX_WBITS + 32};
-		std::size_t sz = std::clamp<std::size_t>(1024, data.size(), 10 * 1024);
-		std::string output;
-		output.resize(sz);
-
-		inflator.set_in(data.data(), data.size());
-		inflator.set_out(output.data(), output.size());
-
-		do
-		{
-			if (not inflator.avail_out())
-			{
-				auto newsz = sz * 3 / 2;
-				output.resize(newsz);
-				inflator.set_out(output.data() + sz, newsz - sz);
-				sz = newsz;
-			}
-
-			int res = ::inflate(inflator, Z_NO_FLUSH);
-			switch (res)
-			{
-			    case Z_OK: break;
-
-			    case Z_STREAM_END:
-				    assert(not inflator.avail_in());
-					break;
-
-			    case Z_NEED_DICT:
-			    case Z_BUF_ERROR:
-			    case Z_ERRNO:
-			    case Z_STREAM_ERROR:
-			    case Z_DATA_ERROR:
-			    case Z_MEM_ERROR:
-			    case Z_VERSION_ERROR:
-			    default:
-				    zlib::throw_zlib_error(res, inflator);
-			}
-		} while (inflator.avail_in());
-
-		output.resize(inflator.total_out());
-		return output;
-	}
-
-	std::string zlib_filter::deflate(const std::string & data, bool gzip) const
-	{
-		zlib::deflate_stream deflator {Z_DEFAULT_COMPRESSION, MAX_WBITS + (gzip ? 16 : 0)};
-		std::size_t sz = std::clamp<std::size_t>(1024, data.size(), 10 * 1024);
-		std::string output;
-		output.resize(sz);
-
-		deflator.set_in(data.data(), data.size());
-		deflator.set_out(output.data(), output.size());
-
-		do
-		{
-			if (not deflator.avail_out())
-			{
-				auto newsz = sz * 3 / 2;
-				output.resize(newsz);
-				deflator.set_out(output.data() + sz, newsz - sz);
-				sz = newsz;
-			}
-
-			int res = ::deflate(deflator, Z_NO_FLUSH);
-			switch (res)
-			{
-				case Z_OK: break;
-
-				case Z_STREAM_END:
-					assert(not deflator.avail_in());
-					break;
-
-				case Z_NEED_DICT:
-				case Z_BUF_ERROR:
-				case Z_ERRNO:
-				case Z_STREAM_ERROR:
-				case Z_DATA_ERROR:
-				case Z_MEM_ERROR:
-				case Z_VERSION_ERROR:
-				default:
-					zlib::throw_zlib_error(res, deflator);
-			}
-		} while (deflator.avail_in());
-
-		do
-		{
-			if (not deflator.avail_out())
-			{
-				auto newsz = sz * 3 / 2;
-				output.resize(newsz);
-				deflator.set_out(output.data() + sz, newsz - sz);
-				sz = newsz;
-			}
-
-			int res = ::deflate(deflator, Z_FINISH);
-			switch (res)
-			{
-				case Z_OK: break;
-
-				case Z_STREAM_END:
-					assert(not deflator.avail_in());
-					break;
-
-				case Z_NEED_DICT:
-				case Z_BUF_ERROR:
-				case Z_ERRNO:
-				case Z_STREAM_ERROR:
-				case Z_DATA_ERROR:
-				case Z_MEM_ERROR:
-				case Z_VERSION_ERROR:
-				default:
-					zlib::throw_zlib_error(res, deflator);
-			}
-		} while (deflator.avail_in());
-
-		output.resize(deflator.total_out());
-		return output;
-	}
-
-	auto zlib_filter::prefilter_full(ext::net::http::http_request & req) const -> std::optional<ext::net::http::http_response>
-	{
+		auto & req = control.request();
+		
+		auto accept_encoding = get_header_value(req.headers, "Accept-Encoding");
+		if (not accept_encoding.empty())
+			control.set_property("zlib-filter::Accept-Encoding", std::string(accept_encoding));
+		
 		auto * hdr = find_header(req.headers, "Content-Encoding");
-		if (not hdr) return std::nullopt;
+		if (not hdr) return;
 
-		//const auto & encoding = hdr->value;
-		//if (encoding == "gzip" or encoding == "deflate")
-		//{
-		//	EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
-		//	req.body = inflate(req.body);
-		//	remove_header(req.headers, "Content-Encoding");
-		//}
-
-		return std::nullopt;
+		const auto & encoding = hdr->value;
+		if (encoding == "gzip" or encoding == "deflate")
+		{
+			EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
+			control.request_filter_append(std::make_unique<ext::stream_filtering::zlib_inflate_filter>());
+		}
+		
+		return;
 	}
 
-	void zlib_filter::postfilter(ext::net::http::http_request & req, ext::net::http::http_response & resp) const
+	void zlib_filter::postfilter(http_server_filter_control & control) const
 	{
+		auto & resp = control.response();
 		// if already have encoding - do nothing
 		auto * enc_hdr = find_header(resp.headers, "Content-Encoding");
 		if (enc_hdr) return;
 
-		auto * hdr = find_header(req.headers, "Accept-Encoding");
-		if (not hdr) return;
+		// if body empty - do not gzip it
+		auto body_size = size(resp.body).value_or(-1);
+		if (not body_size) return;
+		
+		auto encoding = get_property<std::string>(control, "zlib-filter::Accept-Encoding");
+		if (not encoding or encoding->empty()) return;
 
-		std::string_view encoding = hdr->value;
-		EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Accept-Encoding = {}", encoding);
+		EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Accept-Encoding = {}", *encoding);
 
 		double gzip_weight, deflate_weight;
-		std::tie(gzip_weight, deflate_weight) = parse_accept_encoding(encoding);
+		std::tie(gzip_weight, deflate_weight) = parse_accept_encoding(*encoding);
 
-		//if (gzip_weight > 0 and gzip_weight >= deflate_weight)
-		//{
-		//	set_header(resp.headers, "Content-Encoding", "gzip");
-		//	resp.body = deflate(resp.body, true);
-		//}
-		//else if (deflate_weight > 0)
-		//{
-		//	set_header(resp.headers, "Content-Encoding", "deflate");
-		//	resp.body = deflate(resp.body, false);
-		//}
+		if (gzip_weight > 0 and gzip_weight >= deflate_weight)
+		{
+			set_header(resp.headers, "Content-Encoding", "gzip");
+			auto zlib_filter = std::make_unique<ext::stream_filtering::zlib_deflate_filter>(zlib::deflate_stream(Z_DEFAULT_COMPRESSION, MAX_WBITS + 16));
+			control.response_filter_append(std::move(zlib_filter));
+		}
+		else if (deflate_weight > 0)
+		{
+			set_header(resp.headers, "Content-Encoding", "deflate");
+			auto zlib_filter = std::make_unique<ext::stream_filtering::zlib_deflate_filter>(zlib::deflate_stream(Z_DEFAULT_COMPRESSION, MAX_WBITS +  0));
+			control.response_filter_append(std::move(zlib_filter));
+		}
 	}
 }
 

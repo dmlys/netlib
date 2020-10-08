@@ -24,6 +24,7 @@ CppApplication
 	{
 		var libs = ["stdc++fs", "fmt", "z",
 			//"boost_system",
+			"boost_program_options",
 			//"boost_test_exec_monitor",
 			"boost_unit_test_framework",
 		]

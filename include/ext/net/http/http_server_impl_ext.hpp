@@ -285,8 +285,11 @@ namespace ext::net::http
 			std::atomic<unsigned> m_interrupt_work_flag = false;
 			bool m_finished = false;    // http body is finished, no more data
 			bool m_interrupted = false; // this object is interrupted any read operation will throw
+			bool m_filtered;
 			
-			std::vector<char> m_parsed_data;     // buffer where parsed http body data is placed, and from were it is served by this std::streambuf
+			// holds &underflow_normal or &underflow_filtered
+			int_type (http_body_streambuf_impl::*m_underflow_method)();
+			
 			ext::promise<void> m_closed_promise; // close promise
 			http_server * m_server;              // owning http_server
 			processing_context * m_context;      // context of this http request
@@ -308,6 +311,9 @@ namespace ext::net::http
 		ext::intrusive_ptr<closable_http_body_impl> m_interrupt_state;
 		
 	protected:
+		virtual void read_parse_some();
+		virtual int_type underflow_normal();
+		virtual int_type underflow_filtered();
 		virtual int_type underflow() override;
 		
 	public:
@@ -346,13 +352,21 @@ namespace ext::net::http
 			std::atomic<bool> m_pending_request = false; // have pending read_some request
 			std::atomic<bool> m_finished = false;        // http body is finished, no more data
 			std::atomic<bool> m_interrupted = false;     // this object is interrupted any read operation will throw
+			bool m_filtered;
+			// holds &http_server::handle_request_filtered_async_source_body_parsing 
+			//    or &http_server::handle_request_normal_async_source_body_parsing
+			auto (http_server::*m_async_method)(processing_context * context) -> handle_method_type;
 			
-			std::vector<char> m_data;
+			std::size_t m_asked_size;
 			ext::promise<void> m_closed_promise;
 			ext::promise<chunk_type> m_read_promise;
 			
 			http_server * m_server;              // owning http_server
 			processing_context * m_context;      // context of this http request
+			
+		private:
+			void set_value_result(chunk_type result);
+			void set_exception_result(std::exception_ptr ex);
 			
 		public:
 			virtual ext::future<void> close() override;
@@ -366,9 +380,9 @@ namespace ext::net::http
 		
 	protected:
 		ext::future<chunk_type> make_closed_result() const;
-			
+		
 	public:
-		virtual auto read_some(std::vector<char> buffer) -> ext::future<chunk_type> override;
+		virtual auto read_some(std::vector<char> buffer, std::size_t size = 0) -> ext::future<chunk_type> override;
 		
 	public:
 		async_http_body_source_impl(http_server * server, processing_context * context);
@@ -381,4 +395,36 @@ namespace ext::net::http
 		async_http_body_source_impl & operator =(const async_http_body_source_impl &) = delete;
 	};
 
+
+
+	class http_server::http_server_filter_control : public ext::net::http::http_server_filter_control
+	{
+		processing_context * m_context;
+		
+	private:
+		filtering_context & acquire_filtering_context();
+		
+	public:
+		virtual void request_filter_append(std::unique_ptr<filter> filter) override;
+		virtual void request_filter_prepend(std::unique_ptr<filter> filter) override;
+		virtual void request_filters_clear() override;
+		
+		virtual void response_filter_append(std::unique_ptr<filter> filter) override;
+		virtual void response_filter_prepend(std::unique_ptr<filter> filter) override;
+		virtual void response_filters_clear() override;
+		
+	public:
+		virtual auto request() -> http_request & override;
+		virtual auto response() -> http_response & override;
+		virtual void override_response(http_response resp) override;
+		
+	public:
+		virtual auto get_property(std::string_view name) -> std::optional<property> override;
+		virtual void set_property(std::string_view name, property prop) override;
+		
+	public:
+		http_server_filter_control(processing_context * context)
+		    : m_context(context) {}
+	};
+	
 }

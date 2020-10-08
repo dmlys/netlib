@@ -52,7 +52,7 @@ namespace ext::net::http
 	public:
 		using result_types = boost::mp11::mp_list<
 			// direct result types
-			std::nullopt_t,
+			std::nullopt_t, // TODO: introduce special type
 			http_response,
 			// http body types
 			std::string,

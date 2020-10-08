@@ -4,6 +4,8 @@
 #include <ext/functors/ctpred.hpp>
 #include <ext/hexdump.hpp>
 
+#include <ext/stream_filtering/filtering.hpp>
+
 #include <boost/core/demangle.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/iterator/transform_iterator.hpp>
@@ -181,18 +183,14 @@ namespace ext::net::http
 		for (auto * handler : m_config_context->handlers)
 			delete handler;
 		
-		for (auto * filter : m_config_context->headers_prefilters)
-			intrusive_ptr_release(ext::unconst(filter));
-		
-		for (auto * filter : m_config_context->full_prefilters)
+		for (auto * filter : m_config_context->prefilters)
 			intrusive_ptr_release(ext::unconst(filter));
 		
 		for (auto * filter : m_config_context->postfilters)
 			intrusive_ptr_release(ext::unconst(filter));
 		
 		m_config_context->handlers.clear();
-		m_config_context->headers_prefilters.clear();
-		m_config_context->full_prefilters.clear();
+		m_config_context->prefilters.clear();
 		m_config_context->postfilters.clear();
 	}
 
@@ -200,7 +198,7 @@ namespace ext::net::http
 	{
 		assert(lk.owns_lock());
 		assert(not m_thread.joinable());
-		LOG_TRACE("got start request");
+		LOG_DEBUG("got start request");
 
 		if (m_joined)
 			throw std::logic_error("ext::net::http::http_server::start start misuse, have joined thread");
@@ -223,7 +221,7 @@ namespace ext::net::http
 	void http_server::do_stop(std::unique_lock<std::mutex> & lk)
 	{
 		assert(lk.owns_lock());
-		LOG_TRACE("got stop request");
+		LOG_DEBUG("got stop request");
 
 		if (m_joined)
 			throw std::logic_error("ext::net::http::http_server::stop stop misuse, have joined thread");
@@ -243,10 +241,10 @@ namespace ext::net::http
 
 			m_sock_queue.interrupt();
 			m_event.notify_one();
-			LOG_TRACE("interrupting internal thread");
+			LOG_DEBUG("interrupting internal thread");
 
 			m_thread.join();
-			LOG_TRACE("internal thread finished");
+			LOG_DEBUG("internal thread finished");
 		}
 
 		m_started = false;
@@ -264,20 +262,20 @@ namespace ext::net::http
 		return do_stop(lk);
 	}
 
-	void http_server::join_thread()
+	void http_server::join()
 	{
 		std::unique_lock lk(m_mutex);
-		LOG_TRACE("got join_thread request");
+		LOG_DEBUG("got join request");
 
 		if (m_joined)
 		{
 			assert(m_started == true);
-			throw std::logic_error("ext::net::http::http_server::join_thread misuse, already have joined thread");
+			throw std::logic_error("ext::net::http::http_server::join misuse, already have joined thread");
 		}
 		else
 		{
 			if (m_started)
-				throw std::logic_error("ext::net::http::http_server::join_thread misuse, already started background thread");
+				throw std::logic_error("ext::net::http::http_server::join misuse, already started background thread");
 			else
 			{
 				m_started = m_running = true;
@@ -289,9 +287,9 @@ namespace ext::net::http
 
 				{
 					ext::reverse_lock rlk(lk);
-					LOG_TRACE("joining thread");
+					LOG_DEBUG("joining thread");
 					run_proc(started_promise);
-					LOG_TRACE("run_proc finished");
+					LOG_DEBUG("run_proc finished");
 				}
 
 				m_started = m_joined = false;
@@ -304,8 +302,8 @@ namespace ext::net::http
 	void http_server::interrupt()
 	{
 		bool joined = m_joined;
-		// TODO: there should be "interrupted" atomic flag, that is set by this method, and checked in join_thread
-		//       currently we have a race condition here, when interrupt comes earlier then join_thread sets m_joined = true
+		// TODO: there should be "interrupted" atomic flag, that is set by this method, and checked in join
+		//       currently we have a race condition here, when interrupt comes earlier then join sets m_joined = true
 		
 		// forbid reordering m_joined read after anything below
 		std::atomic_signal_fence(std::memory_order_acquire);
@@ -322,7 +320,7 @@ namespace ext::net::http
 		bool got_exception = false;
 		m_threadid = std::this_thread::get_id();
 		std::unique_lock lk(m_mutex);
-		LOG_TRACE("executing run_proc");
+		LOG_DEBUG("executing run_proc");
 		
 		try
 		{
@@ -353,7 +351,7 @@ namespace ext::net::http
 			}
 
 			started_promise.set_value();
-			LOG_TRACE("running main loop");
+			LOG_DEBUG("running main loop");
 			for (;;)
 			{
 				process_tasks(lk);
@@ -391,7 +389,7 @@ namespace ext::net::http
 		}
 
 	exit:
-		LOG_TRACE("exiting run_proc");
+		LOG_DEBUG("exiting run_proc");
 		EXT_UNUSED(got_exception);
 		m_running = false;
 		do_reset(lk);
@@ -526,6 +524,12 @@ namespace ext::net::http
 			next_method = &http_server::handle_finish;
 			LOG_ERROR("exception while processing socket = {}: class - {}; what - {}", context->sock.handle(), boost::core::demangle(typeid(ex).name()), ex.what());
 		}
+		catch (...)
+		{
+			context->conn_action = connection_action_type::close;
+			next_method = &http_server::handle_finish;
+			LOG_ERROR("exception while processing socket = {}: unknown exception(...)", context->sock.handle());
+		}
 
 		auto task = std::bind(next_method.finalizer_ptr(), this, std::move(context));
 		if (m_threadid == std::this_thread::get_id())
@@ -596,18 +600,18 @@ namespace ext::net::http
 	#ifdef EXT_ENABLE_OPENSSL
 		if (errc == openssl::ssl_error::want_read)
 		{
-			SOCK_LOG_TRACE("SSL_read: got WANT_READ, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
 		if (errc == openssl::ssl_error::want_write)
 		{
-			SOCK_LOG_TRACE("SSL_read: got WANT_WRITE, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
 		}
 	#endif
 		if (errc == sock_errc::would_block)
 		{
-			SOCK_LOG_TRACE("recv: got would_block, scheduling socket waiting");
+			SOCK_LOG_DEBUG("recv: got would_block, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
 
@@ -659,18 +663,18 @@ namespace ext::net::http
 	#ifdef EXT_ENABLE_OPENSSL
 		if (errc == openssl::ssl_error::want_read)
 		{
-			SOCK_LOG_TRACE("SSL_read: got WANT_READ, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
 		if (errc == openssl::ssl_error::want_write)
 		{
-			SOCK_LOG_TRACE("SSL_read: got WANT_WRITE, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
 		}
 	#endif
 		if (errc == sock_errc::would_block)
 		{
-			SOCK_LOG_TRACE("recv: got would_block, scheduling socket waiting");
+			SOCK_LOG_DEBUG("recv: got would_block, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
 
@@ -722,18 +726,18 @@ namespace ext::net::http
 	#ifdef EXT_ENABLE_OPENSSL
 		if (errc == openssl::ssl_error::want_read)
 		{
-			SOCK_LOG_TRACE("SSL_write: got WANT_READ, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_write: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
 		if (errc == openssl::ssl_error::want_write)
 		{
-			SOCK_LOG_TRACE("SSL_write: got WANT_WRITE, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL_write: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
 		}
 	#endif
 		if (errc == sock_errc::would_block)
 		{
-			SOCK_LOG_TRACE("send: got would_block, scheduling socket waiting");
+			SOCK_LOG_DEBUG("send: got would_block, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
 		}
 
@@ -747,6 +751,62 @@ namespace ext::net::http
 		return &http_server::handle_finish;
 	}
 
+	auto http_server::recv_and_parse(processing_context * context) const -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto & parser = context->parser;
+		
+		char * first = sock.gptr();
+		char * last  = sock.egptr();
+		int len = last - first;
+
+		if (first != last) goto parse;
+		
+		std::tie(first, last) = sock.getbuf();
+		if (auto next = recv(context, first, last - first, len))
+			return next;
+		
+		sock.setg(first, first, first + len);
+		log_read_buffer(sock.handle(), first, len);
+	parse:
+		auto read = parser.parse_message(first, len);
+		sock.gbump(static_cast<int>(read));
+		
+		return nullptr;
+	}
+	
+	auto http_server::recv_and_parse(processing_context * context, std::size_t limit) const -> handle_method_type
+	{
+		auto & sock = context->sock;
+		auto & parser = context->parser;
+		
+		char * first = sock.gptr();
+		char * last  = sock.egptr();
+		int len = last - first;
+
+		if (first != last) goto parse;
+		
+		std::tie(first, last) = sock.getbuf();
+		if (auto next = recv(context, first, last - first, len))
+			return next;
+		
+		context->read_count += len;
+		if (context->read_count >= limit)
+		{
+			SOCK_LOG_WARN("http request is to long, {} >= {}, closing connection", context->read_count, limit);
+			context->response = create_bad_request_response(sock, connection_action_type::close);
+			return &http_server::handle_response;
+		}
+		
+		sock.setg(first, first, first + len);
+		log_read_buffer(sock.handle(), first, len);
+	parse:
+		auto read = parser.parse_message(first, len);
+		sock.gbump(static_cast<int>(read));
+		
+		return nullptr;
+	}
+	
 	std::size_t http_server::sendbuf_size(processing_context * context) const
 	{
 		constexpr int max_bufsize = 10 * 1024;
@@ -776,15 +836,43 @@ namespace ext::net::http
 			if (len > 0) goto success;
 
 			// no error and no data -> EOF -> no request, just close it quitly
-			return &http_server::handle_finish;
+			return &http_server::handle_close;
 		}
 
 	success:
 		if (context->ssl_ptr)
 			return &http_server::handle_ssl_configuration;
 
-		SOCK_LOG_TRACE("starting processing of a new http request");
+		SOCK_LOG_DEBUG("starting processing of a new http request");
 		return &http_server::handle_request_headers_parsing;
+	}
+	
+	auto http_server::handle_close(processing_context * context) -> handle_method_type
+	{
+		if (context->conn_action == connection_action_type::keep_alive)
+		{
+			SOCK_LOG_TRACE("http request completely processed, connetion keep-alive");
+			return &http_server::handle_finish;
+		}
+		
+		auto & sock = context->sock;
+		if (sock.ssl_handle())
+			return &http_server::handle_ssl_shutdown;
+		
+		// can't close socket here, see close_connection:
+		// prints some info, and erases from some maps by socket handle
+		return &http_server::handle_finish;
+	}
+	
+	void http_server::handle_finish(processing_context * context)
+	{
+		assert(std::this_thread::get_id() == m_threadid);
+		if (context->conn_action == connection_action_type::close)
+			close_connection(std::move(context->sock));
+		else
+			submit_connection(std::move(context->sock));
+
+		release_context(context);
 	}
 
 	auto http_server::handle_ssl_configuration(processing_context * context) -> handle_method_type
@@ -803,7 +891,7 @@ namespace ext::net::http
 			else
 			{
 				SOCK_LOG_WARN("peer requested SSL session, but server is not configured to serve SSL on that listener, closing connection");
-				return &http_server::handle_finish;
+				return &http_server::handle_close;
 			}
 		}
 		else
@@ -811,7 +899,7 @@ namespace ext::net::http
 			if (ssl_ptr)
 			{
 				SOCK_LOG_WARN("peer does not requested SSL session, but server is configured to serve SSL on that listener, closing connection");
-				return &http_server::handle_finish;
+				return &http_server::handle_close;
 			}
 			else
 			{
@@ -842,6 +930,7 @@ namespace ext::net::http
 		// SSL_set_fd will fail when it will not be able to create some intenal objects, probably because of insufficient memory
 		auto sslerr = ::SSL_get_error(ssl, res);
 		SOCK_LOG_ERROR("::SSL_set_fd failure: {}", format_error(openssl::openssl_geterror(sslerr)));
+		context->conn_action = connection_action_type::close;
 		return &http_server::handle_finish;
 	#else
 		assert(false);
@@ -852,9 +941,8 @@ namespace ext::net::http
 	auto http_server::handle_ssl_continue_handshake(processing_context * context) -> handle_method_type
 	{
 	#ifdef EXT_ENABLE_OPENSSL
-		auto & sock = context->sock;
 		auto & ssl_ptr = context->ssl_ptr;
-		assert(not sock.throw_errors() and ssl_ptr);
+		assert(not context->sock.throw_errors() and ssl_ptr);
 
 		std::error_code errc;
 		int res;
@@ -873,26 +961,27 @@ namespace ext::net::http
 
 		if (errc == openssl::ssl_error::want_read)
 		{
-			SOCK_LOG_TRACE("SSL handshake: got WANT_READ, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL handshake(SSL_accept): got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
 		}
 
 		if (errc == openssl::ssl_error::want_write)
 		{
-			SOCK_LOG_TRACE("SSL handshake: got WANT_WRITE, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL handshake(SSL_accept): got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
 		}
 
 		// this should not happen
 		if (errc == sock_errc::would_block)
 		{
-			SOCK_LOG_TRACE("SSL handshake: got EWOUDLBLOCK/EAGAIN, scheduling socket waiting");
+			SOCK_LOG_DEBUG("SSL handshake(SSL_accept): got EWOUDLBLOCK/EAGAIN, scheduling socket waiting");
 			return async_method(socket_queue::both, &http_server::handle_ssl_continue_handshake);
 		}
 
-		SOCK_LOG_WARN("SSL failure: {}", format_error(errc));
+		SOCK_LOG_WARN("SSL handshake(SSL_accept) failure: {}", format_error(errc));
 		openssl::openssl_clear_errors();
 
+		context->conn_action = connection_action_type::close;
 		return &http_server::handle_finish;
 	#else
 		assert(false);
@@ -909,6 +998,133 @@ namespace ext::net::http
 
 		sock.set_ssl(ssl_ptr.release());
 		return &http_server::handle_start;
+	#else
+		assert(false);
+		std::terminate();
+	#endif
+	}
+	
+	auto http_server::handle_ssl_shutdown(processing_context * context) -> handle_method_type
+	{
+	#ifdef EXT_ENABLE_OPENSSL
+		// see description of thw phase SSL_shutdown in description of SSL_shutdown function
+		// https://www.openssl.org/docs/manmaster/ssl/SSL_shutdown.html
+		
+		auto & sock = context->sock;
+		auto * ssl  = sock.ssl_handle();
+		assert(not sock.throw_errors() and ssl);
+		
+		char ch;
+		int res;
+		long int rc;
+		std::error_code errc;
+		
+		switch (context->async_state) again:
+		{
+			case 0:
+				sock.timeout(m_close_socket_timeout);
+				context->async_state += 1;
+				
+			case 1: // first shutdown
+				SOCK_LOG_TRACE("calling first phase SSL_shutdown");
+				res = ::SSL_shutdown(ssl);
+				if (res > 0)
+				{
+					SOCK_LOG_DEBUG("SSL session shutdown on first phase");
+					goto success;
+				}
+				
+				if (res == 0) // should attempt second shutdown
+				{
+					context->async_state += 1;
+					goto again;
+				}
+				
+				// res == -1 - error
+				errc = socket_ssl_rw_error(res, ssl);
+				if (errc == std::errc::interrupted) goto again;
+				
+				if (errc == openssl::ssl_error::want_read)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_READ, scheduling socket waiting");
+					return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
+				}
+		
+				if (errc == openssl::ssl_error::want_write)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_WRITE, scheduling socket waiting");
+					return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
+				}
+		
+				// this should not happen
+				if (errc == sock_errc::would_block)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got EWOUDLBLOCK/EAGAIN, scheduling socket waiting");
+					return async_method(socket_queue::both, &http_server::handle_ssl_continue_handshake);
+				}
+				
+				goto error;
+				
+			case 2: // second shutdown
+				SOCK_LOG_TRACE("calling second phase SSL_shutdown");
+				res = ::SSL_shutdown(ssl);
+				assert(res != 0); // on second shutdown we are not expecting 0 result
+				
+				if (res > 0)
+				{
+					SOCK_LOG_DEBUG("SSL session shutdown on second phase");
+					goto success;
+				}
+				
+				// res == -1 - error
+				errc = socket_ssl_rw_error(res, ssl);
+				if (errc == std::errc::interrupted) goto again;
+				
+				if (errc == openssl::ssl_error::want_read)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_READ, scheduling socket waiting");
+					return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
+				}
+		
+				if (errc == openssl::ssl_error::want_write)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_WRITE, scheduling socket waiting");
+					return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
+				}
+		
+				// this should not happen
+				if (errc == sock_errc::would_block)
+				{
+					SOCK_LOG_DEBUG("SSL_shutdown: got EWOUDLBLOCK/EAGAIN, scheduling socket waiting");
+					return async_method(socket_queue::both, &http_server::handle_ssl_continue_handshake);
+				}
+				
+				// seconds shutdown failed, this can be a error,
+				// or socket was shutdown by other side, lets check it
+				rc = ::recv(::SSL_get_fd(ssl), &ch, 1, MSG_PEEK);
+				if (rc != 0) goto error; // rc == 0 -> socket closed
+		
+				// yes, we got FD_CLOSE, not a error
+				sock.set_last_error({});
+				goto success;
+				
+			default: EXT_UNREACHABLE();
+		}
+		
+	error:
+		SOCK_LOG_WARN("SSL_shutdown failure: {}", format_error(errc));
+		context->async_state = 0;
+		sock.free_ssl();
+		openssl::openssl_clear_errors();
+		context->conn_action = connection_action_type::close;
+		return &http_server::handle_finish;
+		
+	success:
+		context->async_state = 0;
+		sock.free_ssl();
+		sock.timeout(m_socket_timeout);
+		return &http_server::handle_close;
+		
 	#else
 		assert(false);
 		std::terminate();
@@ -950,12 +1166,13 @@ namespace ext::net::http
 				
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
+				
 			parse:
 				auto read = parser.parse_headers(first, len);
 				sock.gbump(static_cast<int>(read));
 
 			} while (not parser.headers_parsed());
-
+						
 			context->read_count = 0;
 			return &http_server::handle_parsed_headers;
 		}
@@ -967,7 +1184,7 @@ namespace ext::net::http
 		}
 	}
 
-	auto http_server::handle_request_body_parsing(processing_context * context) -> handle_method_type
+	auto http_server::handle_request_normal_body_parsing(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
@@ -975,8 +1192,9 @@ namespace ext::net::http
 		auto & response = context->response;
 		auto & parser = context->parser;
 		auto & config = *context->config;
-
-		SOCK_LOG_DEBUG("parsing http request body");
+		
+		assert(not (context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty()));
+		SOCK_LOG_DEBUG("parsing http request normal body");
 
 		try
 		{
@@ -1002,19 +1220,189 @@ namespace ext::net::http
 				
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
+				
 			parse:
 				auto read = parser.parse_message(first, len);
 				sock.gbump(static_cast<int>(read));
-
+				
 			} while (not parser.message_parsed());
 
 			context->read_count = 0;
-			//copy(context->input_buffer, context->request.body);
 			return &http_server::handle_parsed_request;
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got parsing error while processing request: {}", ex.what());
+			SOCK_LOG_WARN("got error while processing normal request body: {}", ex.what());
+			response = create_bad_request_response(sock, connection_action_type::close);
+			return &http_server::handle_response;
+		}
+	}
+	
+	auto http_server::handle_request_filtered_body_parsing(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		auto & response = context->response;
+		auto & parser = context->parser;
+		auto & config = *context->config;
+		
+		auto & input  = context->request_raw_buffer;
+		auto & output = context->request_filtered_buffer;
+		
+		assert(context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty());
+		auto & params      = context->filter_ctx->request_streaming_ctx.params;
+		auto * source_dctx = &context->filter_ctx->request_streaming_ctx.data_contexts.front();
+		auto * dest_dctx   = &context->filter_ctx->request_streaming_ctx.data_contexts.back();
+				
+		SOCK_LOG_DEBUG("parsing http request filtered body");
+		
+		try
+		{
+			char * first, * last;
+			int len, read;
+			
+			for (;;)
+			{
+				switch (context->async_state)
+				{
+					case 0: // prepare parsing, do some prechecks
+						parser.set_body_destination(input);
+						
+						prepare_request_http_body_filtering(context);
+						source_dctx = &context->filter_ctx->request_streaming_ctx.data_contexts.front();
+						dest_dctx   = &context->filter_ctx->request_streaming_ctx.data_contexts.back();
+						
+						len = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
+						output.resize(std::max(output.capacity(), std::size_t(len)));
+						
+						first = sock.gptr();
+						last  = sock.egptr();
+						len   = last - first;
+						
+						context->async_state = 1 + (first != last);
+						context->read_count  = 0;
+						continue;
+						
+					case 1: // read and parse
+						std::tie(first, last) = sock.getbuf();
+						if (auto next = recv(context, first, last - first, len))
+							return next;
+						
+						context->read_count += len;
+						if (context->read_count >= config.maximum_http_body_size)
+						{
+							context->async_state = 0, context->read_count = 0;
+							SOCK_LOG_WARN("http request body is to long, {} >= {}", context->read_count, config.maximum_http_body_size);
+							response = create_bad_request_response(sock, connection_action_type::close);
+							return &http_server::handle_response;
+						}
+						
+						sock.setg(first, first, first + len);
+						log_read_buffer(sock.handle(), first, len);
+						
+						context->async_state += 1;
+						
+					case 2: // parse
+						read = parser.parse_message(first, len);
+						sock.gbump(static_cast<int>(read));
+						
+						// If no data was parsed - repeat.
+						// This can happen if got few bytes, and they were not body payload,
+						// but some service data, like chunk length in chunked encoding.
+						if (input.empty() and not parser.message_parsed())
+						{
+							context->async_state = 1;
+							continue;
+						}
+						
+						context->async_state += 1;
+						
+					case 3: // filter
+						source_dctx->data_ptr = input.data();
+						source_dctx->written  = input.size();
+						source_dctx->capacity = input.size();
+						source_dctx->finished = parser.message_parsed();
+						
+						dest_dctx->data_ptr = output.data();
+						dest_dctx->capacity = output.size();
+						
+						for (;;)
+						{
+							SOCK_LOG_DEBUG("filtering simple memory request http body with source_dctx = {}/{}/{}, dest_dctx.capacity = {}",
+							               source_dctx->written, source_dctx->consumed, source_dctx->finished ? 'f' : 'm', dest_dctx->capacity);
+							
+							ext::stream_filtering::filter_step(context->filter_ctx->request_streaming_ctx);
+							if (dest_dctx->finished or source_dctx->consumed == source_dctx->written) break;
+							
+							// expand dest buffer if needed
+							auto space_avail     = dest_dctx->capacity - dest_dctx->written;
+							auto space_threshold = ext::stream_filtering::fullbuffer_threshold(dest_dctx->capacity, params);
+							
+							if (space_avail <= space_threshold)
+							{
+								ext::stream_filtering::expand_container(output);
+								
+								dest_dctx->data_ptr = output.data();
+								dest_dctx->capacity = output.size();
+							}
+							
+							// if source data is not finised but we have not so much - break and read more
+							// NOTE: source is in fact expanding std::vector<char>, it's capacity will be bigger each time,
+							//       but we don't really want that, threshold we are comparing against also grow in this case - bound it by params.default_buffer_size
+							auto source_unconsumed = source_dctx->written - source_dctx->consumed;
+							auto source_threshold  = ext::stream_filtering::fullbuffer_threshold(std::min(source_dctx->capacity, params.default_buffer_size), params);
+							if (not source_dctx->finished and source_unconsumed < source_threshold) break;
+						}
+						
+						// post filtering processing, check if we finished, have trailing data, etc
+						
+						// check if http body is to big
+						if (dest_dctx->written >= config.maximum_http_body_size)
+						{
+							context->async_state = 0, context->read_count = 0;
+							SOCK_LOG_WARN("http request body is to long after filtering, {} >= {}", dest_dctx->written, config.maximum_http_body_size);
+							response = create_bad_request_response(sock, connection_action_type::close);
+							return &http_server::handle_response;
+						}
+					
+						if (dest_dctx->finished)
+						{
+							auto trailing = source_dctx->written - source_dctx->consumed;
+							if (not source_dctx->finished or trailing)
+							{
+								context->async_state = 0, context->read_count = 0;
+								
+								// Trailing request data after filters are finished. This is a error
+								// (for example gzip filter done, but there is some trailing data)
+								SOCK_LOG_WARN("http request body have trailing data, after filters are finished, at least {} bytes and {}",
+								              trailing, source_dctx->finished ? "read everything from socket" : "have more unread data from socket");
+								
+								response = create_bad_request_response(sock, connection_action_type::close);
+								return &http_server::handle_response;
+							}
+							
+							goto finished;
+						}
+						
+						context->async_state = 1;
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+			
+		finished:
+			output.resize(dest_dctx->written);
+			copy(output, context->request.body);
+			
+			context->async_state = 0, context->read_count = 0;
+			return &http_server::handle_parsed_request;
+		}
+		catch (std::exception & ex)
+		{
+			context->async_state = 0, context->read_count = 0;
+			SOCK_LOG_WARN("got error while processing filtered request body: {}", ex.what());
 			response = create_bad_request_response(sock, connection_action_type::close);
 			return &http_server::handle_response;
 		}
@@ -1029,7 +1417,7 @@ namespace ext::net::http
 		auto & response = context->response;
 		auto & config = *context->config;
 
-		SOCK_LOG_TRACE("discarding http request body");
+		SOCK_LOG_DEBUG("discarding http request body");
 
 		try
 		{
@@ -1066,13 +1454,13 @@ namespace ext::net::http
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got parsing error while discarding http request body: {}", ex.what());
+			SOCK_LOG_WARN("got error while discarding http request body: {}", ex.what());
 			response = create_bad_request_response(sock, connection_action_type::close);
 			return &http_server::handle_response;
 		}
 	}
 
-	auto http_server::handle_request_async_body_source_parsing(processing_context * context) -> handle_method_type
+	auto http_server::handle_request_normal_async_source_body_parsing(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
@@ -1082,25 +1470,23 @@ namespace ext::net::http
 		assert(ptr);
 		
 		auto * body = static_cast<async_http_body_source_impl::closable_http_body_impl *>(ptr);
-		auto & promise = body->m_read_promise;
-		auto & data = body->m_data;
+		auto & data = context->request_raw_buffer;
+		auto asked_size = body->m_asked_size;
 		
 		assert(body->m_pending_request.load(std::memory_order_relaxed));
 		
 		SOCK_LOG_DEBUG("parsing http request body for async source");
+
+		if (body->m_finished.load(std::memory_order_relaxed)) // finished - return eof
+		{
+			body->set_value_result(std::nullopt);
+			return nullptr;
+		}
 		
 		try
 		{
 			for (;;)
 			{
-				if (parser.message_parsed()) // finished - return eof
-				{
-					body->m_finished.store(true, std::memory_order_relaxed);
-					body->m_pending_request.store(false, std::memory_order_relaxed);
-					promise.set_value(std::nullopt);
-					return nullptr;
-				}
-				
 				char * first = sock.gptr();
 				char * last  = sock.egptr();
 				int len = last - first;
@@ -1113,29 +1499,120 @@ namespace ext::net::http
 
 				sock.setg(first, first, first + len);
 				log_read_buffer(sock.handle(), first, len);
+				
 			parse:
 				auto read = parser.parse_message(first, len);
 				sock.gbump(static_cast<int>(read));
 				
-				// no data available after parsing - we either finished or need more data from socket
-				if (data.empty()) continue;
+				if (parser.message_parsed())
+					body->m_finished.store(true, std::memory_order_relaxed);
+				else if (data.empty()) // explicit empty check for case asked_size == 0 - we need to read something
+					continue;
+				else if (data.size() < asked_size)
+					continue;
 				
-				body->m_pending_request.store(false, std::memory_order_relaxed);
-				promise.set_value(std::move(data));
+				if (data.empty()) body->set_value_result(std::nullopt);
+				else              body->set_value_result(std::move(data));
 				return nullptr;
 			};
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got parsing error while processing request: {}", ex.what());
-			promise.set_exception(std::current_exception());
+			SOCK_LOG_WARN("got error while processing normal async source request body: {}", ex.what());
+			body->set_exception_result(std::current_exception());
+			return nullptr;
+		}
+	}
+	
+	auto http_server::handle_request_filtered_async_source_body_parsing(processing_context * context) -> handle_method_type
+	{
+		auto * ptr = context->body_closer.load(std::memory_order_acquire);
+		assert(ptr);
+		
+		auto & parsed_data = context->request_raw_buffer;
+		auto & filtered_data = context->request_filtered_buffer;
+		
+		auto * body = static_cast<async_http_body_source_impl::closable_http_body_impl *>(ptr);
+		auto asked_size = body->m_asked_size;
+		
+		assert(body->m_filtered);
+		assert(context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty());
+		assert(body->m_pending_request.load(std::memory_order_relaxed));
+		
+		SOCK_LOG_DEBUG("parsing and filtering http request body for async source");
+
+		if (body->m_finished.load(std::memory_order_relaxed)) // finished - return eof
+		{
+			body->set_value_result(std::nullopt);
+			return nullptr;
+		}
+		
+		try
+		{
+			for (;;)
+			{
+				auto & source_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.front();
+				auto & dest_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.back();
+				auto & params = context->filter_ctx->request_streaming_ctx.params;
+			
+				auto unconsumed = source_dctx.written - source_dctx.consumed;
+				auto threshold  = ext::stream_filtering::emptybuffer_threshold(params.default_buffer_size, params);
+				
+				// if less than 20% and source is not finished - read some
+				if (unconsumed < threshold and not source_dctx.finished)
+				{
+					auto first = parsed_data.begin();
+					auto last  = first + source_dctx.consumed;
+					parsed_data.erase(first, last);
+					
+					source_dctx.written -= source_dctx.consumed;
+					source_dctx.consumed = 0;
+					
+					do if (auto next = recv_and_parse(context)) return next;
+					while (parsed_data.empty() and not context->parser.message_parsed());
+					
+					// update/prepare source filtering context
+					source_dctx.data_ptr = parsed_data.data();
+					source_dctx.written = source_dctx.capacity = parsed_data.size();
+					source_dctx.finished = context->parser.message_parsed();
+				}
+				
+				dest_dctx.data_ptr = filtered_data.data();
+				dest_dctx.capacity = filtered_data.size();
+				filter_request_http_body(context);
+				
+				unconsumed = dest_dctx.written - dest_dctx.consumed;
+				threshold  = ext::stream_filtering::emptybuffer_threshold(dest_dctx.capacity, params);
+				if (unconsumed < threshold and not dest_dctx.finished) continue;
+				
+				if (dest_dctx.finished)
+					body->m_finished.store(true, std::memory_order_relaxed);
+				else if (dest_dctx.written == 0) // explicit empty check for case asked_size == 0 - we need to read something
+					continue;
+				else if (dest_dctx.written < asked_size)
+					continue;
+				
+				if (dest_dctx.written == 0) 
+					body->set_value_result(std::nullopt);
+				else 
+				{
+					filtered_data.resize(dest_dctx.written), dest_dctx.written = 0;
+					body->set_value_result(std::move(filtered_data));
+				}
+				
+				return nullptr;
+			};
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got error while processing filtered async source request: {}", ex.what());
+			body->set_exception_result(std::current_exception());
 			return nullptr;
 		}
 	}
 	
 	auto http_server::handle_parsed_headers(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
 		auto & request = context->request;
 		auto & parser = context->parser;
 		SOCK_LOG_DEBUG("http request headers parsed");
@@ -1145,21 +1622,21 @@ namespace ext::net::http
 		static_assert(static_cast<unsigned>(connection_action_type::close) == 1 and static_cast<unsigned>(connection_action_type::keep_alive) == 2);
 		context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 
-		return &http_server::handle_prefilters_headers;
+		return &http_server::handle_prefilters;
 	}
 
-	auto http_server::handle_prefilters_headers(processing_context * context) -> handle_method_type
+	auto http_server::handle_prefilters(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
 		try
 		{
-			for (const auto * filter : context->config->headers_prefilters)
+			http_server_filter_control filter_control(context);
+			for (const auto * filter : context->config->prefilters)
 			{
-				auto res = filter->prefilter_headers(context->request);
-				if (not res) continue;
-
-				context->response = std::move(*res);
-				return &http_server::handle_request_header_processing;
+				filter->prefilter(filter_control);
+				// TODO: check stop/break condition
+				
+				if (std::holds_alternative<http_response>(context->response))
+					return &http_server::handle_request_header_processing;
 			}
 
 			return &http_server::handle_find_handler;
@@ -1186,7 +1663,7 @@ namespace ext::net::http
 
 		try
 		{
-			SOCK_LOG_TRACE("searching http request handler");
+			SOCK_LOG_DEBUG("searching http request handler");
 			context->handler = find_handler(*context);
 			SOCK_LOG_INFO("found http handler {} for {} {}", fmt::ptr(context->handler), request.method, request.url);
 			return &http_server::handle_request_header_processing;
@@ -1207,7 +1684,6 @@ namespace ext::net::http
 
 	auto http_server::handle_request_header_processing(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
 		auto & request = context->request;
 
 		/// We should handle Expect extension, described in RFC7231 section 5.1.1.
@@ -1258,18 +1734,30 @@ namespace ext::net::http
 	
 	auto http_server::handle_request_init_body_parsing(processing_context * context) -> handle_method_type
 	{
+		auto content_length = get_header_value(context->request.headers, "Content-Length");
+		SOCK_LOG_DEBUG("Content-Length http header is \"{}\"", content_length.empty() ? "<not present>" : content_length);
+		
 		if (not context->handler)
 			return &http_server::handle_discarded_request_body_parsing;
+		
+		const bool filtered = context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty();
+		if (filtered) 
+		{
+			// redirect http_body parsing into temp buffer
+			context->parser.set_body_destination(context->request_raw_buffer);
+		}
 		
 		auto want_type = context->handler->wanted_body_type();
 		switch (want_type)
 		{
 			case http_body_type::string:
 				context->request.body = std::string();
-				return &http_server::handle_request_body_parsing;
+				return not filtered ? &http_server::handle_request_normal_body_parsing 
+				                    : &http_server::handle_request_filtered_body_parsing;
 			case http_body_type::vector:
 				context->request.body = std::vector<char>();
-				return &http_server::handle_request_body_parsing;
+				return not filtered ? &http_server::handle_request_normal_body_parsing 
+				                    : &http_server::handle_request_filtered_body_parsing;
 			case http_body_type::stream:
 				context->request.body = std::make_unique<http_body_streambuf_impl>(this, context);
 				return &http_server::handle_parsed_request;
@@ -1285,7 +1773,6 @@ namespace ext::net::http
 
 	auto http_server::handle_parsed_request(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
 		auto & request = context->request;
 
 		SOCK_LOG_DEBUG("http request succesfully parsed");
@@ -1293,38 +1780,7 @@ namespace ext::net::http
 		//context->conn_action = request.conn_action = static_cast<connection_action_type>(1 + static_cast<unsigned>(parser.should_keep_alive()));
 
 		log_request(request);
-		return &http_server::handle_prefilters_full;
-	}
-
-	auto http_server::handle_prefilters_full(processing_context * context) -> handle_method_type
-	{
-		auto & sock = context->sock;
-
-		try
-		{
-			for (const auto * filter : context->config->full_prefilters)
-			{
-				auto res = filter->prefilter_full(context->request);
-				if (not res) continue;
-
-				context->response = std::move(*res);
-				return &http_server::handle_processing;
-			}
-
-			return &http_server::handle_processing;
-		}
-		catch (std::exception & ex)
-		{
-			SOCK_LOG_WARN("pre-filters processing error: class - {}, what - {}", boost::core::demangle(typeid(ex).name()), ex.what());
-			context->response = create_internal_server_error_response(context->sock, context->request, &ex);
-			return &http_server::handle_response;
-		}
-		catch (...)
-		{
-			SOCK_LOG_ERROR("pre-filters unknown processing error");
-			context->response = create_internal_server_error_response(context->sock, context->request, nullptr);
-			return &http_server::handle_response;
-		}
+		return &http_server::handle_processing;
 	}
 
 	auto http_server::handle_processing(processing_context * context) -> handle_method_type
@@ -1356,7 +1812,6 @@ namespace ext::net::http
 	{
 		auto visitor = [this, context](auto & val) -> handle_method_type
 		{
-			auto & sock = context->sock;
 			auto & response = context->response;
 			using arg_type = std::remove_reference_t<decltype(val)>;
 
@@ -1376,13 +1831,13 @@ namespace ext::net::http
 			}
 			else if constexpr (std::is_same_v<arg_type, std::nullopt_t>)
 			{
-				SOCK_LOG_TRACE("got nullopt response from http_handler, connection will be closed");
+				SOCK_LOG_DEBUG("got nullopt response from http_handler, connection will be closed");
 				context->conn_action = connection_action_type::close;
 				return &http_server::handle_finish;
 			}
 			else // http_response
 			{
-				SOCK_LOG_TRACE("got response from http_handler");
+				SOCK_LOG_DEBUG("got response from http_handler");
 				if (val.conn_action == connection_action_type::def)
 					val.conn_action = context->conn_action;
 				return &http_server::handle_postfilters;
@@ -1394,15 +1849,13 @@ namespace ext::net::http
 
 	auto http_server::handle_postfilters(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
-
 		try
 		{
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
-			auto & resp = std::get<http_response>(context->response);
+			http_server_filter_control filter_control(context);
 			for (const auto * filter : context->config->postfilters)
-				filter->postfilter(context->request, resp);
+				filter->postfilter(filter_control);
 
 			return &http_server::handle_response;
 		}
@@ -1425,11 +1878,9 @@ namespace ext::net::http
 		auto & response = std::get<http_response>(context->response);
 
 		if (not context->continue_answer)
-			postprocess_response(response);
+			postprocess_response(context);
+		
 		log_response(response);
-
-		auto bufsize = sendbuf_size(context);
-		context->output_buffer.reserve(bufsize);
 		context->writer.reset(&response);
 
 		return &http_server::handle_response_headers_writting;
@@ -1441,26 +1892,25 @@ namespace ext::net::http
 		assert(not sock.throw_errors());
 
 		auto & writer = context->writer;
-		auto & output_buffer = context->output_buffer;
+		auto & buffer = context->response_raw_buffer;
 
-		SOCK_LOG_TRACE("writting http response headers");
+		SOCK_LOG_DEBUG("writting http response headers");
 
 		try
 		{
 			char * first, * last;
-			int written = output_buffer.size();
+			int written = buffer.size();
 			if (written) goto write;
 
 			do {
-				assert(output_buffer.capacity() > 0);
-				output_buffer.resize(output_buffer.capacity());
+				buffer.resize(std::max(buffer.capacity(), std::size_t(2048)));
 
-				written = writer.write_some(output_buffer.data(), output_buffer.size());
-				output_buffer.resize(written);
+				written = writer.write_some(buffer.data(), buffer.size());
+				buffer.resize(written);
 
 			write:
-				first = output_buffer.data();
-				last = first + output_buffer.size();
+				first = buffer.data();
+				last  = first + buffer.size();
 				first += context->written_count;
 
 				if (auto next = send(context, first, last - first, written))
@@ -1470,49 +1920,57 @@ namespace ext::net::http
 				context->written_count += written;
 				if (first + written < last)
 				{
-					SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
+					SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
 					return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
 				}
 
 			} while(not writer.finished());
 
 			context->written_count = 0;
-			output_buffer.clear();
+			buffer.clear();
 			return &http_server::handle_response_headers_written;
 		}
 		catch (std::runtime_error & ex)
 		{
 			SOCK_LOG_WARN("got writting error while writting response headers: {}", ex.what());
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 	}
 	
 	auto http_server::handle_response_headers_written(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
-		SOCK_LOG_TRACE("http response headers written");
+		SOCK_LOG_DEBUG("http response headers written");
 		
 		if (context->expect_extension and context->continue_answer)
 		{
 			SOCK_LOG_DEBUG("continue http request processing after 100 Continue, now parsing body");
 			context->first_response_written = true, context->continue_answer = false;
-			context->response = std::nullopt; // important! reset 100 Continue request, some code checks it before normal response is generated
+			context->response = std::nullopt; // important! reset 100 Continue response, some code checks it before normal response is generated
 			return &http_server::handle_request_init_body_parsing;
 		}
 		else
 		{
+			const bool filtered = context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty();
+			
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
-			auto & resp = std::get<http_response>(context->response);
+			const auto & resp = std::get<http_response>(context->response);
 			switch(static_cast<http_body_type>(resp.body.index()))
 			{
 				case http_body_type::string:
 				case http_body_type::vector:
-					return &http_server::handle_response_simple_body_writting;
+					return not filtered ? &http_server::handle_response_normal_body_writting
+					                    : &http_server::handle_response_filtered_body_writting;
+					
 				case http_body_type::stream:
-					return &http_server::handle_response_stream_body_writting;
+					return not filtered ? &http_server::handle_response_normal_stream_body_writting
+					                    : &http_server::handle_response_filtered_stream_body_writting;
+					
 				case http_body_type::async:
-					return &http_server::handle_response_async_body_writting;
+					return not filtered ? &http_server::handle_response_normal_async_body_writting
+					                    : &http_server::handle_response_filtered_async_body_writting;
+					
 				case http_body_type::null:
 					return &http_server::handle_response_written;
 					
@@ -1521,106 +1979,156 @@ namespace ext::net::http
 		}
 	}
 	
-	auto http_server::handle_response_simple_body_writting(processing_context * context) -> handle_method_type
+	template <class HttpBody>
+	static auto get_data(HttpBody & body) noexcept
+	{
+		static_assert(std::is_same_v<std::remove_cv_t<HttpBody> ,http_body>);
+		using result_type = std::conditional_t<
+			std::is_const_v<HttpBody>,
+			std::tuple<const char *, const char *>,
+			std::tuple<      char *,       char *>>;
+		
+		assert(std::holds_alternative<std::string>(body) or std::holds_alternative<std::vector<char>>(body));
+		return std::visit([](auto & val) -> result_type
+		{
+			using type = std::decay_t<decltype(val)>;
+			if constexpr(std::is_same_v<std::string, type> or std::is_same_v<std::vector<char>, type>)
+			{
+				auto * first = val.data();
+				auto * last  = first + val.size();
+				return std::make_tuple(first, last);
+			}
+			
+			EXT_UNREACHABLE();
+			
+		}, body);
+	}
+	
+	auto http_server::handle_response_normal_body_writting(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
-
-		SOCK_LOG_TRACE("writting http response simple body");
+		
+		SOCK_LOG_DEBUG("writting http response normal body");
 		
 		try
 		{
+			if (not m_running)
+			{
+				SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+				context->conn_action = connection_action_type::close;
+				return &http_server::handle_finish;
+			}
+			
 			const char * first, * last;
 			const http_body & body = std::get<http_response>(context->response).body;
-			std::tie(first, last) = std::visit([](auto & val) -> std::pair<const char *, const char *>
+			std::tie(first, last) = get_data(body);
+			std::size_t size = last - first;
+		
+			// loop because we can't write more than INT_MAX in one send call, but buffer can be bigger
+			do
 			{
-				using type = std::decay_t<decltype(val)>;
-				if constexpr(std::is_same_v<std::string, type> or std::is_same_v<std::vector<char>, type>)
+				auto start = first + context->written_count;
+				int len = std::min<std::size_t>(INT_MAX, last - start);
+				int written;
+	
+				if (auto next = send(context, start, len, written))
+					return next;
+	
+				log_write_buffer(sock.handle(), start, written);
+				context->written_count += written;
+				if (written < len)
 				{
-					auto * first = val.data();
-					auto * last  = first + val.size();
-					return std::make_pair(first, last);
+					SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+					return async_method(socket_queue::writable, &http_server::handle_response_normal_body_writting);
 				}
 				
-				EXT_UNREACHABLE();
-				
-			}, body);
-		
-			first += context->written_count;
-			int written = last - first;
-
-			if (auto next = send(context, first, last - first, written))
-				return next;
-
-			log_write_buffer(sock.handle(), first, written);
-			context->written_count += written;
-			if (first + written < last)
-			{
-				SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-				return async_method(socket_queue::writable, &http_server::handle_response_simple_body_writting);
-			}
+			} while (context->written_count < size);
 
 			context->written_count = 0;
 			return &http_server::handle_response_written;
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got writting error while writting simple response body: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while writting normal response body: {}", ex.what());
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 	}
-
-	auto http_server::handle_response_stream_body_writting(processing_context * context) -> handle_method_type
+	
+	auto http_server::handle_response_filtered_body_writting(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
-
-		SOCK_LOG_TRACE("writting http response stream body");
 		
-		auto & output_buffer = context->output_buffer;
+		SOCK_LOG_DEBUG("writting http response filtered body");
+		
+		auto & filtered_buffer = context->response_raw_buffer;
 		auto & chunk_prefix = context->chunk_prefix;
-		const http_body & body = std::get<http_response>(context->response).body;
-		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
-		constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
+		
+		const bool filtered = context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty();
+		assert(filtered); EXT_UNUSED(filtered);
+		
+		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
 		
 		try
 		{
-			char * first, * last;
-			int written;
-			
 			for (;;)
 			{
+				char * first, * last;
+				int written;
+				
 				if (not m_running)
 				{
 					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
 					return &http_server::handle_finish;
 				}
 				
 				switch (context->async_state)
 				{
-					case 0: // prepare chunk header
-						
-						// read next chunk
+					case 0: // prepare data for filtering
 						assert(chunk_prefix.empty());
-						assert(output_buffer.capacity() > 0);
-						output_buffer.resize(output_buffer.capacity());
-						// 2 for crlf after chunk
-						written = stream_ptr->sgetn(output_buffer.data(), output_buffer.size() - 2);
-						output_buffer.resize(written + 2);
-						output_buffer.data()[written + 0] = '\r';
-						output_buffer.data()[written + 1] = '\n';
+						filtered_buffer.resize(std::max(filtered_buffer.capacity(), sendbuf_size(context)));
+						
+						prepare_response_http_body_filtering(context);
+						std::tie(first, last) = get_data(std::get<http_response>(context->response).body);
+						source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+						dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+						
+						source_dctx->data_ptr = first;
+						source_dctx->written  = last - first;
+						source_dctx->capacity = source_dctx->written;
+						source_dctx->finished = true;
+						
+						dest_dctx->data_ptr = filtered_buffer.data();
+						dest_dctx->capacity = filtered_buffer.size() - crlf.size();
+						
+						context->async_state += 1;
+						context->written_count = 0;
+						
+					case 1: // prepare chunk header
+						// filter next chunk 
+						dest_dctx->written = dest_dctx->consumed = 0;
+						filter_response_http_body(context);
+						
+						first = dest_dctx->data_ptr;
+						last  = first + dest_dctx->written;
+						// append crlf to chunk data
+						last[+0] = crlf[0]; last[+1] = crlf[1];
 						
 						// now prepare chunk header, print size into buffer with crlf
-						chunk_prefix.resize(chunkprefix_size + 2); // +2 for crlf
-						first = ext::unsafe_itoa(written, chunk_prefix.data(), chunkprefix_size + 1, 16);
-						chunk_prefix[chunkprefix_size + 0] = '\r';
-						chunk_prefix[chunkprefix_size + 1] = '\n';
+						chunk_prefix.resize(chunkprefix_size + crlf.size());
+						first = ext::unsafe_itoa(dest_dctx->written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = crlf[0];
+						chunk_prefix[chunkprefix_size + 1] = crlf[1];
 						chunk_prefix.erase(0, first - chunk_prefix.data());
 					
 						context->written_count = 0;
 						context->async_state += 1;
 						
-					case 1: //write_chunk_prefix:
+					case 2: //write_chunk_prefix:
 						first = chunk_prefix.data();
 						last  = first + chunk_prefix.size();
 						first += context->written_count;
@@ -1632,19 +2140,18 @@ namespace ext::net::http
 						context->written_count += written;
 						if (first + written < last)
 						{
-							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_body_writting);
 						}
 						
 						chunk_prefix.clear();
 						context->async_state += 1;
 						context->written_count = 0;
-					
-					case 2: //write_chunk:
+						
+					case 3:
 						// now send buffer itself after chunk prefix
-						first = output_buffer.data();
-						last  = first + output_buffer.size();
-						first += context->written_count;
+						first = dest_dctx->data_ptr + context->written_count;
+						last  = dest_dctx->data_ptr + dest_dctx->written + crlf.size();
 						
 						if (auto next = send(context, first, last - first, written))
 							return next;
@@ -1653,51 +2160,49 @@ namespace ext::net::http
 						context->written_count += written;
 						if (first + written < last)
 						{
-							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_body_writting);
 						}
 						
-						//output_buffer.clear();
-						context->async_state = 0;
-						context->written_count = 0;
-						
 						// last empty chunk written(still holding \r\n) -> we are finished
-						if (output_buffer.size() <= 2) goto finished;
+						if (dest_dctx->written == 0) goto finished;
+						
+						context->async_state = 1;
+						context->written_count = 0;
 						
 						continue;
 						
 					default: EXT_UNREACHABLE();
 				}
 			}
-
+			
 		finished:
-			context->async_state = 0;
-			context->written_count = 0;
-			chunk_prefix.clear();
-			output_buffer.clear();
+			chunk_prefix.clear(), filtered_buffer.clear();
+			context->async_state = 0, context->written_count = 0;
 			return &http_server::handle_response_written;
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got writting error while writting stream response body: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while writting filtered response body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 	}
-	
-	auto http_server::handle_response_async_body_writting(processing_context * context) -> handle_method_type
+
+	auto http_server::handle_response_normal_stream_body_writting(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
 
-		SOCK_LOG_TRACE("writting http response async source body");
+		SOCK_LOG_DEBUG("writting http response normal stream body");
+		assert(not (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty()));
 		
-		auto & output_buffer = context->output_buffer;
-		auto & chunk_prefix = context->chunk_prefix;
-		ext::future<async_http_body_source::chunk_type> fresult;
-		
-		constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
-		constexpr std::string_view crlf = "\r\n";
-		
+		auto & raw_data = context->response_raw_buffer;
+		auto & chunk_prefix  = context->chunk_prefix;
+
+		const http_body & body = std::get<http_response>(context->response).body;
+		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
 		
 		try
 		{
@@ -1709,24 +2214,307 @@ namespace ext::net::http
 				if (not m_running)
 				{
 					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
 					return &http_server::handle_finish;
 				}
 				
 				switch (context->async_state)
 				{
-					// request new data chunk
+					case 0: // initial preparing
+						assert(chunk_prefix.empty());
+						raw_data.resize(std::max(raw_data.capacity(), sendbuf_size(context)));
+						
+						context->async_state += 1;
+						context->written_count = 0;
+						
+					case 1: // read and prepare next chunk
+						raw_data.resize(raw_data.capacity());
+						written = stream_ptr->sgetn(raw_data.data(), raw_data.size() - crlf.size());
+						
+						raw_data.resize(written + crlf.size());
+						raw_data.data()[written + 0] = crlf[0];
+						raw_data.data()[written + 1] = crlf[1];
+						
+						// now prepare chunk header, print size into buffer with crlf
+						chunk_prefix.resize(chunkprefix_size + crlf.size());
+						first = ext::unsafe_itoa(written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = crlf[0];
+						chunk_prefix[chunkprefix_size + 1] = crlf[1];
+						chunk_prefix.erase(0, first - chunk_prefix.data());
+					
+						context->written_count = 0;
+						context->async_state += 1;
+						
+					case 2: //write_chunk_prefix:
+						first = chunk_prefix.data();
+						last  = first + chunk_prefix.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_normal_stream_body_writting);
+						}
+						
+						chunk_prefix.clear();
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					case 3: //write_chunk:
+						// now send buffer itself after chunk prefix
+						first = raw_data.data();
+						last  = first + raw_data.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+		
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_normal_stream_body_writting);
+						}
+						
+						context->async_state = 1;
+						context->written_count = 0;
+						
+						// last empty chunk written(still holding \r\n) -> we are finished
+						if (raw_data.size() <= 2) goto finished;
+						
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+
+		finished:
+			chunk_prefix.clear(), raw_data.clear();
+			context->async_state = 0, context->written_count = 0;
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting normal filtered stream body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
+			return &http_server::handle_finish;
+		}
+	}
+	
+	auto http_server::handle_response_filtered_stream_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_DEBUG("writting http response filtered stream body");
+		assert(context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty());
+		
+		auto & raw_data        = context->response_raw_buffer;
+		auto & filtered_buffer = context->response_filtered_buffer;
+		auto & chunk_prefix    = context->chunk_prefix;
+
+		const http_body & body = std::get<http_response>(context->response).body;
+		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
+		
+		auto & filter_params = context->filter_ctx->response_streaming_ctx.params;
+		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+		
+		try
+		{
+			std::size_t unconsumed, threshold;
+			char * first, * last;
+			int written;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
+					case 0: // prepare for filtering
+						assert(chunk_prefix.empty());
+						filtered_buffer.resize(std::max(filtered_buffer.capacity(), sendbuf_size(context)));
+						raw_data.resize(std::max(filtered_buffer.capacity(), sendbuf_size(context)));
+						
+						prepare_response_http_body_filtering(context);
+						source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+						dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+						
+						source_dctx->data_ptr = raw_data.data();
+						source_dctx->capacity = raw_data.size();
+						
+						dest_dctx->data_ptr = filtered_buffer.data();
+						dest_dctx->capacity = filtered_buffer.size() - crlf.size();
+						
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					case 1: // read and prepare chunk header
+						unconsumed = source_dctx->written - source_dctx->consumed;
+						threshold  = ext::stream_filtering::fullbuffer_threshold(source_dctx->capacity, filter_params);
+						
+						// if less than 20% and source is not finished - read some
+						if (unconsumed < threshold and not source_dctx->finished)
+						{
+							first = raw_data.data() + source_dctx->consumed;
+							last  = raw_data.data() + source_dctx->written;
+							last  = std::move(first, last, raw_data.data());
+							
+							source_dctx->written -= source_dctx->consumed;
+							source_dctx->consumed = 0;
+				
+							written = stream_ptr->sgetn(raw_data.data() + source_dctx->written, source_dctx->capacity - source_dctx->written);
+							// update/prepare source filtering context
+							source_dctx->written += written;
+							source_dctx->finished = written == 0;
+						}
+						
+						// filter data
+						filter_response_http_body(context);
+						
+						unconsumed = dest_dctx->written - dest_dctx->consumed;
+						threshold  = ext::stream_filtering::fullbuffer_threshold(dest_dctx->capacity, filter_params);
+						if (unconsumed < threshold and not dest_dctx->finished)
+							continue; // read more
+						
+						first = dest_dctx->data_ptr;
+						last  = first + dest_dctx->written;
+						// append crlf to chunk data
+						// note: dest_dctx->capacity is less than filtered_buffer.size() by crlf.size()
+						last[+0] = crlf[0]; last[+1] = crlf[1];
+						
+						// now prepare chunk header, print size into buffer with crlf
+						chunk_prefix.resize(chunkprefix_size + crlf.size());
+						first = ext::unsafe_itoa(dest_dctx->written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = crlf[0];
+						chunk_prefix[chunkprefix_size + 1] = crlf[1];
+						chunk_prefix.erase(0, first - chunk_prefix.data());
+					
+						context->written_count = 0;
+						context->async_state += 1;
+						
+					case 2: //write_chunk_prefix:
+						first = chunk_prefix.data();
+						last  = first + chunk_prefix.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_stream_body_writting);
+						}
+						
+						chunk_prefix.clear();
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					case 3: //write_chunk:
+						// now send buffer itself after chunk prefix
+						first = dest_dctx->data_ptr;
+						last  = first + dest_dctx->written + crlf.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+		
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_stream_body_writting);
+						}
+						
+						context->async_state = 1;
+						context->written_count = 0;
+						
+						// last empty chunk written(still holding \r\n) -> we are finished
+						if (std::exchange(dest_dctx->written, 0) == 0) goto finished;
+						
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+
+		finished:
+			chunk_prefix.clear(), raw_data.clear(), filtered_buffer.clear();
+			context->async_state = 0, context->written_count = 0;
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting response filtered stream body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
+			return &http_server::handle_finish;
+		}
+	}
+	
+	auto http_server::handle_response_normal_async_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_DEBUG("writting http response normal async source body");
+		
+		auto & raw_data = context->response_raw_buffer;
+		auto & chunk_prefix = context->chunk_prefix;
+		ext::future<async_http_body_source::chunk_type> fresult;
+		
+		try
+		{
+			char * first, * last;
+			int written, chunk_length;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
 					case 0:
+						if (not raw_data.empty())
+						{
+							context->async_state = 2;
+							goto prepare_data;
+						}
+						
+						// request new data chunk
 						{
 							const http_body & body = std::get<http_response>(context->response).body;
 							auto & async_source_ptr = std::get<std::unique_ptr<async_http_body_source>>(body);
 							
-							fresult = async_source_ptr->read_some(std::move(output_buffer));
+							fresult = async_source_ptr->read_some(std::move(raw_data));
 							if (fresult.is_ready() or fresult.is_deferred())
 								goto data_ready;
 							
-							SOCK_LOG_INFO("async source respose, scheduling async processing");
+							SOCK_LOG_INFO("async source response, scheduling async processing");
 							context->async_state += 1;
-							return async_method(fresult.handle(), &http_server::handle_response_async_body_writting);
+							return async_method(fresult.handle(), &http_server::handle_response_normal_async_body_writting);
 						}
 						
 					// extract ready future from context
@@ -1746,14 +2534,14 @@ namespace ext::net::http
 							auto result = fresult.get();
 							if (not result)
 							{
-								output_buffer.clear();
-								written = 0;
+								raw_data.clear();
+								chunk_length = 0;
 							}
 							else
 							{
-								output_buffer = *result;
-								written = std::min<std::size_t>(INT_MAX, output_buffer.size());
-								if (output_buffer.empty()) // no data, write nothing, repeat data request
+								raw_data = std::move(*result);
+								chunk_length = std::min<std::size_t>(INT_MAX - crlf.size(), raw_data.size());
+								if (raw_data.empty()) // no data, write nothing, repeat data request
 								{
 									context->async_state = 0;
 									continue;
@@ -1761,19 +2549,21 @@ namespace ext::net::http
 							}
 						}
 						
-						// append crlf after chunk
-						output_buffer.insert(output_buffer.end(), crlf.data(), crlf.data() + crlf.size());
+					prepare_data:
 						// now prepare chunk header, print size into buffer with crlf
-						chunk_prefix.resize(chunkprefix_size + 2); // +2 for crlf
-						first = ext::unsafe_itoa(written, chunk_prefix.data(), chunkprefix_size + 1, 16);
-						chunk_prefix[chunkprefix_size + 0] = '\r';
-						chunk_prefix[chunkprefix_size + 1] = '\n';
+						chunk_prefix.resize(chunkprefix_size + crlf.size());
+						first = ext::unsafe_itoa(chunk_length, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = crlf[0];
+						chunk_prefix[chunkprefix_size + 1] = crlf[1];
 						chunk_prefix.erase(0, first - chunk_prefix.data());
+						
+						context->async_state += 1;
+						context->written_count = 0;
 						
 					//write_chunk_prefix:
 					case 3:
 						first = chunk_prefix.data();
-						last  = first + std::min<std::size_t>(INT_MAX, chunk_prefix.size());
+						last  = first + chunk_prefix.size();
 						first += context->written_count;
 						
 						if (auto next = send(context, first, last - first, written))
@@ -1783,8 +2573,231 @@ namespace ext::net::http
 						context->written_count += written;
 						if (first + written < last)
 						{
-							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_normal_async_body_writting);
+						}
+						
+						context->async_state += 1;
+						context->written_count = 0;
+						
+						// chunk can be more than INT_MAX, but send accepts only int as length,
+						// so for huge bodies we must write in parts, crlf in that case happen to be in the middle of the body.
+						// store 2 symbols in chunk_prefix buffer temporary, restore them after part of chunk is written
+						chunk_length = std::min<std::size_t>(INT_MAX - crlf.size(), raw_data.size());
+						// append crlf after chunk, in any case we need to expand by 2 chars
+						raw_data.insert(raw_data.end(), crlf.data(), crlf.data() + crlf.size());
+						
+						first = raw_data.data();
+						last  = first + chunk_length;
+						chunk_prefix[0] = last[0]; last[0] = crlf[0];
+						chunk_prefix[1] = last[1]; last[1] = crlf[1];
+						
+					//write_chunk:
+					case 4:
+						// now send buffer itself after chunk prefix
+						first = raw_data.data();
+						last  = first + std::min<std::size_t>(INT_MAX, raw_data.size()); // already includes crlf.size()
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_normal_async_body_writting);
+						}
+						
+						context->async_state = 0;
+						context->written_count = 0;
+						
+						last[-2] = chunk_prefix[0];
+						last[-1] = chunk_prefix[1];
+						
+						// last empty chunk written(still holding \r\n) -> we are finished
+						if (raw_data.size() <= 2) goto finished;
+						
+						raw_data.erase(raw_data.begin(), raw_data.begin() + written);
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+			
+		finished:
+			chunk_prefix.clear(), raw_data.clear();
+			context->async_state = 0, context->written_count = 0;
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting response normal async source body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
+			return &http_server::handle_finish;
+		}
+	}
+	
+	auto http_server::handle_response_filtered_async_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+
+		SOCK_LOG_DEBUG("writting http response filtered async source body");
+		assert(context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty());
+		
+		auto & raw_data        = context->response_raw_buffer;
+		auto & filtered_buffer = context->response_filtered_buffer;
+		auto & chunk_prefix    = context->chunk_prefix;
+		ext::future<async_http_body_source::chunk_type> fresult;
+		
+		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+		
+		try
+		{
+			char * first, * last;
+			int written;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
+					case 0: // initial preparing
+						assert(chunk_prefix.empty());
+						filtered_buffer.resize(std::max(filtered_buffer.capacity(), sendbuf_size(context)));
+						raw_data.resize(std::max(filtered_buffer.capacity(), sendbuf_size(context)));
+						
+						prepare_response_http_body_filtering(context);
+						source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
+						dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+						
+						//source_dctx->data_ptr = raw_data.data();
+						//source_dctx->capacity = raw_data.size();
+						
+						dest_dctx->data_ptr = filtered_buffer.data();
+						dest_dctx->capacity = filtered_buffer.size() - crlf.size();
+						
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					case 1:
+						// if there is some unconsumed data, or source is finished jump to filtering
+						if (source_dctx->consumed < source_dctx->written or source_dctx->finished)
+						{
+							context->async_state = 3;
+							goto filter;
+						}
+						
+						// request new data chunk
+						{
+							const http_body & body  = std::get<http_response>(context->response).body;
+							auto & async_source_ptr = std::get<std::unique_ptr<async_http_body_source>>(body);
+							
+							fresult = async_source_ptr->read_some(std::move(raw_data));
+							if (fresult.is_ready() or fresult.is_deferred())
+								goto data_ready;
+							
+							SOCK_LOG_INFO("async source response, scheduling async processing");
+							context->async_state = 2;
+							return async_method(fresult.handle(), &http_server::handle_response_filtered_async_body_writting);
+						}
+						
+					// extract ready future from context
+					case 2:
+						{
+							assert(context->async_task_state.load(std::memory_order_relaxed));
+							auto * state = context->async_task_state.exchange(nullptr, std::memory_order_relaxed);
+							fresult = ext::future<async_http_body_source::chunk_type>(ext::intrusive_ptr(state, ext::noaddref));
+							assert(fresult.is_ready());
+						}
+						
+					// processing ready data chunk
+					data_ready:
+						context->async_state = 3;
+					case 3:
+						// extract and analyze result
+						{
+							auto result = fresult.get();
+							if (not result)
+								raw_data.clear(); // actually should be empty already
+							else
+							{
+								raw_data = std::move(*result);
+								if (raw_data.empty()) // no data, write nothing, repeat data request
+								{
+									context->async_state = 1;
+									continue;
+								}
+							}
+							
+							// update/prepare source filtering context
+							source_dctx->data_ptr = raw_data.data();
+							source_dctx->capacity = raw_data.size();
+							source_dctx->written  = raw_data.size();
+							source_dctx->consumed = 0;
+							source_dctx->finished = raw_data.empty();
+						}
+						
+					filter: // filter data
+						// because of we want to reuse buffer used to request new data chunk from async source,
+						// we have no space to store trailing source data, so we need to process it completely
+						for (;;)
+						{
+							filter_response_http_body(context);
+							if (dest_dctx->finished)                           break; // we are finished
+							if (dest_dctx->written == dest_dctx->capacity)     break; // no place to write
+							if (source_dctx->consumed == source_dctx->written) break; // consumed everything
+							// otherwise continue
+						}
+						
+						// filters produced no data, gzip can do that for example. request more
+						if (dest_dctx->written == 0 and not dest_dctx->finished)
+						{
+							context->async_state = 1;
+							continue;
+						}
+						
+						first = dest_dctx->data_ptr;
+						last  = first + dest_dctx->written;
+						// append crlf after chunk
+						// note: dest_dctx->capacity is less than filtered_buffer.size() by crlf.size()
+						last[+0] = crlf[0]; last[+1] = crlf[1];
+						
+						// now prepare chunk header, print size into buffer with crlf
+						chunk_prefix.resize(chunkprefix_size + crlf.size());
+						first = ext::unsafe_itoa(dest_dctx->written, chunk_prefix.data(), chunkprefix_size + 1, 16);
+						chunk_prefix[chunkprefix_size + 0] = crlf[0];
+						chunk_prefix[chunkprefix_size + 1] = crlf[1];
+						chunk_prefix.erase(0, first - chunk_prefix.data());
+						
+						context->async_state += 1;
+						context->written_count = 0;
+					
+					//write_chunk_prefix:
+					case 6:
+						first = chunk_prefix.data();
+						last  = first + chunk_prefix.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+						
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_async_body_writting);
 						}
 						
 						chunk_prefix.clear();
@@ -1792,10 +2805,10 @@ namespace ext::net::http
 						context->written_count = 0;
 					
 					//write_chunk:
-					case 4:
+					case 7:
 						// now send buffer itself after chunk prefix
-						first = output_buffer.data();
-						last  = first + std::min<std::size_t>(INT_MAX, output_buffer.size());
+						first = dest_dctx->data_ptr;
+						last  = first + dest_dctx->written + crlf.size();
 						first += context->written_count;
 						
 						if (auto next = send(context, first, last - first, written))
@@ -1805,16 +2818,15 @@ namespace ext::net::http
 						context->written_count += written;
 						if (first + written < last)
 						{
-							SOCK_LOG_TRACE("send: writting less than got, scheduling socket waiting");
-							return async_method(socket_queue::writable, &http_server::handle_response_headers_writting);
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_filtered_async_body_writting);
 						}
 						
-						//output_buffer.clear();
-						context->async_state = 0;
+						context->async_state = 1;
 						context->written_count = 0;
 						
 						// last empty chunk written(still holding \r\n) -> we are finished
-						if (output_buffer.size() <= 2) goto finished;
+						if (std::exchange(dest_dctx->written, 0) == 0) goto finished;
 						
 						continue;
 						
@@ -1823,39 +2835,27 @@ namespace ext::net::http
 			}
 			
 		finished:
-			context->async_state = 0;
-			context->written_count = 0;
-			chunk_prefix.clear();
-			output_buffer.clear();
+			chunk_prefix.clear(), raw_data.clear(), filtered_buffer.clear();
+			context->async_state = 0, context->written_count = 0;
 			return &http_server::handle_response_written;
 		}
-		catch (std::runtime_error & ex)
+		catch (std::exception & ex)
 		{
-			SOCK_LOG_WARN("got writting error while writting stream response body: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while writting response filtered async source body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
 		}
 	}
 	
 	auto http_server::handle_response_written(processing_context * context) -> handle_method_type
 	{
-		auto & sock = context->sock;
-		SOCK_LOG_TRACE("http response written");
+		SOCK_LOG_DEBUG("http response written");
 
 		context->final_response_written = true;
 		context->response = std::nullopt;
-		SOCK_LOG_DEBUG("http request completely processed");
-		return &http_server::handle_finish;
-	}
-
-	void http_server::handle_finish(processing_context * context)
-	{
-		assert(std::this_thread::get_id() == m_threadid);
-		if (context->conn_action == connection_action_type::close)
-			close_connection(std::move(context->sock));
-		else
-			submit_connection(std::move(context->sock));
-
-		release_context(context);
+		
+		return &http_server::handle_close;
 	}
 
 	auto http_server::acquire_context() -> processing_context *
@@ -1863,13 +2863,13 @@ namespace ext::net::http
 		if (not m_free_contexts.empty())
 		{
 			auto * ptr = m_free_contexts.back();
-			LOG_TRACE("reused context = {}, {}/{} - {}/{}", fmt::ptr(ptr), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
+			LOG_DEBUG("reused context = {}, {}/{} - {}/{}", fmt::ptr(ptr), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
 			m_free_contexts.pop_back();
 			return ptr;
 		}
 		else if (m_processing_contexts.size() >= m_maximum_contexts)
 		{
-			LOG_TRACE("no more contexts: {}/{} - {}/{}", m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
+			LOG_DEBUG("no more contexts: {}/{} - {}/{}", m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
 			return nullptr;
 		}
 		else
@@ -1877,7 +2877,7 @@ namespace ext::net::http
 			auto context = std::make_unique<processing_context>();
 			construct_context(context.get());
 			m_processing_contexts.insert(context.get());
-			LOG_TRACE("allocated new context {}, {}/{} - {}/{}", fmt::ptr(context.get()), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
+			LOG_DEBUG("allocated new context {}, {}/{} - {}/{}", fmt::ptr(context.get()), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
 			return context.release();
 		}
 	}
@@ -1888,18 +2888,19 @@ namespace ext::net::http
 		release_atomic_ptr(context->async_task_state);
 		release_atomic_ptr(context->body_closer);
 		context->config = nullptr;
+		context->filter_ctx.reset();
 
 		if (m_free_contexts.size() < m_minimum_contexts)
 		{
 			m_free_contexts.push_back(context);
-			LOG_TRACE("put into reused context {}, {}/{} - {}/{}", fmt::ptr(context), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
+			LOG_DEBUG("put into reused context {}, {}/{} - {}/{}", fmt::ptr(context), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
 		}
 		else
 		{
 			m_processing_contexts.erase(context);
 			std::unique_ptr<processing_context> pcontext(context);
 			destruct_context(context);
-			LOG_TRACE("freed context {}, {}/{} {}/{}", fmt::ptr(context), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
+			LOG_DEBUG("freed context {}, {}/{} {}/{}", fmt::ptr(context), m_free_contexts.size(), m_processing_contexts.size(), m_minimum_contexts, m_maximum_contexts);
 		}
 	}
 
@@ -1919,8 +2920,11 @@ namespace ext::net::http
 		
 		context->async_state = 0;
 		context->chunk_prefix.clear();
-		context->input_buffer.clear();
-		context->output_buffer.clear();
+		//context->input_buffer.clear();
+		context->request_raw_buffer.clear();
+		context->request_filtered_buffer.clear();
+		context->response_raw_buffer.clear();
+		context->response_filtered_buffer.clear();
 
 		context->response = std::nullopt;
 		clear(context->request); // parser.reset already cleans request
@@ -1930,13 +2934,11 @@ namespace ext::net::http
 			m_config_context->dirty = false;
 			
 			auto handler_sorter = [](const http_server_handler * ptr1, const http_server_handler * ptr2) noexcept { return ptr1->order() < ptr2->order(); };
-			auto headers_presorter = [](const http_headers_prefilter * ptr1, const http_headers_prefilter * ptr2) noexcept { return ptr1->preorder_headers() < ptr2->preorder_headers(); };
-			auto full_presorter = [](const http_full_prefilter * ptr1, const http_full_prefilter * ptr2) noexcept { return ptr1->preorder_full() < ptr2->preorder_full(); };
-			auto postsorter = [](const http_post_filter * ptr1, const http_post_filter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
+			auto presorter = [](const http_prefilter * ptr1, const http_prefilter * ptr2) noexcept { return ptr1->preorder() < ptr2->preorder(); };
+			auto postsorter = [](const http_postfilter * ptr1, const http_postfilter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
 
 			std::stable_sort(m_config_context->handlers.begin(), m_config_context->handlers.end(), handler_sorter);
-			std::stable_sort(m_config_context->headers_prefilters.begin(), m_config_context->headers_prefilters.end(), headers_presorter);
-			std::stable_sort(m_config_context->full_prefilters.begin(), m_config_context->full_prefilters.end(), full_presorter);
+			std::stable_sort(m_config_context->prefilters.begin(), m_config_context->prefilters.end(), presorter);
 			std::stable_sort(m_config_context->postfilters.begin(), m_config_context->postfilters.end(), postsorter);
 		}
 		
@@ -2029,9 +3031,8 @@ namespace ext::net::http
 			LOG_INFO("connection closed(sock={}): peer {} <-> sock {}", sock.handle(), sock.peer_endpoint_noexcept(), sock.sock_endpoint_noexcept());
 
 		m_sock_handles.erase(sock.handle());
-		// when closing, we want a realy small timeout(for SSH shutdown mostly)
+		
 		sock.throw_errors(false);
-		sock.timeout(m_close_socket_timeout);
 		sock.close();
 	}
 
@@ -2060,15 +3061,29 @@ namespace ext::net::http
 	{
 		if (resp.conn_action == connection_action_type::close)
 			set_header(resp.headers, "Connection", "close");
-
+		
 		auto opt_bodysize = size(resp.body);
 		if (opt_bodysize)
 			set_header(resp.headers, "Content-Length", std::to_string(*opt_bodysize));
 		else
 		{
 			assert(std::holds_alternative<std::unique_ptr<std::streambuf>>(resp.body)
-			    or std::holds_alternative<std::unique_ptr<async_http_body_source>>(resp.body));
+				or std::holds_alternative<std::unique_ptr<async_http_body_source>>(resp.body));
 			set_header(resp.headers, "Transfer-Encoding", "chunked");
+		}
+	}
+	
+	void http_server::postprocess_response(processing_context * context) const
+	{
+		assert(std::holds_alternative<http_response>(context->response));
+		auto & resp = std::get<http_response>(context->response);
+		
+		postprocess_response(resp);
+		
+		if (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty())
+		{
+			set_header(resp.headers, "Transfer-Encoding", "chunked"); // TODO: append to, not set
+			remove_header(resp.headers, "Content-Length");            // TODO: do not set in first place
 		}
 	}
 
@@ -2457,13 +3472,10 @@ namespace ext::net::http
 		
 		filter->set_logger(m_logger);
 
-		if (auto ptr = ext::dynamic_pointer_cast<http_headers_prefilter>(filter))
-			config.headers_prefilters.push_back((ptr.addref(), ptr.get()));
+		if (auto ptr = ext::dynamic_pointer_cast<http_prefilter>(filter))
+			config.prefilters.push_back((ptr.addref(), ptr.get()));
 
-		if (auto ptr = ext::dynamic_pointer_cast<http_full_prefilter>(filter))
-			config.full_prefilters.push_back((ptr.addref(), ptr.get()));
-
-		if (auto ptr = ext::dynamic_pointer_cast<http_post_filter>(filter))
+		if (auto ptr = ext::dynamic_pointer_cast<http_postfilter>(filter))
 			config.postfilters.push_back((ptr.addref(), ptr.get()));
 	}
 
@@ -2664,11 +3676,8 @@ namespace ext::net::http
 	{
 		std::unique_lock lk(m_mutex);
 		if (m_started)
-		{
 			do_stop(lk);
-			assert(lk.owns_lock());
-		}
-
-		do_reset(lk);
+		else
+			do_reset(lk);
 	};
 }

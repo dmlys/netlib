@@ -3,6 +3,7 @@
 #include <ext/filesystem_utils.hpp>
 
 extern std::filesystem::path test_files_location;
+extern unsigned int LogLevel; // = -1
 
 template <class Container>
 void LoadTestFile(std::filesystem::path file, Container & content,

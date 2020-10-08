@@ -1,4 +1,5 @@
 #include <ext/net/http/http_server.hpp>
+
 #include <boost/test/unit_test.hpp>
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/data/dataset.hpp>
@@ -12,36 +13,7 @@ using namespace ext::net::http;
 using namespace ext::net::http::test_utils;
 
 using boost::unit_test::data::make;
-
-class configurator
-{
-public:
-	using function_type = std::tuple<std::string, unsigned short>(http_server & server);
-	
-private:
-	std::string m_name;
-	std::function<function_type> m_configurator;
-	
-public:
-	const auto & name() const noexcept { return m_name; }
-	auto operator()(http_server & server) const { return m_configurator(server); }
-	
-public:
-	configurator(std::string name, std::function<function_type> configurator)
-		: m_name(std::move(name)), m_configurator(std::move(configurator)) {}
-};
-
-inline auto & operator <<(std::ostream & os, const configurator & arg)
-{
-	return os << arg.name();
-}
-
-static std::vector<configurator> configurations = 
-{
-	{"single", configure},
-	{"with_pool", [](auto & server) { return configure_with_pool(server); }},
-};
-
+#define unwrap unwrap_tag <<
 
 BOOST_AUTO_TEST_SUITE(http_server_tests)
 
@@ -56,24 +28,24 @@ BOOST_DATA_TEST_CASE(simple_tests, make(configurations), configurator)
 	server.start();
 	
 	server.add_handler("/test", [] { return "test"; });
-	std::tie(actual_code, std::ignore, actual_body) = make_get_request(addr, "/test");
+	std::tie(actual_code, std::ignore, actual_body) = unwrap send_get_request(addr, "/test");
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "test");
 	
 	server.add_handler("/hello-server", [] { return "hello client"; });
-	std::tie(actual_code, std::ignore, actual_body) = make_get_request(addr, "/hello-server");
+	std::tie(actual_code, std::ignore, actual_body) = unwrap send_get_request(addr, "/hello-server");
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "hello client");
 	
 	server.add_handler("/put-test", [&actual_body](const std::string & body) { actual_body = body; return null_body; });
-	std::tie(actual_code, std::ignore, std::ignore) = make_put_request(addr, "/put-test", "put-body");
+	std::tie(actual_code, std::ignore, std::ignore) = unwrap send_put_request(addr, "/put-test", "put-body");
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "put-body");
 	
-	std::tie(actual_code, std::ignore, std::ignore) = make_put_expect_request(addr, "/put-test", "put-body-with-expect");
+	std::tie(actual_code, std::ignore, std::ignore) = unwrap send_put_expect_request(addr, "/put-test", "put-body-with-expect");
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "put-body-with-expect");
@@ -100,7 +72,7 @@ BOOST_DATA_TEST_CASE(async_test, make(configurations), configurator)
 	http_response response = make_response(200, "Hello World");
 	request_queue.answer(std::move(response));
 	
-	std::tie(actual_code, std::ignore, actual_body) = parse_response(sock);
+	std::tie(actual_code, std::ignore, actual_body) = unwrap receive_response(sock);
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "Hello World");
@@ -121,7 +93,7 @@ BOOST_DATA_TEST_CASE(request_stream_test, make(configurations), configurator)
 	
 	auto handler = [&actual_body] (std::unique_ptr<std::streambuf> & stream) { actual_body = read_stream(stream.get()); return ""; };
 	server.add_handler("put", "/put-stream", handler);
-	std::tie(actual_code, std::ignore, std::ignore) = make_put_expect_request(addr, "/put-stream", {"part1", "part2", "part3"});
+	std::tie(actual_code, std::ignore, std::ignore) = unwrap send_put_expect_request(addr, "/put-stream", {"part1", "part2", "part3"});
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "part1part2part3");
@@ -142,7 +114,7 @@ BOOST_DATA_TEST_CASE(response_stream_test, make(configurations), configurator)
 	
 	auto handler = [] { return std::make_unique<parted_stream>(std::vector<std::string>({"gp1", "part2", "end_part_3"})); };
 	server.add_handler("/get-stream", handler);
-	std::tie(actual_code, headers, actual_body) = make_get_request(addr, "/get-stream");
+	std::tie(actual_code, headers, actual_body) = unwrap send_get_request(addr, "/get-stream");
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "gp1part2end_part_3");
@@ -239,7 +211,7 @@ BOOST_DATA_TEST_CASE(request_async_source_test, make(configurations), configurat
 	std::string actual_resp_body;
 	int actual_code;
 	
-	std::tie(actual_code, std::ignore, actual_resp_body) = parse_response(sock);
+	std::tie(actual_code, std::ignore, actual_resp_body) = unwrap receive_response(sock);
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_resp_body, "OK");
 	
@@ -259,7 +231,7 @@ BOOST_DATA_TEST_CASE(response_async_source_test, make(configurations), configura
 	
 	std::string actual_body;
 	int actual_code;
-	std::tie(actual_code, std::ignore, actual_body) = parse_response(sock);
+	std::tie(actual_code, std::ignore, actual_body) = unwrap receive_response(sock);
 	
 	BOOST_CHECK_EQUAL(actual_code, 200);
 	BOOST_CHECK_EQUAL(actual_body, "gp1part2end_part3");
@@ -283,13 +255,19 @@ BOOST_DATA_TEST_CASE(body_destruction_test, make(configurations), configurator)
 	write_put_expect_request(sock1, addr, "/stream", "Hello");
 	write_put_expect_request(sock2, addr, "/async", "Hello");
 	
-	auto stream_req = request_queue.next_request();
-	auto & body_stream = std::get<std::unique_ptr<std::streambuf>>(stream_req.body);
-	body_stream.reset();
+	auto reset = [](auto & body) 
+	{
+		if (std::holds_alternative<std::unique_ptr<std::streambuf>>(body))
+			std::get<std::unique_ptr<std::streambuf>>(body).reset();
+		else if (std::holds_alternative<std::unique_ptr<async_http_body_source>>(body))
+			std::get<std::unique_ptr<async_http_body_source>>(body).reset();
+	};
 	
-	auto async_req = request_queue.next_request();
-	auto & body_asource = std::get<std::unique_ptr<async_http_body_source>>(async_req.body);
-	body_asource.reset();
+	auto req1 = request_queue.next_request();
+	auto req2 = request_queue.next_request();
+	
+	reset(req1.body);
+	reset(req2.body);
 	
 	server.stop();
 }
@@ -299,8 +277,6 @@ BOOST_AUTO_TEST_CASE(http_limits_test)
 	http_server server;
 	auto addr = configure(server);
 	
-	// socket_streambuf internal default buffer size 4096, we limit it to 10,
-	// but send 4k to be sure that we do not read it in one pass
 	std::string huge_body;
 	huge_body.assign(4096, 'a');
 	
@@ -312,7 +288,7 @@ BOOST_AUTO_TEST_CASE(http_limits_test)
 	server.start();
 	
 	server.add_handler("/test", [](std::string body) { return "test"; });
-	std::tie(actual_code, std::ignore, actual_body) = make_put_expect_request(addr, "/test", huge_body);
+	std::tie(actual_code, std::ignore, actual_body) = unwrap send_put_expect_request(addr, "/test", huge_body);
 	
 	BOOST_CHECK_EQUAL(actual_code, 400);
 	BOOST_CHECK_EQUAL(actual_body, "BAD REQUEST");

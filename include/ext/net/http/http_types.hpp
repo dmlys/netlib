@@ -128,9 +128,15 @@ namespace ext::net::http
 		/// std::nullopt -> http body end. 
 		/// chunks of 0 size are allowed, but they will be skipped for Transfer-Encoding: chunked, because chunk of 0 size means end. 
 		using chunk_type = std::optional<std::vector<char>>;
+		
 		/// prepares/generates some data, writes into buffer and returns it, in case of errors returns future with exception.
 		/// Overall any exception can be thrown, http_server will throw std::runtime_error/std::system_error through.
-		virtual auto read_some(std::vector<char> buffer) -> ext::future<chunk_type> = 0;
+		/// 
+		/// size - a hint of what size should result chunk be, implementation can ignore it.
+		///  0 - means no hint, and implementation should choose size.
+		///  http_server does tries to return chunk of asked size,
+		///  0 - means return whatever available in a socket(bounded by some implementation defined max size)
+		virtual auto read_some(std::vector<char> buffer, std::size_t size = 0) -> ext::future<chunk_type> = 0;
 
 	public:
 		/// just a destructor
@@ -160,7 +166,7 @@ namespace ext::net::http
 	struct http_response
 	{
 		int http_version = 11;
-		int http_code = 404;
+		int http_code = 200;
 		std::string status;
 		http_body   body;
 		http_headers_vector headers;

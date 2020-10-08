@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include <memory>
 #include <string>
 #include <vector>
 #include <functional>
@@ -16,6 +17,7 @@
 #include <ext/thread_pool.hpp>
 #include <ext/intrusive_ptr.hpp>
 #include <ext/library_logger/logger.hpp>
+#include <ext/stream_filtering/filter_types.hpp>
 
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/socket_queue.hpp>
@@ -42,7 +44,7 @@ namespace ext::net::http
 	/// * thread_pool executor
 	///
 	/// have 2 working modes(those should not be mixed):
-	///  * work on current thread(join_thread/interrupt), useful when you want start simple http_server on main thread
+	///  * work on current thread(join/interrupt), useful when you want start simple http_server on main thread
 	///  * work on internal background thread(start/stop), useful when you do not want block main thread in http_server
 	///
 	/// NOTE: by default there no preinstalled filters or handlers
@@ -130,6 +132,7 @@ namespace ext::net::http
 	protected:
 		class  closable_http_body;
 		struct processing_context;
+		class  http_server_filter_control;
 
 		/// sort of union of bellow methods;
 		class handle_method_type;
@@ -138,6 +141,13 @@ namespace ext::net::http
 		using finalizer_handle_method = void (http_server::*)(processing_context * context);
 
 	protected:
+		using streaming_context = ext::stream_filtering::streaming_context
+		<
+			std::vector<std::unique_ptr<ext::stream_filtering::filter>>, // FilterVector
+			std::vector<ext::stream_filtering::data_context>,            // DataContextVector
+			std::vector<std::vector<char>>                               // BuffersVector
+		>;
+		
 		/// holds some listener context configuration
 		struct listener_context
 		{
@@ -147,6 +157,13 @@ namespace ext::net::http
 		};
 		
 		struct config_context;
+		struct filtering_context;
+		
+		struct filtering_context
+		{
+			streaming_context request_streaming_ctx, response_streaming_ctx;
+			boost::container::flat_map<std::string, http::http_server_filter_control::property> property_map;
+		};
 		
 		/// groups some context parameters for processing http request
 		struct processing_context
@@ -156,32 +173,37 @@ namespace ext::net::http
 			
 			// socket waiting
 			socket_queue::wait_type wait_type;
-			// next method after waiting is complete
+			// next method after socket waiting is complete
 			regular_handle_methed next_method;
 			// current method that is executed
 			regular_handle_methed cur_method;
+			
+			// state used by some handle_methods, value for switch
+			unsigned async_state = 0;         
+			// should this connection be closed after request processed, determined by Connection header,
+			// but also - were there errors while processing request.
+			connection_action_type conn_action = connection_action_type::close;
 			
 			// byte counters, used in various scenarios
 			std::size_t read_count;    // number of bytes read from socket
 			std::size_t written_count; // number of bytes written socket
 			
-			unsigned async_state = 0;         // state used by some handle_methods, value for switch
-			std::string chunk_prefix;         // buffer for preparing and holding chunk prefix(chunked transfer encoding)
-			std::vector<char> input_buffer;   // input buffer where http_body is parsed, than it's copied/filtered to destination buffer
-			std::vector<char> output_buffer;  // output buffer for stream and async response bodies
-			
 			http_server_utils::nonblocking_http_parser parser; // http parser with state
 			http_server_utils::nonblocking_http_writer writer; // http writer with state
 			
-			// should this connection be closed after request processed, determined by Connection header,
-			// but also - were there errors while processing request.
-			connection_action_type conn_action = connection_action_type::close;
+			//std::vector<char> request_reading_buffer;   // TODO: currently unused, set it into socket_streambuf as buffer
+			
+			// buffers for filtered and non filtered parsing and writting
+			std::vector<char> request_raw_buffer, request_filtered_buffer;
+			std::vector<char> response_raw_buffer, response_filtered_buffer;
+			std::string chunk_prefix; // buffer for preparing and holding chunk prefix(chunked transfer encoding)			
+			
+			// contexts for filtering request/reply http_body;
+			std::unique_ptr<filtering_context> filter_ctx;
+			ext::stream_filtering::processing_parameters filter_params;
 			
 			http_request request;                    // current http request, valid after is was parsed
 			process_result response = std::nullopt;  // current http response, valid after handler was called
-			
-			//std::vector<char> input_raw_http_body_buffer;
-			//std::vector<char> input_filtered_http_body_buffer;
 			
 			std::shared_ptr<const config_context> config; // config snapshot
 			const http_server_handler * handler;          // found handler for request
@@ -205,10 +227,9 @@ namespace ext::net::http
 			/// sort of copy on write
 			unsigned dirty = true;
 			
-			std::vector<const http_server_handler *>    handlers;            // http handlers registered in server
-			std::vector<const http_headers_prefilter *> headers_prefilters;  // http headers prefilters  registered in server, sorted by order
-			std::vector<const http_full_prefilter *>    full_prefilters;     // http full    prefilters  registered in server, sorted by order
-			std::vector<const http_post_filter *>       postfilters;         // http         postfilters registered in server, sorted by order
+			std::vector<const http_server_handler *> handlers;       // http handlers registered in server
+			std::vector<const http_prefilter *>      prefilters;     // http prefilters  registered in server, sorted by order
+			std::vector<const http_postfilter *>     postfilters;    // http postfilters registered in server, sorted by order
 			
 			/// Maximum bytes read from socket while parsing HTTP request headers, -1 - unlimited.
 			/// If request headers are not parsed yet, and server read from socket more than maximum_http_headers_size, BAD request is returned
@@ -296,6 +317,9 @@ namespace ext::net::http
 		/// timeout for socket operations when closing, basicly affects SSL shutdown
 		static constexpr duration_type m_close_socket_timeout = std::chrono::milliseconds(100);
 
+		static constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
+		static constexpr std::string_view crlf = "\r\n";
+		
 	protected:
 		/// Performs actual startup of http server, blocking
 		virtual void do_start(std::unique_lock<std::mutex> & lk);
@@ -315,8 +339,8 @@ namespace ext::net::http
 
 		/// Similar to start, but callers thread becomes background one and caller basicly joins it.
 		/// Useful for simple configurations were you start https_server from main thread
-		virtual void join_thread();
-		/// Similar to stop, but must be called if http_server was started via join_thread.
+		virtual void join();
+		/// Similar to stop, but must be called if http_server was started via join.
 		/// Can be called from signal handler.
 		virtual void interrupt();
 
@@ -354,27 +378,42 @@ namespace ext::net::http
 
 		/// returns socket send buffer size getsockopt(..., SOL_SOCKET, SO_SNDBUF, ...), but no more that 10 * 1024
 		virtual std::size_t sendbuf_size(processing_context * context) const;
+		/// non blocking recv method, read data is parsed with http parser,
+		/// result is stored in whatever parser body destination is set
+		///  * if successfully reads something - returns nullptr
+		///  * if read would block - returns wait_connection operation,
+		///  * if some error occurs sets it into sock, logs it and returns handle_finish.
+		virtual auto recv_and_parse(processing_context * context) const -> handle_method_type;
+		/// same as recv_and_parse, but no more than limit is ever read from socket in total,
+		/// otherwise bad response is created and http_server::handle_response is returned, connection is closed.
+		virtual auto recv_and_parse(processing_context * context, std::size_t limit) const -> handle_method_type;
 
+	protected:
 		// http_request processing parts
 		virtual auto handle_start(processing_context * context) -> handle_method_type;
+		virtual auto handle_close(processing_context * context) -> handle_method_type;
+		virtual void handle_finish(processing_context * context);
+		
 		virtual auto handle_ssl_configuration(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_start_handshake(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_continue_handshake(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_finish_handshake(processing_context * context) -> handle_method_type;
+		virtual auto handle_ssl_shutdown(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_request_headers_parsing(processing_context * context) -> handle_method_type;
-		virtual auto handle_request_body_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_normal_body_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_filtered_body_parsing(processing_context * context) -> handle_method_type;
 		virtual auto handle_discarded_request_body_parsing(processing_context * context) -> handle_method_type;
-		virtual auto handle_request_async_body_source_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_normal_async_source_body_parsing(processing_context * context) -> handle_method_type;
+		virtual auto handle_request_filtered_async_source_body_parsing(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_parsed_headers(processing_context * context) -> handle_method_type;
-		virtual auto handle_prefilters_headers(processing_context * context) -> handle_method_type;
+		virtual auto handle_prefilters(processing_context * context) -> handle_method_type;
 		virtual auto handle_find_handler(processing_context * context) -> handle_method_type;
 		virtual auto handle_request_header_processing(processing_context * context) -> handle_method_type;
 		virtual auto handle_request_init_body_parsing(processing_context * context) -> handle_method_type;
 
 		virtual auto handle_parsed_request(processing_context * context) -> handle_method_type;
-		virtual auto handle_prefilters_full(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing(processing_context * context) -> handle_method_type;
 		virtual auto handle_processing_result(processing_context * context) -> handle_method_type;
 		virtual auto handle_postfilters(processing_context * context) -> handle_method_type;
@@ -382,13 +421,24 @@ namespace ext::net::http
 		virtual auto handle_response(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_headers_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_headers_written(processing_context * context) -> handle_method_type;
-		virtual auto handle_response_simple_body_writting(processing_context * context) -> handle_method_type;
-		virtual auto handle_response_stream_body_writting(processing_context * context) -> handle_method_type;
-		virtual auto handle_response_async_body_writting(processing_context * context) -> handle_method_type;
+		
+		virtual auto handle_response_normal_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_filtered_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_normal_stream_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_filtered_stream_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_normal_async_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_filtered_async_body_writting(processing_context * context) -> handle_method_type;
 		
 		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
-		virtual void handle_finish(processing_context * context);
 
+	protected: // filtering
+		virtual void prepare_request_http_body_filtering(processing_context * context);
+		virtual void filter_request_http_body(processing_context * context);
+
+		virtual void prepare_response_http_body_filtering(processing_context * context);
+		virtual void filter_response_http_body(processing_context * context);
+		
+	protected:
 		/// Acquires processing context, one of cached ones, or creates one if allowed. If exhausted - returns null
 		virtual auto acquire_context() -> processing_context *;
 		/// Release processing context after http request processed, this method should place this context to cache or delete it, if cache is full
@@ -405,8 +455,9 @@ namespace ext::net::http
 		virtual auto acquire_context(socket_streambuf sock) -> processing_context *;
 		/// Checks if there is pending context for this socket and release it, otherwise does nothing
 		virtual void release_context(socket_streambuf & sock);
+		
 		/// Submits socket into internal socket_queue for waiting socket event(readable/writable).
-		/// When socket will become ready processing will continue from where it stopped.
+		/// When socket will become ready, processing will continue from where it stopped.
 		/// Should be called from server background thread
 		virtual void wait_connection(processing_context * context);
 
@@ -422,6 +473,7 @@ namespace ext::net::http
 		/// Also called for special answers created via create_*_response.
 		/// Default implementation tweaks Close and Content-Length
 		virtual void postprocess_response(http_response & resp) const;
+		virtual void postprocess_response(processing_context * context) const;
 
 		/// Exception wrapper for handler.process(request), on exception returns create_internal_server_error_response(sock, request, ex)
 		virtual auto process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result;

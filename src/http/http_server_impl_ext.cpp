@@ -1,4 +1,6 @@
 #include <ext/net/socket_include.hpp>
+#include <ext/stream_filtering/filtering.hpp>
+
 #include <ext/net/http/http_server.hpp>
 #include <ext/net/http/http_server_impl_ext.hpp>
 #include <ext/net/http/http_server_logging_helpers.hpp>
@@ -26,7 +28,26 @@ namespace ext::net::http
 		http_server::closable_http_body * expected = nullptr;
 		if (context->body_closer.compare_exchange_strong(expected, this, std::memory_order_release))
 		{
-			m_context->parser.set_body_destination(m_parsed_data);
+			m_filtered = m_context->filter_ctx and not m_context->filter_ctx->request_streaming_ctx.filters.empty();
+			m_context->parser.set_body_destination(m_context->request_raw_buffer);
+			
+			if (not m_filtered)
+			{
+				m_finished = m_context->parser.message_parsed();
+				m_underflow_method = &http_body_streambuf_impl::underflow_normal;
+			}
+			else
+			{
+				m_finished = false;
+				m_underflow_method = &http_body_streambuf_impl::underflow_filtered;
+				
+				m_server->prepare_request_http_body_filtering(m_context);
+				auto & params = m_context->filter_ctx->request_streaming_ctx.params;
+				auto & output = m_context->request_filtered_buffer;
+				
+				auto len = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
+				output.resize(std::max(output.capacity(), std::size_t(len)));
+			}
 		}
 		else
 		{
@@ -95,65 +116,123 @@ namespace ext::net::http
 	
 	}
 	
-	auto http_server::http_body_streambuf_impl::underflow() -> int_type
+	void http_server::http_body_streambuf_impl::read_parse_some()
+	{
+		m_interrupt_state->mark_working();
+		
+		auto * context = m_interrupt_state->m_context;
+		auto * server  = m_interrupt_state->m_server;
+		
+		auto * m_logger = server->m_logger;
+		auto & sock = context->sock;
+		auto & parser = context->parser;
+		
+		SOCK_LOG_TRACE("http_body_streambuf_impl::underflow: reading from socket");
+		assert(not sock.throw_errors());
+		auto peeked = ext::net::http::peek(sock);
+		EXT_UNUSED(peeked);
+		
+		m_interrupt_state->unmark_working();
+		
+		if (sock.last_error() == ext::net::sock_errc::error)
+			sock.throw_last_error();
+		
+		auto * ptr = sock.gptr();
+		std::size_t data_len = sock.egptr() - ptr;
+		
+		server->log_read_buffer(sock.handle(), ptr, data_len);
+		
+		auto parsed = parser.parse_message(ptr, data_len);
+		sock.gbump(static_cast<int>(parsed));
+	}
+	
+	auto http_server::http_body_streambuf_impl::underflow_normal() -> int_type
 	{
 		m_interrupt_state->check_interrupted();
+		
+		assert(not m_interrupt_state->m_filtered);
+		auto * context = m_interrupt_state->m_context;
+		auto & parsed_data = context->request_raw_buffer;
 		
 		if (m_interrupt_state->m_finished)
 			return traits_type::eof();
 		
+		parsed_data.clear();
+					
+		do read_parse_some();
+		while (parsed_data.empty() and not context->parser.message_parsed());
+		
+		char * first = parsed_data.data();
+		char * last  = first + parsed_data.size();
+		m_interrupt_state->m_finished = context->parser.message_parsed();
+		
+		setg(first, first, last);
+		return first == last ? traits_type::eof() 
+							 : traits_type::to_int_type(*first);
+	}
+	
+	auto http_server::http_body_streambuf_impl::underflow_filtered() -> int_type
+	{
+		m_interrupt_state->check_interrupted();
+		
+		assert(m_interrupt_state->m_filtered);
 		auto * context = m_interrupt_state->m_context;
 		auto * server  = m_interrupt_state->m_server;
-		auto & parsed_data = m_interrupt_state->m_parsed_data;
+		auto & parsed_data = context->request_raw_buffer;
+		auto & filtered_data = context->request_filtered_buffer;
 		
+		if (m_interrupt_state->m_finished)
+			return traits_type::eof();
+				
 		for (;;)
 		{
-			parsed_data.clear();
+			auto & source_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.front();
+			auto & dest_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.back();
+			auto & params = context->filter_ctx->request_streaming_ctx.params;
 			
-			m_interrupt_state->mark_working();
+			auto unconsumed = source_dctx.written - source_dctx.consumed;
+			auto threshold  = ext::stream_filtering::emptybuffer_threshold(params.default_buffer_size, params);
 			
-			auto * m_logger = server->m_logger;
-			auto & sock = context->sock;
-			auto & parser = context->parser;
-			
-			SOCK_LOG_TRACE("http_body_streambuf_impl::underflow: reading from socket");
-			assert(not sock.throw_errors());
-			auto peeked = ext::net::http::peek(sock);
-			EXT_UNUSED(peeked);
-			
-			m_interrupt_state->unmark_working();
-			
-			if (sock.last_error() == ext::net::sock_errc::error)
-				sock.throw_last_error();
-			
-			//if (not peeked)
-			//	throw_stream_read_failure();
-			
-			auto * ptr = sock.gptr();
-			std::size_t data_len = sock.egptr() - ptr;
-			
-			server->log_read_buffer(sock.handle(), ptr, data_len);
-			
-			auto parsed = parser.parse_message(ptr, data_len);
-			sock.gbump(static_cast<int>(parsed));
-			m_interrupt_state->m_finished = parser.message_parsed();
-			
-			if (parsed_data.empty())
+			// if less than 20% and source is not finished - read some
+			if (unconsumed < threshold and not source_dctx.finished)
 			{
-				// no data available after parsing - we either finished or need more data from socket
-				if (not m_interrupt_state->m_finished)
-					continue; // repeat reading
+				auto first = parsed_data.begin();
+				auto last  = first + source_dctx.consumed;
+				parsed_data.erase(first, last);
 				
-				// finished - return eof
-				return traits_type::eof();
+				do read_parse_some();
+				while (parsed_data.empty() and not context->parser.message_parsed());
+				
+				// update/prepare source filtering context
+				source_dctx.data_ptr = parsed_data.data();
+				source_dctx.written = source_dctx.capacity = parsed_data.size();
+				source_dctx.finished = context->parser.message_parsed();
+				source_dctx.consumed = 0;
 			}
 			
-			auto * first = parsed_data.data();
-			auto * last  = first + parsed_data.size();
-			setg(first, first, last);
+			dest_dctx.data_ptr = filtered_data.data();
+			dest_dctx.capacity = filtered_data.size();
+			server->filter_request_http_body(context);
 			
-			return traits_type::to_int_type(*first);
+			char * first = dest_dctx.data_ptr + dest_dctx.consumed;
+			char * last  = dest_dctx.data_ptr + dest_dctx.written;
+			
+			unconsumed = dest_dctx.written - dest_dctx.consumed;
+			threshold  = ext::stream_filtering::emptybuffer_threshold(dest_dctx.capacity, params);
+			if (unconsumed < threshold and not dest_dctx.finished) continue;
+			
+			dest_dctx.written = dest_dctx.consumed = 0;
+			m_interrupt_state->m_finished = dest_dctx.finished;
+			
+			setg(first, first, last);
+			return first == last ? traits_type::eof() 
+			                     : traits_type::to_int_type(*first);
 		};
+	}
+	
+	auto http_server::http_body_streambuf_impl::underflow() -> int_type
+	{
+		return (this->*m_interrupt_state->m_underflow_method)();
 	}
 	
 	/************************************************************************/
@@ -166,7 +245,22 @@ namespace ext::net::http
 		http_server::closable_http_body * expected = nullptr;
 		if (context->body_closer.compare_exchange_strong(expected, this, std::memory_order_release))
 		{
-			m_context->parser.set_body_destination(m_data);
+			m_filtered = m_context->filter_ctx and not m_context->filter_ctx->request_streaming_ctx.filters.empty();
+			m_context->parser.set_body_destination(m_context->request_raw_buffer);
+			
+			if (not m_filtered)
+				m_async_method = &http_server::handle_request_normal_async_source_body_parsing;
+			else
+			{
+				m_async_method = &http_server::handle_request_filtered_async_source_body_parsing;
+				
+				m_server->prepare_request_http_body_filtering(m_context);
+				auto & params = m_context->filter_ctx->request_streaming_ctx.params;
+				auto & output = m_context->request_filtered_buffer;
+				
+				auto len = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
+				output.resize(std::max(output.capacity(), std::size_t(len)));
+			}
 		}
 		else
 		{
@@ -181,13 +275,29 @@ namespace ext::net::http
 		return ext::make_ready_future();
 	}
 	
+	void http_server::async_http_body_source_impl::closable_http_body_impl::set_value_result(chunk_type result)
+	{
+		auto promise = std::move(m_read_promise);
+		std::atomic_thread_fence(std::memory_order_release);
+		m_pending_request.store(false, std::memory_order_relaxed);
+		promise.set_value(std::move(result));
+	}
+	
+	void http_server::async_http_body_source_impl::closable_http_body_impl::set_exception_result(std::exception_ptr ex)
+	{
+		auto promise = std::move(m_read_promise);
+		std::atomic_thread_fence(std::memory_order_release);
+		m_pending_request.store(false, std::memory_order_relaxed);
+		promise.set_exception(std::move(ex));
+	}
+	
 	auto http_server::async_http_body_source_impl::make_closed_result() const -> ext::future<chunk_type>
 	{
 		closed_exception ex("ext::net::http::http_server::async_http_body_source: interrupt, server is stopping");
-		return ext::make_exceptional_future<chunk_type>(std::move(ex));		
+		return ext::make_exceptional_future<chunk_type>(std::move(ex));
 	}
 	
-	auto http_server::async_http_body_source_impl::read_some(std::vector<char> buffer) -> ext::future<chunk_type>
+	auto http_server::async_http_body_source_impl::read_some(std::vector<char> buffer, std::size_t size) -> ext::future<chunk_type>
 	{
 		if (m_interrupt_state->m_interrupted.load(std::memory_order_relaxed))
 			return make_closed_result();
@@ -198,19 +308,40 @@ namespace ext::net::http
 		if (m_interrupt_state->m_pending_request.exchange(true, std::memory_order_relaxed))
 			throw std::logic_error("ext::net::http::http_server::async_http_body_source: already have pending request");
 		
+		std::atomic_thread_fence(std::memory_order_acquire);
 		auto * server  = m_interrupt_state->m_server;
 		auto * context = m_interrupt_state->m_context;
 		
-		buffer.clear();
-		m_interrupt_state->m_data = std::move(buffer);
+		if (not m_interrupt_state->m_filtered)
+		{
+			buffer.clear();
+			m_interrupt_state->m_context->request_raw_buffer = std::move(buffer);
+		}
+		else
+		{
+			auto & par = context->filter_ctx->request_streaming_ctx.params;
+			std::size_t default_size = std::clamp(par.default_buffer_size, par.minimum_buffer_size, par.maximum_buffer_size);
+			
+			auto bufsize = std::max(size, default_size);
+			buffer.resize(bufsize);
+			
+			m_interrupt_state->m_context->request_filtered_buffer = std::move(buffer);
+		}
+		
+		m_interrupt_state->m_asked_size = size;
 		m_interrupt_state->m_read_promise = {}; // reset;
+		
+		// It is important to retrieve this future before submit handler
+		auto result_future = m_interrupt_state->m_read_promise.get_future();
 		
 		std::lock_guard lk(server->m_mutex);
 		if (server->m_running)
 		{
-			auto method = &http_server::handle_request_async_body_source_parsing;
-			server->submit_handler(lk, method, context);
-			return m_interrupt_state->m_read_promise.get_future();			
+			server->submit_handler(lk, m_interrupt_state->m_async_method, context);
+			// during this submit_handler handler actually can be completed completely
+			// and even set_value_result/set_exception_result can be called, promise can be reset
+			// so future should be retrieved before
+			return result_future;
 		}
 		else
 		{
