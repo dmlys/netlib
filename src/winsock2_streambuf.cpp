@@ -1001,13 +1001,11 @@ namespace ext::net
 		// https://www.openssl.org/docs/manmaster/ssl/SSL_shutdown.html
 
 		char ch;
-		int res, fstate, selres;
+		int res, fstate;
 		long int rc;
 		handle_type sock;
-		fd_set rdset;
 
 		auto until = time_point::clock::now() + m_timeout;
-		struct timeval tv = {0, 0};
 
 		// first shutdown
 		do {
@@ -1038,13 +1036,7 @@ namespace ext::net
 		// второй shutdown не получился, это может быть как ошибка,
 		// так и нам просто закрыли канал по shutdown на другой стороне. проверяем
 		sock = ::SSL_get_fd(ssl);
-		FD_ZERO(&rdset);
-		FD_SET(sock, &rdset);
-
-		selres = select(0, &rdset, nullptr, nullptr, &tv);
-		if (selres <= 0) goto error;
-
-		rc = recv(sock, &ch, 1, MSG_PEEK);
+		rc = ::recv(sock, &ch, 1, MSG_PEEK);
 		if (rc != 0) goto error; // socket closed
 
 		// да мы действительно получили FD_CLOSE

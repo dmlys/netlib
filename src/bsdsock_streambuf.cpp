@@ -428,7 +428,7 @@ namespace ext::net
 				// вместе с сокетом внутри do_connect был создан pipe. Он вместе с socket слушается в select.
 				// что бы прервать нужно записать что-нибудь в pipe.
 				assert(sock != -1);
-				::write(sock, &prev, sizeof(prev));
+				res = ::write(sock, &prev, sizeof(prev));
 				res = ::close(sock);
 				assert(res == 0 || (res = errno) == 0);
 
@@ -946,13 +946,11 @@ namespace ext::net
 		// https://www.openssl.org/docs/manmaster/ssl/SSL_shutdown.html
 
 		char ch;
-		int res, fstate, selres;
+		int res, fstate;
 		long int rc;
 		handle_type sock;
-		fd_set rdset;
 
 		auto until = time_point::clock::now() + m_timeout;
-		struct timeval tv = {0, 0};
 
 		// first shutdown
 		do {
@@ -983,14 +981,8 @@ namespace ext::net
 		// второй shutdown не получился, это может быть как ошибка,
 		// так и нам просто закрыли канал по shutdown на другой стороне. проверяем
 		sock = ::SSL_get_fd(ssl);
-		FD_ZERO(&rdset);
-		FD_SET(sock, &rdset);
-
-		selres = select(0, &rdset, nullptr, nullptr, &tv);
-		if (selres <= 0) goto error;
-
-		rc = recv(sock, &ch, 1, MSG_PEEK);
-		if (rc != 0) goto error; // socket closed
+		rc = ::recv(sock, &ch, 1, MSG_PEEK);
+		if (rc != 0) goto error; // rc == 0 -> socket closed
 
 		// да мы действительно получили FD_CLOSE
 		m_lasterror.clear();
