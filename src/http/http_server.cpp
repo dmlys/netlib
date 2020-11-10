@@ -1171,8 +1171,19 @@ namespace ext::net::http
 				auto read = parser.parse_headers(first, len);
 				sock.gbump(static_cast<int>(read));
 
+				// It's eof actually, normally it should not happen.
+				// Parser should throw exception when sees premature eof, and just eof at start is handled by handle_start.
+				// But if there new line characters(\r or \n, but not any other) then parser would just skip them, like nothing happened.
+				// If after that eof came - parser would not throw on parse with len == 0 call.
+				// And we actually would got here infinite loop, so we better handle it
+				if (len == 0)
+				{
+					SOCK_LOG_DEBUG("got EOF after some empty lines");
+					return &http_server::handle_close;
+				}
+				
 			} while (not parser.headers_parsed());
-						
+			
 			context->read_count = 0;
 			return &http_server::handle_parsed_headers;
 		}
@@ -3281,7 +3292,7 @@ namespace ext::net::http
 	{
 		if (not m_logger) return;
 
-		auto record = m_logger->open_record(m_read_buffer_logging_level, __FILE__, __LINE__);
+		auto record = m_logger->open_record(m_write_buffer_logging_level, __FILE__, __LINE__);
 		if (not record) return;
 
 		auto & stream = record.get_ostream();
