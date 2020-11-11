@@ -3088,15 +3088,12 @@ namespace ext::net::http
 		if (resp.conn_action == connection_action_type::close)
 			set_header(resp.headers, "Connection", "close");
 		
+		assert(not std::holds_alternative<std::unique_ptr<std::streambuf>>(resp.body)
+		   and not std::holds_alternative<std::unique_ptr<async_http_body_source>>(resp.body));
+		
 		auto opt_bodysize = size(resp.body);
 		if (opt_bodysize)
 			set_header(resp.headers, "Content-Length", std::to_string(*opt_bodysize));
-		else
-		{
-			assert(std::holds_alternative<std::unique_ptr<std::streambuf>>(resp.body)
-				or std::holds_alternative<std::unique_ptr<async_http_body_source>>(resp.body));
-			set_header(resp.headers, "Transfer-Encoding", "chunked");
-		}
 	}
 	
 	void http_server::postprocess_response(processing_context * context) const
@@ -3104,12 +3101,16 @@ namespace ext::net::http
 		assert(std::holds_alternative<http_response>(context->response));
 		auto & resp = std::get<http_response>(context->response);
 		
-		postprocess_response(resp);
+		if (resp.conn_action == connection_action_type::close)
+			set_header(resp.headers, "Connection", "close");
 		
-		if (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty())
+		const bool filtered = context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty();
+		auto opt_bodysize = size(resp.body);
+		if (opt_bodysize and not filtered)
+			set_header(resp.headers, "Content-Length", std::to_string(*opt_bodysize));
+		else
 		{
-			set_header(resp.headers, "Transfer-Encoding", "chunked"); // TODO: append to, not set
-			remove_header(resp.headers, "Content-Length");            // TODO: do not set in first place
+			append_header_list_value(resp.headers, "Transfer-Encoding", "chunked");
 		}
 	}
 
