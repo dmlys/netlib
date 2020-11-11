@@ -191,8 +191,6 @@ namespace ext::net::http
 			http_server_utils::nonblocking_http_parser parser; // http parser with state
 			http_server_utils::nonblocking_http_writer writer; // http writer with state
 			
-			//std::vector<char> request_reading_buffer;   // TODO: currently unused, set it into socket_streambuf as buffer
-			
 			// buffers for filtered and non filtered parsing and writting
 			std::vector<char> request_raw_buffer, request_filtered_buffer;
 			std::vector<char> response_raw_buffer, response_filtered_buffer;
@@ -304,9 +302,10 @@ namespace ext::net::http
 		std::shared_ptr<processing_executor> m_processing_executor;
 
 		// http_server running state variables
-		bool m_running = false;
-		bool m_started = false;
-		bool m_joined  = false;
+		bool m_running = false;     // http_server is in running state
+		bool m_started = false;     // http_server is started either by start or join
+		bool m_joined  = false;     // used only by join/interrupt pair methods
+		bool m_interrupted = false; // used only by join/interrupt pair methods
 
 		// listeners default backlog
 		int m_default_backlog = 10;

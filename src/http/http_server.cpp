@@ -25,6 +25,16 @@ namespace ext::net::http
 		if (old) ext::intrusive_ptr_release(old);
 	}
 	
+	template <class Type>
+	class auto_release_atomic_ptr
+	{
+		std::atomic<Type *> * pointer;
+	
+	public:
+		auto_release_atomic_ptr(std::atomic<Type *> & ptr) : pointer(&ptr) {}
+		~auto_release_atomic_ptr() { release_atomic_ptr(*pointer); }
+	};
+	
 	void http_server::delayed_async_executor_task_continuation::continuate(shared_state_basic * caller) noexcept
 	{
 		auto owner = m_owner;
@@ -278,11 +288,17 @@ namespace ext::net::http
 				throw std::logic_error("ext::net::http::http_server::join misuse, already started background thread");
 			else
 			{
-				m_started = m_running = true;
-				std::atomic_signal_fence(std::memory_order_release);
-				m_joined = true;
+				m_started = m_running = m_joined = true;
+				bool interrupted = std::exchange(m_interrupted, false);
+				std::atomic_signal_fence(std::memory_order_acq_rel);
+				if (interrupted)
+				{
+					m_started = m_running = m_joined = false;
+					LOG_DEBUG("won't join thread, got interrupt request");
+					return;
+				}
+				
 				ext::promise<void> started_promise;
-
 				ext::future<void> started = started_promise.get_future();
 
 				{
@@ -301,13 +317,10 @@ namespace ext::net::http
 
 	void http_server::interrupt()
 	{
-		bool joined = m_joined;
-		// TODO: there should be "interrupted" atomic flag, that is set by this method, and checked in join
-		//       currently we have a race condition here, when interrupt comes earlier then join sets m_joined = true
-		
-		// forbid reordering m_joined read after anything below
-		std::atomic_signal_fence(std::memory_order_acquire);
-		if (joined)
+		bool interrupted = std::exchange(m_interrupted, true);
+		// forbid reordering m_interrupted read and write after anything below
+		std::atomic_signal_fence(std::memory_order_acq_rel);
+		if (not interrupted)
 		{
 			m_running = false;
 			// release is done in m_sock_queue.interrupt();
@@ -495,10 +508,12 @@ namespace ext::net::http
 						auto * old = context->async_task_state.exchange((ptr.addref(), ptr.get()), std::memory_order_relaxed);
 						// actually old should always be null, unless we got some exception from line below(calling next_method),
 						// and nobody cleared async_task_state in context. RAII will fix this
-						if (old) old->release();
+						assert(not old);
+						//if (old) old->release();
 						
+						auto_release_atomic_ptr r(context->async_task_state);
 						next_method = (this->*next_method.regular_ptr())(context);
-						release_atomic_ptr(context->async_task_state); // TODO: should be done in RAII manner
+						//release_atomic_ptr(context->async_task_state);
 						goto again;
 					}
 				}
