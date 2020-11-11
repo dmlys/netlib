@@ -1655,15 +1655,19 @@ namespace ext::net::http
 	{
 		try
 		{
-			http_server_filter_control filter_control(context);
+			http_server_control filter_control(context);
 			for (const auto * filter : context->config->prefilters)
 			{
-				filter->prefilter(filter_control);
-				// TODO: check stop/break condition
-				
-				if (std::holds_alternative<http_response>(context->response))
+				// if response overridden - return it
+				if (context->response_is_final)
 					return &http_server::handle_request_header_processing;
+				
+				filter->prefilter(filter_control);
 			}
+			
+			// if already have response - use it
+			if (std::holds_alternative<http_response>(context->response))
+				return &http_server::handle_request_header_processing;
 
 			return &http_server::handle_find_handler;
 		}
@@ -1712,22 +1716,22 @@ namespace ext::net::http
 	{
 		auto & request = context->request;
 
-		/// We should handle Expect extension, described in RFC7231 section 5.1.1.
-		/// https://tools.ietf.org/html/rfc7231#section-5.1.1
+		// We should handle Expect extension, described in RFC7231 section 5.1.1.
+		// https://tools.ietf.org/html/rfc7231#section-5.1.1
 
-		/// Only HTTP/1.1 should handle it
+		// Only HTTP/1.1 should handle it
 		if (request.http_version < 11) return &http_server::handle_request_init_body_parsing;
 
 		ext::ctpred::not_equal_to<ext::aci_char_traits> nieq;
 		ext::ctpred::    equal_to<ext::aci_char_traits> ieq;
-		/// only for POST and PUT
+		// only for POST and PUT
 		if (nieq(request.method, "POST") and nieq(request.method, "PUT"))
 			return &http_server::handle_request_init_body_parsing;
 
 		auto expect = get_header_value(request.headers, "Expect");
 		if (expect.empty()) return &http_server::handle_request_init_body_parsing;
 
-		/// Expect can only have one value - 100-continue, others are errors
+		// Expect can only have one value - 100-continue, others are errors
 		context->expect_extension = ieq(expect, "100-continue");
 
 		if (not context->expect_extension)
@@ -1855,7 +1859,7 @@ namespace ext::net::http
 					return async_method(val.handle(), &http_server::handle_processing_result);
 				}
 			}
-			else if constexpr (std::is_same_v<arg_type, std::nullopt_t>)
+			else if constexpr (std::is_same_v<arg_type, null_response_type>)
 			{
 				SOCK_LOG_DEBUG("got nullopt response from http_handler, connection will be closed");
 				context->conn_action = connection_action_type::close;
@@ -1879,9 +1883,12 @@ namespace ext::net::http
 		{
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
-			http_server_filter_control filter_control(context);
+			http_server_control filter_control(context);
 			for (const auto * filter : context->config->postfilters)
+			{
+				if (context->response_is_final) break;
 				filter->postfilter(filter_control);
+			}
 
 			return &http_server::handle_response;
 		}
@@ -1972,7 +1979,7 @@ namespace ext::net::http
 		{
 			SOCK_LOG_DEBUG("continue http request processing after 100 Continue, now parsing body");
 			context->first_response_written = true, context->continue_answer = false;
-			context->response = std::nullopt; // important! reset 100 Continue response, some code checks it before normal response is generated
+			context->response = null_response; // important! reset 100 Continue response, some code checks it before normal response is generated
 			return &http_server::handle_request_init_body_parsing;
 		}
 		else
@@ -2879,7 +2886,7 @@ namespace ext::net::http
 		SOCK_LOG_DEBUG("http response written");
 
 		context->final_response_written = true;
-		context->response = std::nullopt;
+		context->response = null_response;
 		
 		return &http_server::handle_close;
 	}
@@ -2940,6 +2947,7 @@ namespace ext::net::http
 		context->read_count = context->written_count = 0;
 		context->expect_extension = context->continue_answer = false;
 		context->first_response_written = context->final_response_written = false;
+		context->response_is_final = false;
 
 		context->parser.reset(&context->request);
 		context->writer.reset(nullptr);		
@@ -2952,7 +2960,7 @@ namespace ext::net::http
 		context->response_raw_buffer.clear();
 		context->response_filtered_buffer.clear();
 
-		context->response = std::nullopt;
+		context->response = null_response;
 		clear(context->request); // parser.reset already cleans request
 
 		if (m_config_context->dirty)

@@ -1,19 +1,25 @@
 ﻿#pragma once
 #include <ostream>
 #include <algorithm>
+
+#include <any>
 #include <variant>
+#include <optional>
+
 #include <vector>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
-//#include <boost/iterator/filter_iterator.hpp>
+#include <boost/mp11.hpp>
 #include <boost/range.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <ext/range/range_traits.hpp>
 
 #include <ext/future.hpp>
 #include <ext/iostreams/streambuf.hpp>
+#include <ext/stream_filtering/filter_types.hpp>
+#include <ext/net/socket_streambuf.hpp>
 
 namespace ext::net::http
 {
@@ -62,10 +68,12 @@ namespace ext::net::http
 		null   = 4, //  * no body required/produced, represented as nullbody
 	};
 
-	/// special type representing null body, std::nullopt probably can be used instead, but we use it already for "no response at all",
-	/// to make things less ambiguous we use different type.
+	/// Special type representing null body.
 	struct null_body_type {} constexpr null_body;
 	
+	/// Special type representing null response, meaning no response at all.
+	/// Not a single byte should be sent to other side, and connection should be closed
+	struct null_response_type {} constexpr null_response;
 	
 	/// Exception thrown from http_body_streambuf and async_http_body_source, when http_server is stopped, and read operation is called.
 	/// See http_body_streambuf, async_http_body_source description
@@ -191,6 +199,81 @@ namespace ext::net::http
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
 
+	/************************************************************************/
+	/*                   http_server_filter_control                         */
+	/************************************************************************/
+	
+	/// Interface implemented by http_server, intended to communicate by handlers, filters with http_server.
+	/// Provides access to request, response, allows adding filters, etc.
+	class http_server_control
+	{
+	public:
+		using filter = ext::stream_filtering::filter;
+		using property = std::variant<bool, long, std::string, std::any>;
+		
+	public:
+		virtual void request_filter_append(std::unique_ptr<filter> filter) = 0;
+		virtual void request_filter_prepend(std::unique_ptr<filter> filter) = 0;
+		virtual void request_filters_clear() = 0;
+		
+		virtual void response_filter_append(std::unique_ptr<filter> filter) = 0;
+		virtual void response_filter_prepend(std::unique_ptr<filter> filter) = 0;
+		virtual void response_filters_clear() = 0;
+		
+	public:
+		/// sets final response flag, after that response should not be modified directly, or by adding some body filters
+		virtual void set_response_final() noexcept = 0;
+		/// check final response flag, used internally by http_server
+		virtual bool is_response_final() const noexcept = 0;
+		
+	public:
+		/// direct access to socket, intended to give access to some socket properties like: socket_addr, peer_addr 
+		virtual auto socket() const -> const ext::net::socket_streambuf & = 0;
+		/// returns current pending request, can be empty object after invoking handler(handler can take it)
+		virtual auto request() -> http_request & = 0;
+		/// return current pending response, valid only after handler invocation, otherwise exception is thrown
+		virtual auto response() -> http_response & = 0;
+		/// Sets response, this is for handlers taking http_server_filter_control directly, other handlers just return response.
+		/// Filters and others should use override_response.
+		virtual void set_response(http_response resp) = 0;
+		/// Overrides response, even if it was already set previously.
+		/// If final == true - no filters or anything else would affect that response,
+		/// through some basic post-processing still can be make: like Content-Length header
+		virtual void override_response(http_response resp, bool final = true) = 0;
+		
+	public:
+		/// properties can be used for handler filter communications, including pre and post filter phases
+		virtual auto get_property(std::string_view name) const -> std::optional<property> = 0;
+		virtual void set_property(std::string_view name, property prop) = 0;
+		
+	public:
+		virtual ~http_server_control() = default;
+	};
+	
+	template <class Type>
+	std::optional<Type> get_property(http_server_control & control, std::string_view name)
+	{
+		auto result = control.get_property(name);
+		if (not result) return std::nullopt;
+		
+		using property = http_server_control::property;
+		using type_idx = boost::mp11::mp_find<property, Type>;
+		constexpr bool found = not boost::mp11::mp_same<type_idx, boost::mp11::mp_size<property>>::value;
+				
+		if constexpr(found)
+		{
+			return std::get<Type>(std::move(*result));
+		}
+		else
+		{
+			auto & any = std::get<std::any>(*result);
+			auto * val = std::any_cast<Type>(&any);
+			
+			if (not val) return std::nullopt;
+			else         return std::move(*val);
+		}
+	}
+	
 	/************************************************************************/
 	/*                   header manipulation functions                      */
 	/************************************************************************/

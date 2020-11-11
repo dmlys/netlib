@@ -13,11 +13,6 @@ namespace ext::net::http
 		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
 	}
 	
-	EXT_NORETURN inline static void throw_stream_read_failure()
-	{
-		throw std::runtime_error("ext::net::http_server::http_body_stream: stream read failure");
-	}
-	
 	/************************************************************************/
 	/*            http_body_streambuf_impl::closable_http_body_impl         */
 	/************************************************************************/
@@ -235,6 +230,8 @@ namespace ext::net::http
 		return (this->*m_interrupt_state->m_underflow_method)();
 	}
 	
+	
+	
 	/************************************************************************/
 	/*            async_http_body_source_impl::closable_http_body_impl      */
 	/************************************************************************/
@@ -357,5 +354,118 @@ namespace ext::net::http
 	    : m_interrupt_state(ext::make_intrusive<closable_http_body_impl>(server, context))
 	{
 	
+	}
+	
+	/************************************************************************/
+	/*               http_server::http_server_filter_control impl           */
+	/************************************************************************/
+	auto http_server::http_server_control::acquire_filtering_context() -> filtering_context &
+	{
+		if (not m_context->filter_ctx)
+			m_context->filter_ctx = std::make_unique<filtering_context>();
+
+		return *m_context->filter_ctx;
+	}
+	
+	void http_server::http_server_control::request_filter_append(std::unique_ptr<filter> filter)
+	{
+		auto & fctx = acquire_filtering_context();
+		fctx.request_streaming_ctx.filters.push_back(std::move(filter));
+	}
+	
+	void http_server::http_server_control::request_filter_prepend(std::unique_ptr<filter> filter)
+	{
+		auto & fctx = acquire_filtering_context();
+		auto & filters = fctx.request_streaming_ctx.filters;
+		filters.insert(filters.begin(), std::move(filter));
+	}
+	
+	void http_server::http_server_control::request_filters_clear()
+	{
+		if (not m_context->filter_ctx)
+			return;
+		
+		m_context->filter_ctx->request_streaming_ctx.filters.clear();
+	}
+	
+	void http_server::http_server_control::response_filter_append(std::unique_ptr<filter> filter)
+	{
+		auto & fctx = acquire_filtering_context();
+		fctx.response_streaming_ctx.filters.push_back(std::move(filter));
+	}
+	
+	void http_server::http_server_control::response_filter_prepend(std::unique_ptr<filter> filter)
+	{
+		auto & fctx = acquire_filtering_context();
+		auto & filters = fctx.response_streaming_ctx.filters;
+		filters.insert(filters.begin(), std::move(filter));
+	}
+	
+	void http_server::http_server_control::response_filters_clear()
+	{
+		if (not m_context->filter_ctx)
+			return;
+		
+		m_context->filter_ctx->response_streaming_ctx.filters.clear();
+	}
+	
+	void http_server::http_server_control::set_response_final() noexcept
+	{
+		m_context->response_is_final = true;
+	}
+	
+	bool http_server::http_server_control::is_response_final() const noexcept
+	{
+		return m_context->response_is_final;
+	}
+	
+	auto http_server::http_server_control::socket() const -> const ext::net::socket_streambuf & 
+	{
+		return m_context->sock;
+	}
+	
+	auto http_server::http_server_control::request() -> http_request &
+	{
+		return m_context->request;
+	}
+	
+	auto http_server::http_server_control::response() -> http_response &
+	{
+		auto * response_ptr = std::get_if<http_response>(&m_context->response);
+		if (response_ptr) return *response_ptr;
+		
+		throw std::runtime_error("http_server::http_server_filter_control: http response not available");
+	}
+	
+	void http_server::http_server_control::set_response(http_response resp)
+	{
+		if (not std::holds_alternative<null_response_type>(m_context->response))
+			throw std::runtime_error("http_server::http_server_filter_control: http response is already set");
+		
+		m_context->response = std::move(resp);
+	}
+	
+	void http_server::http_server_control::override_response(http_response resp, bool final)
+	{
+		m_context->response = std::move(resp);
+		m_context->response_is_final = final;
+	}
+	
+	auto http_server::http_server_control::get_property(std::string_view name) const -> std::optional<property>
+	{
+		if (not m_context->filter_ctx) return std::nullopt;
+		
+		auto & fctx = *m_context->filter_ctx;
+		std::string key(name);
+		auto it = fctx.property_map.find(key);
+		if (it == fctx.property_map.end()) return std::nullopt;
+		
+		return it->second;
+	}
+	
+	void http_server::http_server_control::set_property(std::string_view name, property prop)
+	{
+		auto & fctx = acquire_filtering_context();
+		fctx.property_map.insert_or_assign(std::string(name), std::move(prop));
 	}
 }

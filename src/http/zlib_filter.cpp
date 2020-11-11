@@ -25,7 +25,7 @@ namespace ext::net::http
 		return std::make_tuple(gzip_weight, deflate_weight);
 	}
 	
-	void zlib_filter::prefilter(http_server_filter_control & control) const
+	void zlib_filter::prefilter(http_server_control & control) const
 	{
 		auto & req = control.request();
 		
@@ -46,7 +46,7 @@ namespace ext::net::http
 		return;
 	}
 
-	void zlib_filter::postfilter(http_server_filter_control & control) const
+	void zlib_filter::postfilter(http_server_control & control) const
 	{
 		auto & resp = control.response();
 		// if already have encoding - do nothing

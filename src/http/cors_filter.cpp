@@ -3,7 +3,7 @@
 
 namespace ext::net::http
 {
-	void cors_filter::postfilter(http_server_filter_control & control) const
+	void cors_filter::postfilter(http_server_control & control) const
 	{
 		auto & req = control.request();
 		auto & resp = control.response();
@@ -14,7 +14,7 @@ namespace ext::net::http
 		set_header(resp.headers,"Access-Control-Allow-Origin", origin_header.value);
 	}
 
-	void cors_filter::prefilter(http_server_filter_control & control) const
+	void cors_filter::prefilter(http_server_control & control) const
 	{
 		auto & req = control.request();
 		if (req.method != "OPTIONS") return;

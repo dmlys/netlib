@@ -288,12 +288,12 @@ namespace ext::net::http::test_utils
 		return receive_response(sock);
 	}
 	
-	void dumb_base64_filter::prefilter(http_server_filter_control & control) const
+	void dumb_base64_filter::prefilter(http_server_control & control) const
 	{
 		control.request_filter_append(std::make_unique<ext::stream_filtering::base64_decode_filter>());
 	}
 	
-	void dumb_base64_filter::postfilter(http_server_filter_control & control) const
+	void dumb_base64_filter::postfilter(http_server_control & control) const
 	{
 		control.response_filter_append(std::make_unique<ext::stream_filtering::base64_encode_filter>());
 	}

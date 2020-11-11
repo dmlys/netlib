@@ -25,8 +25,8 @@ namespace ext::net::http
 		std::string deflate(const std::string & data, bool deflate) const;
 
 	public:
-		virtual void prefilter(http_server_filter_control & control) const override;
-		virtual void postfilter(http_server_filter_control & control) const override;
+		virtual void prefilter(http_server_control & control) const override;
+		virtual void postfilter(http_server_control & control) const override;
 	};
 }
 #endif // EXT_ENABLE_CPPZLIB

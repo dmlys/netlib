@@ -397,7 +397,7 @@ namespace ext::net::http
 
 
 
-	class http_server::http_server_filter_control : public ext::net::http::http_server_filter_control
+	class http_server::http_server_control : public ext::net::http::http_server_control
 	{
 		processing_context * m_context;
 		
@@ -412,18 +412,24 @@ namespace ext::net::http
 		virtual void response_filter_append(std::unique_ptr<filter> filter) override;
 		virtual void response_filter_prepend(std::unique_ptr<filter> filter) override;
 		virtual void response_filters_clear() override;
+
+	public:
+		virtual void set_response_final()      noexcept override;
+		virtual bool is_response_final() const noexcept override;
 		
 	public:
+		virtual auto socket() const -> const ext::net::socket_streambuf & override;
 		virtual auto request() -> http_request & override;
 		virtual auto response() -> http_response & override;
-		virtual void override_response(http_response resp) override;
+		virtual void set_response(http_response resp) override;
+		virtual void override_response(http_response resp, bool final = true) override;
 		
 	public:
-		virtual auto get_property(std::string_view name) -> std::optional<property> override;
+		virtual auto get_property(std::string_view name) const -> std::optional<property> override;
 		virtual void set_property(std::string_view name, property prop) override;
 		
 	public:
-		http_server_filter_control(processing_context * context)
+		http_server_control(processing_context * context)
 		    : m_context(context) {}
 	};
 	

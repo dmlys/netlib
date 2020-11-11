@@ -42,8 +42,8 @@ namespace ext::net::http::test_utils
 		virtual unsigned preorder() const noexcept override { return 0; }
 		virtual unsigned postorder() const noexcept override { return UINT_MAX; }
 		
-		virtual void postfilter(http_server_filter_control & control) const override;
-		virtual void prefilter(http_server_filter_control & control) const override;
+		virtual void postfilter(http_server_control & control) const override;
+		virtual void prefilter(http_server_control & control) const override;
 	};
 	
 	

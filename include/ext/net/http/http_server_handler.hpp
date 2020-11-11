@@ -31,11 +31,11 @@ namespace ext::net::http
 
 	public:
 		using result_type = std::variant<
-			std::nullopt_t,  // no answer at all, connection will be closed
-			http_response,
+			null_response_type,  // no answer at all, connection will be closed
+			http_response,       // regular response
 
 			// async variants
-			ext::future<std::nullopt_t>,
+			ext::future<null_response_type>,
 			ext::future<http_response>
 		>;
 
@@ -52,8 +52,9 @@ namespace ext::net::http
 	public:
 		using result_types = boost::mp11::mp_list<
 			// direct result types
-			std::nullopt_t, // TODO: introduce special type
+			null_response_type,
 			http_response,
+			
 			// http body types
 			std::string,
 			std::vector<char>,
@@ -71,7 +72,7 @@ namespace ext::net::http
 		
 		//using result_type = std::variant<
 		//	// direct result types
-		//	std::nullopt_t,
+		//	null_response_type,
 		//	http_response,
 		//	// http body types
 		//	std::string,

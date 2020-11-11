@@ -106,7 +106,7 @@ namespace ext::net::http
 		
 	protected:
 		using process_result = http_server_handler::result_type;
-		using async_process_result = std::variant<ext::future<http_response>, ext::future<std::nullopt_t>>;
+		using async_process_result = std::variant<ext::future<http_response>, ext::future<null_response_type>>;
 
 		using hook_type = boost::intrusive::list_base_hook<
 			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
@@ -132,7 +132,7 @@ namespace ext::net::http
 	protected:
 		class  closable_http_body;
 		struct processing_context;
-		class  http_server_filter_control;
+		class  http_server_control;
 
 		/// sort of union of bellow methods;
 		class handle_method_type;
@@ -162,7 +162,7 @@ namespace ext::net::http
 		struct filtering_context
 		{
 			streaming_context request_streaming_ctx, response_streaming_ctx;
-			boost::container::flat_map<std::string, http::http_server_filter_control::property> property_map;
+			boost::container::flat_map<std::string, http::http_server_control::property> property_map;
 		};
 		
 		/// groups some context parameters for processing http request
@@ -200,8 +200,8 @@ namespace ext::net::http
 			std::unique_ptr<filtering_context> filter_ctx;
 			ext::stream_filtering::processing_parameters filter_params;
 			
-			http_request request;                    // current http request, valid after is was parsed
-			process_result response = std::nullopt;  // current http response, valid after handler was called
+			http_request request;                    // current http request,  valid after is was parsed
+			process_result response = null_response; // current http response, valid after handler was called
 			
 			std::shared_ptr<const config_context> config; // config snapshot
 			const http_server_handler * handler;          // found handler for request
@@ -210,6 +210,8 @@ namespace ext::net::http
 			bool continue_answer;          // context holds answer 100 Continue
 			bool first_response_written;   // wrote first 100-continue
 			bool final_response_written;   // wrote final(possibly second) response
+			
+			bool response_is_final;        // response was marked as final, see http_server_filter_control
 			
 			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
 			std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization

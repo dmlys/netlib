@@ -15,7 +15,7 @@ namespace ext::net::http
 		unsigned postorder() const noexcept override { return m_order; }
 
 	public:
-		virtual void postfilter(http_server_filter_control & control) const override;
-		virtual void prefilter(http_server_filter_control & control) const override;
+		virtual void postfilter(http_server_control & control) const override;
+		virtual void prefilter(http_server_control & control) const override;
 	};
 }

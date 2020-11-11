@@ -36,13 +36,13 @@ namespace ext::net::http
 		template <class Type>
 		static http_response make_response(Type && body) { http_response resp; resp.http_code = 200; resp.status = "OK"; resp.body = std::move(body); return resp; }
 
-		http_server_handler::result_type operator()(std::nullopt_t val) const { return val; }
+		http_server_handler::result_type operator()(null_response_type val) const { return val; }
 		http_server_handler::result_type operator()(http_response && resp) const { return std::move(resp); }
 		
 		template <class Type>
 		http_server_handler::result_type operator()(Type && body) const { return make_response(std::move(body)); }
 		
-		http_server_handler::result_type operator()(ext::future<std::nullopt_t> fresp) const { return fresp; }
+		http_server_handler::result_type operator()(ext::future<null_response_type> fresp) const { return fresp; }
 		http_server_handler::result_type operator()(ext::future<http_response> fresp)  const { return fresp; }
 		
 		template <class Type>
