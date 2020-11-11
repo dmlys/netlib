@@ -211,6 +211,10 @@ namespace ext::net::http
 	template <class HeaderRange> void add_header(HeaderRange & headers, std::string_view name, std::string_view value);
 	template <class HeaderRange> void add_header(HeaderRange & headers, http_header header);
 
+	template <class HeaderRange> void prepend_header_list_value(HeaderRange & headers, std::string_view name, std::string_view value);
+	template <class HeaderRange> void append_header_list_value(HeaderRange & headers, std::string_view name, std::string_view value);
+	
+	
 	template <class HeaderRange1, class HeaderRange2>
 	void copy_header(const HeaderRange1 & source_headers, HeaderRange2 & dest_headers, std::string_view name);
 	
@@ -380,6 +384,53 @@ namespace ext::net::http
 		headers.push_back(std::move(header));
 	}
 
+	template <class HeaderRange>
+	void prepend_header_list_value(HeaderRange & headers, std::string_view name, std::string_view value)
+	{
+		auto * header = find_header(headers, name);
+		if (not header) return set_header(headers, name, value);
+		
+		std::string & hdr_val = header->value;
+		auto pos = hdr_val.find_first_not_of(' ');
+		if (pos == hdr_val.npos)
+		{
+			hdr_val = value;
+			return;
+		};
+		
+		if (hdr_val[pos] == ',')
+		{
+			hdr_val.insert(0, value);
+		}
+		else
+		{
+			hdr_val.insert(0, value.size() + 2, ' ');
+			hdr_val.replace(0, value.size(), value);
+			hdr_val.replace(value.size(), 2, ", ");
+		}
+	}
+	
+	template <class HeaderRange>
+	void append_header_list_value(HeaderRange & headers, std::string_view name, std::string_view value)
+	{
+		auto * header = find_header(headers, name);
+		if (not header) return set_header(headers, name, value);
+		
+		std::string & hdr_val = header->value;
+		auto pos = hdr_val.find_last_not_of(' ');
+		if (pos == hdr_val.npos)
+		{
+			hdr_val = value;
+			return;
+		};
+		
+		if (hdr_val[pos] != ',')
+			++pos;
+		
+		hdr_val.replace(pos, 2, ", ");
+		hdr_val.replace(pos + 2, std::string::npos, value);
+	}
+	
 	template <class HeaderRange1, class HeaderRange2>
 	void copy_header(const HeaderRange1 & source_headers, HeaderRange2 & dest_headers, std::string_view name)
 	{
