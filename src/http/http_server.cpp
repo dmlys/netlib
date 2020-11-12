@@ -1868,8 +1868,6 @@ namespace ext::net::http
 			else // http_response
 			{
 				SOCK_LOG_DEBUG("got response from http_handler");
-				if (val.conn_action == connection_action_type::def)
-					val.conn_action = context->conn_action;
 				return &http_server::handle_postfilters;
 			}
 		};
@@ -1908,11 +1906,12 @@ namespace ext::net::http
 
 	auto http_server::handle_response(processing_context * context) -> handle_method_type
 	{
-		auto & response = std::get<http_response>(context->response);
-
+		check_response(context);
+		
 		if (not context->continue_answer)
 			postprocess_response(context);
 		
+		auto & response = std::get<http_response>(context->response);
 		log_response(response);
 		context->writer.reset(&response);
 
@@ -3109,6 +3108,9 @@ namespace ext::net::http
 		assert(std::holds_alternative<http_response>(context->response));
 		auto & resp = std::get<http_response>(context->response);
 		
+		if (resp.conn_action == connection_action_type::def)
+			resp.conn_action = context->conn_action;
+		
 		if (resp.conn_action == connection_action_type::close)
 			set_header(resp.headers, "Connection", "close");
 		
@@ -3119,6 +3121,19 @@ namespace ext::net::http
 		else
 		{
 			append_header_list_value(resp.headers, "Transfer-Encoding", "chunked");
+		}
+	}
+	
+	void http_server::check_response(processing_context * context) const
+	{
+		auto * body_closer = context->body_closer.load(std::memory_order_relaxed);
+		if (not body_closer) return;
+	
+		bool finished = body_closer->is_finished();
+		if (not finished)
+		{
+			SOCK_LOG_WARN("warning, writting response, while request http body not fully read and parsed(stream or async source)");
+			//context->conn_action = connection_action_type::close;
 		}
 	}
 
@@ -3406,7 +3421,7 @@ namespace ext::net::http
 		http_response response;
 		response.http_code = 500;
 		response.body = response.status = "Internal Server Error";
-		response.conn_action = request.conn_action;
+		response.conn_action = connection_action_type::close;
 		set_header(response.headers, "Content-Type", "text/plain");
 
 		return response;

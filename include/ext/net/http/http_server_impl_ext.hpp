@@ -132,6 +132,7 @@ namespace ext::net::http
 	};
 
 
+	
 	class http_server::processing_executor
 	{
 	public:
@@ -235,13 +236,19 @@ namespace ext::net::http
 			task_ptr->task_execute();
 		}
 	}
-
+	
+	/************************************************************************/
+	/*                 stream and async source stuff                        */
+	/************************************************************************/
 	class http_server::closable_http_body : public ext::net::http::closable_http_body, public ext::intrusive_atomic_counter<closable_http_body>
 	{
 	public:
 		virtual ~closable_http_body() = default;
 		virtual ext::future<void> close() = 0;
+		virtual bool is_finished() const noexcept = 0;
 	};
+	
+	
 	
 	/// http_server implementation of http_body_streambuf
 	class http_server::http_body_streambuf_impl : public http_body_streambuf
@@ -283,9 +290,10 @@ namespace ext::net::http
 			
 		protected:
 			std::atomic<unsigned> m_interrupt_work_flag = false;
-			bool m_finished = false;    // http body is finished, no more data
+			std::atomic<bool>     m_finished = false;    // http body is finished, no more data
+			
 			bool m_interrupted = false; // this object is interrupted any read operation will throw
-			bool m_filtered;
+			bool m_filtered;            // this object is filtered(http body filters)
 			
 			// holds &underflow_normal or &underflow_filtered
 			int_type (http_body_streambuf_impl::*m_underflow_method)();
@@ -302,6 +310,7 @@ namespace ext::net::http
 			
 		public:
 			virtual ext::future<void> close() override;
+			virtual bool is_finished() const noexcept override { return m_finished.load(std::memory_order_relaxed); }
 			
 		public:
 			closable_http_body_impl(http_server * server, processing_context * context);
@@ -370,6 +379,7 @@ namespace ext::net::http
 			
 		public:
 			virtual ext::future<void> close() override;
+			virtual bool is_finished() const noexcept override { return m_finished.load(std::memory_order_relaxed); }
 			
 		public:
 			closable_http_body_impl(http_server * server, processing_context * context);
@@ -396,7 +406,9 @@ namespace ext::net::http
 	};
 
 
-
+	/************************************************************************/
+	/*                    http_server_control stuff                         */
+	/************************************************************************/
 	class http_server::http_server_control : public ext::net::http::http_server_control
 	{
 		processing_context * m_context;

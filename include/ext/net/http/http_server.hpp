@@ -475,6 +475,10 @@ namespace ext::net::http
 		/// Default implementation tweaks Close and Content-Length
 		virtual void postprocess_response(http_response & resp) const;
 		virtual void postprocess_response(processing_context * context) const;
+		
+		/// Does some response checking, default implementation checks if request http body was fully parsed
+		/// NOTE: postprocess_response is called separately
+		virtual void check_response(processing_context * context) const;
 
 		/// Exception wrapper for handler.process(request), on exception returns create_internal_server_error_response(sock, request, ex)
 		virtual auto process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result;

@@ -26,7 +26,6 @@ namespace ext::net::http
 		ext::net::http::http_response opts_resp;
 		opts_resp.http_code = 200;
 		opts_resp.status = "OK";
-		opts_resp.conn_action = req.conn_action;
 
 		set_header(opts_resp.headers, "Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
 		set_header(opts_resp.headers, "Access-Control-Allow-Origin", origin_header.value);

@@ -28,12 +28,12 @@ namespace ext::net::http
 			
 			if (not m_filtered)
 			{
-				m_finished = m_context->parser.message_parsed();
+				m_finished.store(m_context->parser.message_parsed(), std::memory_order_relaxed);
 				m_underflow_method = &http_body_streambuf_impl::underflow_normal;
 			}
 			else
 			{
-				m_finished = false;
+				m_finished.store(false, std::memory_order_relaxed);
 				m_underflow_method = &http_body_streambuf_impl::underflow_filtered;
 				
 				m_server->prepare_request_http_body_filtering(m_context);
@@ -149,7 +149,7 @@ namespace ext::net::http
 		auto * context = m_interrupt_state->m_context;
 		auto & parsed_data = context->request_raw_buffer;
 		
-		if (m_interrupt_state->m_finished)
+		if (m_interrupt_state->m_finished.load(std::memory_order_relaxed))
 			return traits_type::eof();
 		
 		parsed_data.clear();
@@ -159,7 +159,7 @@ namespace ext::net::http
 		
 		char * first = parsed_data.data();
 		char * last  = first + parsed_data.size();
-		m_interrupt_state->m_finished = context->parser.message_parsed();
+		m_interrupt_state->m_finished.store(context->parser.message_parsed(), std::memory_order_relaxed);
 		
 		setg(first, first, last);
 		return first == last ? traits_type::eof() 
@@ -176,7 +176,7 @@ namespace ext::net::http
 		auto & parsed_data = context->request_raw_buffer;
 		auto & filtered_data = context->request_filtered_buffer;
 		
-		if (m_interrupt_state->m_finished)
+		if (m_interrupt_state->m_finished.load(std::memory_order_relaxed))
 			return traits_type::eof();
 				
 		for (;;)
@@ -217,7 +217,7 @@ namespace ext::net::http
 			if (unconsumed < threshold and not dest_dctx.finished) continue;
 			
 			dest_dctx.written = dest_dctx.consumed = 0;
-			m_interrupt_state->m_finished = dest_dctx.finished;
+			m_interrupt_state->m_finished.store(dest_dctx.finished, std::memory_order_relaxed);
 			
 			setg(first, first, last);
 			return first == last ? traits_type::eof() 
