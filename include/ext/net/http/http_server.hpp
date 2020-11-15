@@ -19,9 +19,9 @@
 #include <ext/library_logger/logger.hpp>
 #include <ext/stream_filtering/filter_types.hpp>
 
+#include <ext/openssl.hpp>
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/socket_queue.hpp>
-#include <ext/net/openssl.hpp>
 
 #include <ext/net/http_parser.hpp>
 #include <ext/net/http/http_types.hpp>
@@ -64,8 +64,8 @@ namespace ext::net::http
 
 #ifdef EXT_ENABLE_OPENSSL
 		using SSL          = ::SSL;
-		using ssl_ctx_iptr = ext::net::openssl::ssl_ctx_iptr;
-		using ssl_iptr     = ext::net::openssl::ssl_iptr;
+		using ssl_ctx_iptr = ext::openssl::ssl_ctx_iptr;
+		using ssl_iptr     = ext::openssl::ssl_iptr;
 #else
 		using SSL          = std::nullptr_t;
 		using ssl_ctx_iptr = std::nullptr_t;

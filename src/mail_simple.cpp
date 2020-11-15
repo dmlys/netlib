@@ -14,10 +14,6 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
-#if EXT_ENABLE_OPENSSL
-#include <openssl/cms.h>
-#endif
-
 
 namespace ext::net::mail::simple
 {
@@ -177,7 +173,7 @@ namespace ext::net::mail::simple
 			std::ostringstream ostr;
 			write_message_body(ostr, msg, extensions);
 			auto msg_body = ostr.str();
-			msg_body = openssl::sign_mail(msg.private_key.get(), msg.x509.get(), msg.additional_certs.get(), msg_body, msg.sign_detached);
+			msg_body = sign_email(msg.private_key.get(), msg.x509.get(), msg.additional_certs.get(), msg_body, msg.sign_detached);
 			os << msg_body;
 		}
 		else

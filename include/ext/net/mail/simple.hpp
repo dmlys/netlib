@@ -9,7 +9,8 @@
 #include <ext/net/smtp/smtp_extensions.hpp>
 
 #if EXT_ENABLE_OPENSSL
-#include <ext/net/openssl.hpp>
+#include <ext/openssl.hpp>
+#include <ext/net/mail/cms_sign.hpp>
 #endif
 
 namespace ext::net::mail::simple

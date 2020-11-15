@@ -29,7 +29,7 @@ CppApplication
 			"boost_unit_test_framework",
 		]
 		
-		if (netlib.with_openssl)
+		if (extlib.with_openssl)
 			libs = libs.concat(["ssl", "crypto"])
 		
 		if (qbs.toolchain.contains("mingw"))

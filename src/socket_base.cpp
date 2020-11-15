@@ -145,14 +145,14 @@ namespace ext::net
 		wsastartup();
 
 #ifdef EXT_ENABLE_OPENSSL
-		openssl_init();
+		ext::openssl::ssl_init();
 #endif
 	}
 
 	void socket_stream_cleanup()
 	{
 #ifdef EXT_ENABLE_OPENSSL
-		openssl_cleanup();
+		ext::openssl::lib_cleanup();
 #endif
 
 		wsacleanup();
@@ -682,14 +682,14 @@ namespace ext::net
 	void socket_stream_init()
 	{
 #ifdef EXT_ENABLE_OPENSSL
-		openssl_init();
+		ext::openssl::ssl_init();
 #endif
 	}
 	
 	void socket_stream_cleanup()
 	{
 #ifdef EXT_ENABLE_OPENSSL
-		openssl_cleanup();
+		ext::openssl::lib_cleanup();
 #endif
 	}
 

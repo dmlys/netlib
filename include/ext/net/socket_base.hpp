@@ -39,11 +39,11 @@ namespace ext::net
 
 	/// Initializes libraries needed for working with sockets.
 	/// This are winsock2 and, if enabled, OpenSSL.
-	/// In fact calls ext::net::wsastratup(); ext::net::openssl_init()
+	/// In fact calls ext::net::wsastratup(); ext::openssl_init()
 	void socket_stream_init();
 	/// Deinitializes libraries needed for working with sockets.
 	/// This are winsock2 and, if enabled, OpenSSL.
-	/// In fact calls ext::net::wsacleanup(); ext::net::openssl_cleanup()
+	/// In fact calls ext::net::wsacleanup(); ext::openssl_cleanup()
 	void socket_stream_cleanup();
 	
 #else
@@ -52,10 +52,10 @@ namespace ext::net
 	using sockaddr_type = sockaddr;
 
 	/// Initializes libraries needed for working with sockets.
-	/// This is, if enabled, OpenSSL. In fact calls ext::net::openssl_init()
+	/// This is, if enabled, OpenSSL. In fact calls ext::openssl_init()
 	void socket_stream_init();
 	/// Deinitializes libraries needed for working with sockets.
-	/// This is, if enabled, OpenSSL. In fact calls ext::net::openssl_cleanup()
+	/// This is, if enabled, OpenSSL. In fact calls ext::openssl_cleanup()
 	void socket_stream_cleanup();
 	
 #endif

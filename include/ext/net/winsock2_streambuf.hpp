@@ -12,9 +12,9 @@
 #include <chrono>
 #include <system_error>
 
+#include <ext/openssl.hpp>
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_streambuf_base.hpp>
-#include <ext/net/openssl.hpp>
 
 //#ifndef WIN32_LEAN_AND_MEAN
 //#define WIN32_LEAN_AND_MEAN

@@ -55,6 +55,6 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include <ext/net/openssl.hpp>
+#include <ext/openssl.hpp>
 
 #endif // EXT_ENABLE_OPENSSL

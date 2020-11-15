@@ -12,9 +12,9 @@
 #include <chrono>
 #include <system_error>
 
+#include <ext/openssl.hpp>
 #include <ext/net/socket_base.hpp>
 #include <ext/net/socket_streambuf_base.hpp>
-#include <ext/net/openssl.hpp>
 
 namespace ext::net
 {
