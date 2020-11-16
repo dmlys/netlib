@@ -12,9 +12,9 @@
 #include <boost/scope_exit.hpp>
 
 #if BOOST_OS_WINDOWS
-#include <codecvt> // for std::codecvt_utf8<wchar_t>
-#include <ext/codecvt_conv.hpp>
 #include <ext/errors.hpp>
+#include <ext/codecvt_conv/wincvt.hpp>
+namespace wincvt = ext::codecvt_convert::wincvt;
 #endif
 
 #ifdef _MSC_VER
@@ -375,9 +375,8 @@ namespace ext::net
 		if (res == nullptr)
 			throw_last_socket_error("InetNtopW failed");
 
-		std::codecvt_utf8<wchar_t> cvt;
 		auto in = boost::make_iterator_range_n(buffer, std::wcslen(buffer));
-		ext::codecvt_convert::to_bytes(cvt, in, str);
+		ext::codecvt_convert::to_bytes(wincvt::u8_cvt, in, str);
 	}
 
 	auto inet_ntop(const sockaddr * addr) -> std::pair<std::string, unsigned short>
@@ -419,17 +418,15 @@ namespace ext::net
 
 	bool inet_pton(int family, const char * addr, sockaddr * out)
 	{
-		std::codecvt_utf8<wchar_t> cvt;
 		auto in = boost::make_iterator_range_n(addr, std::strlen(addr));
-		auto waddr = ext::codecvt_convert::from_bytes(cvt, in);
+		auto waddr = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in);
 
 		return inet_pton(family, waddr.c_str(), out);
 	}
 
 	bool inet_pton(int family, const std::string & addr, sockaddr * out)
 	{
-		std::codecvt_utf8<wchar_t> cvt;
-		auto waddr = ext::codecvt_convert::from_bytes(cvt, addr);
+		auto waddr = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, addr);
 
 		return inet_pton(family, waddr.c_str(), out);
 	}
@@ -613,8 +610,6 @@ namespace ext::net
 	
 	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
 	{
-		std::codecvt_utf8<wchar_t> cvt;
-
 		std::wstring whoststr, wservicestr;
 
 		const wchar_t * whost = nullptr;
@@ -623,14 +618,14 @@ namespace ext::net
 		if (host)
 		{
 			auto in = boost::make_iterator_range_n(host, std::strlen(host));
-			ext::codecvt_convert::from_bytes(cvt, in, whoststr);
+			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, whoststr);
 			whost = whoststr.c_str();
 		}
 
 		if (service)
 		{
 			auto in = boost::make_iterator_range_n(service, std::strlen(service));
-			ext::codecvt_convert::from_bytes(cvt, in, wservicestr);
+			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, wservicestr);
 			wservice = wservicestr.c_str();
 		}
 
@@ -639,8 +634,6 @@ namespace ext::net
 
 	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
 	{
-		std::codecvt_utf8<wchar_t> cvt;
-
 		std::wstring whoststr, wservicestr;
 
 		const wchar_t * whost = nullptr;
@@ -649,14 +642,14 @@ namespace ext::net
 		if (host)
 		{
 			auto in = boost::make_iterator_range_n(host, std::strlen(host));
-			ext::codecvt_convert::from_bytes(cvt, in, whoststr);
+			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, whoststr);
 			whost = whoststr.c_str();
 		}
 
 		if (service)
 		{
 			auto in = boost::make_iterator_range_n(service, std::strlen(service));
-			ext::codecvt_convert::from_bytes(cvt, in, wservicestr);
+			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, wservicestr);
 			wservice = wservicestr.c_str();
 		}
 
