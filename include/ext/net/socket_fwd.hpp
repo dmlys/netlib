@@ -1,4 +1,5 @@
-﻿// author: Dmitry Lysachenko
+﻿#pragma once
+// author: Dmitry Lysachenko
 // date: Tuesday 17 May 2016
 // license: boost software license
 //          http://www.boost.org/LICENSE_1_0.txt
