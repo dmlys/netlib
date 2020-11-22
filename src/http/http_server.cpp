@@ -189,7 +189,7 @@ namespace ext::net::http
 	void http_server::do_clear_config(std::unique_lock<std::mutex> & lk)
 	{
 		// at this point there should not be any references except ours
-		assert(m_config_context.unique());
+		//assert(m_config_context.unique());
 		for (auto * handler : m_config_context->handlers)
 			delete handler;
 		
