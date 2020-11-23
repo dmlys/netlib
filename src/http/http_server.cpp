@@ -7,6 +7,7 @@
 #include <ext/stream_filtering/filtering.hpp>
 
 #include <boost/core/demangle.hpp>
+#include <boost/preprocessor/if.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 
@@ -14,6 +15,23 @@
 #include <ext/net/http/http_server.hpp>
 #include <ext/net/http/http_server_impl_ext.hpp>
 #include <ext/net/http/http_server_logging_helpers.hpp>
+
+
+#ifdef NDEBUG
+#define IS_RELEASE 1
+#else
+#define IS_RELEASE 0
+#endif
+
+#define VECTOR_FRONT_IMPL_RELEASE(vector) &vector.front()
+#define VECTOR_FRONT_IMPL_DEBUG(vector) not vector.empty() ? &vector.front() : nullptr
+
+#define VECTOR_BACK_IMPL_RELEASE(vector) &vector.back()
+#define VECTOR_BACK_IMPL_DEBUG(vector) not vector.empty() ? &vector.back() : nullptr
+
+#define VECTOR_FRONT(vector) BOOST_PP_IIF(IS_RELEASE, VECTOR_FRONT_IMPL_RELEASE, VECTOR_FRONT_IMPL_DEBUG) (vector)
+#define VECTOR_BACK(vector)  BOOST_PP_IIF(IS_RELEASE, VECTOR_BACK_IMPL_RELEASE,  VECTOR_BACK_IMPL_DEBUG)  (vector)
+
 
 
 namespace ext::net::http
@@ -508,7 +526,7 @@ namespace ext::net::http
 						auto * old = context->async_task_state.exchange((ptr.addref(), ptr.get()), std::memory_order_relaxed);
 						// actually old should always be null, unless we got some exception from line below(calling next_method),
 						// and nobody cleared async_task_state in context. RAII will fix this
-						assert(not old);
+						assert(not old); EXT_UNUSED(old);
 						//if (old) old->release();
 						
 						auto_release_atomic_ptr r(context->async_task_state);
@@ -1278,8 +1296,8 @@ namespace ext::net::http
 		
 		assert(context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty());
 		auto & params      = context->filter_ctx->request_streaming_ctx.params;
-		auto * source_dctx = &context->filter_ctx->request_streaming_ctx.data_contexts.front();
-		auto * dest_dctx   = &context->filter_ctx->request_streaming_ctx.data_contexts.back();
+		auto * source_dctx = VECTOR_FRONT(context->filter_ctx->request_streaming_ctx.data_contexts);
+		auto * dest_dctx   = VECTOR_BACK(context->filter_ctx->request_streaming_ctx.data_contexts);
 				
 		SOCK_LOG_DEBUG("parsing http request filtered body");
 		
@@ -2101,8 +2119,8 @@ namespace ext::net::http
 		const bool filtered = context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty();
 		assert(filtered); EXT_UNUSED(filtered);
 		
-		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
-		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+		auto * source_dctx = VECTOR_FRONT(context->filter_ctx->response_streaming_ctx.data_contexts);
+		auto * dest_dctx   = VECTOR_BACK(context->filter_ctx->response_streaming_ctx.data_contexts);
 		
 		try
 		{
@@ -2356,8 +2374,8 @@ namespace ext::net::http
 		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
 		
 		auto & filter_params = context->filter_ctx->response_streaming_ctx.params;
-		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
-		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+		auto * source_dctx = VECTOR_FRONT(context->filter_ctx->response_streaming_ctx.data_contexts);
+		auto * dest_dctx   = VECTOR_BACK(context->filter_ctx->response_streaming_ctx.data_contexts);
 		
 		try
 		{
@@ -2685,8 +2703,8 @@ namespace ext::net::http
 		auto & chunk_prefix    = context->chunk_prefix;
 		ext::future<async_http_body_source::chunk_type> fresult;
 		
-		auto * source_dctx = &context->filter_ctx->response_streaming_ctx.data_contexts.front();
-		auto * dest_dctx   = &context->filter_ctx->response_streaming_ctx.data_contexts.back();
+		auto * source_dctx = VECTOR_FRONT(context->filter_ctx->response_streaming_ctx.data_contexts);
+		auto * dest_dctx   = VECTOR_BACK(context->filter_ctx->response_streaming_ctx.data_contexts);
 		
 		try
 		{
