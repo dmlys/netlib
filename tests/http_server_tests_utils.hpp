@@ -91,6 +91,18 @@ namespace ext::net::http::test_utils
 	};
 	
 	
+	class infinite_asource : public async_http_body_source
+	{
+	private:
+		std::string m_iter_data = "word ";
+	
+	public:
+		virtual ext::future<chunk_type> read_some(std::vector<char> buffer, std::size_t size = 0) override;
+		
+	public:
+		infinite_asource() = default;		
+	};
+	
 	
 	class async_request_queue
 	{

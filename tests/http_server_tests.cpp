@@ -123,6 +123,61 @@ BOOST_DATA_TEST_CASE(response_stream_test, make(configurations), configurator)
 	server.stop();
 }
 
+BOOST_DATA_TEST_CASE(request_async_source_test, make(configurations), configurator)
+{
+	http_server server;
+	auto addr = configurator(server);
+	
+	async_request_queue request_queue;
+	http_headers_vector headers;
+	
+	server.start();
+	server.add_handler("/put-asource", request_queue.handler(), http_body_type::async);
+	//auto handler = [] { return std::make_unique<parted_source>(std::vector<std::string>({"gp1", "part2", "end_part_3"})); };
+	
+	auto sock = connect_socket(addr);
+	write_put_expect_request(sock, addr, "/put-asource", {"part1", "part2", "part3"});
+	
+	auto source_req = request_queue.next_request();
+	auto & body_source = std::get<std::unique_ptr<async_http_body_source>>(source_req.body);
+	
+	auto actual_req_body = read_asource(body_source.get());
+	BOOST_CHECK_EQUAL(actual_req_body, "part1part2part3");
+	
+	http_response response = make_response(200, "OK");
+	request_queue.answer(std::move(response));
+	
+	std::string actual_resp_body;
+	int actual_code;
+	
+	std::tie(actual_code, std::ignore, actual_resp_body) = unwrap receive_response(sock);
+	BOOST_CHECK_EQUAL(actual_code, 200);
+	BOOST_CHECK_EQUAL(actual_resp_body, "OK");
+	
+	server.stop();
+}
+
+BOOST_DATA_TEST_CASE(response_async_source_test, make(configurations), configurator)
+{
+	http_server server;
+	auto addr = configurator(server);
+	
+	server.start();
+	server.add_handler("/get-asource", [] { return std::make_unique<parted_asource>(std::vector<std::string>{"gp1", "part2", "end_part3"}); });
+	
+	auto sock = connect_socket(addr);
+	write_get_request(sock, addr, "/get-asource");
+	
+	std::string actual_body;
+	int actual_code;
+	std::tie(actual_code, std::ignore, actual_body) = unwrap receive_response(sock);
+	
+	BOOST_CHECK_EQUAL(actual_code, 200);
+	BOOST_CHECK_EQUAL(actual_body, "gp1part2end_part3");
+	
+	server.stop();
+}
+
 BOOST_DATA_TEST_CASE(lingering_request_stream_test, make(configurations), configurator)
 {
 	http_server server;
@@ -184,60 +239,64 @@ BOOST_DATA_TEST_CASE(lingering_response_stream_test, make(configurations), confi
 	server.stop();
 }
 
-BOOST_DATA_TEST_CASE(request_async_source_test, make(configurations), configurator)
+BOOST_DATA_TEST_CASE(lingering_request_async_source_test, make(configurations), configurator)
 {
 	http_server server;
 	auto addr = configurator(server);
 	
+	server.start();
 	async_request_queue request_queue;
-	http_headers_vector headers;
+	server.add_handler("/", request_queue.handler(), http_body_type::async);
+
+	auto sock = connect_socket(addr);
+	//sock.timeout(std::chrono::seconds(0));
+	
+	sock
+		<< "PUT / HTTP/1.1\r\n"
+		<< "Host: localhost\r\n"
+		<< "Expect: 100-continue\r\n"
+		<< "Content-Length: 10\r\n"
+		<< "Connection: close\r\n"
+		<< "\r\n";
+	sock << "Hello" /*<< "World"*/;
+	sock << std::flush;
+	
+	auto req = request_queue.next_request();
+	auto & async_source = std::get<std::unique_ptr<ext::net::http::async_http_body_source>>(req.body);
+	
+	auto data = async_source->read_some({}, 5).get().value();
+	std::string body(data.begin(), data.end());
+	BOOST_CHECK_EQUAL(data.size(), 5);
+	BOOST_CHECK_EQUAL(body, "Hello");
+	
+	auto fres = async_source->read_some({});
+	std::this_thread::yield();
+	
+	server.stop();
+	
+	BOOST_CHECK_THROW(fres.get(), closed_exception);
+}
+
+BOOST_DATA_TEST_CASE(lingering_response_async_source_test, make(configurations), configurator)
+{
+	http_server server;
+	auto addr = configurator(server);
 	
 	server.start();
-	server.add_handler("/put-asource", request_queue.handler(), http_body_type::async);
-	//auto handler = [] { return std::make_unique<parted_source>(std::vector<std::string>({"gp1", "part2", "end_part_3"})); };
+	server.add_handler("/", [] { return std::make_unique<infinite_asource>(); });
 	
 	auto sock = connect_socket(addr);
-	write_put_expect_request(sock, addr, "/put-asource", {"part1", "part2", "part3"});
 	
-	auto source_req = request_queue.next_request();
-	auto & body_source = std::get<std::unique_ptr<async_http_body_source>>(source_req.body);
-	
-	auto actual_req_body = read_asource(body_source.get());
-	BOOST_CHECK_EQUAL(actual_req_body, "part1part2part3");
-	
-	http_response response = make_response(200, "OK");
-	request_queue.answer(std::move(response));
-	
-	std::string actual_resp_body;
-	int actual_code;
-	
-	std::tie(actual_code, std::ignore, actual_resp_body) = unwrap receive_response(sock);
-	BOOST_CHECK_EQUAL(actual_code, 200);
-	BOOST_CHECK_EQUAL(actual_resp_body, "OK");
+	sock
+		<< "GET / HTTP/1.1\r\n"
+		<< "Host: localhost\r\n"
+		<< "Connection: close\r\n"
+		<< "\r\n";
+	sock << std::flush;
 	
 	server.stop();
 }
 
-BOOST_DATA_TEST_CASE(response_async_source_test, make(configurations), configurator)
-{
-	http_server server;
-	auto addr = configurator(server);
-	
-	server.start();
-	server.add_handler("/get-asource", [] { return std::make_unique<parted_asource>(std::vector<std::string>{"gp1", "part2", "end_part3"}); });
-	
-	auto sock = connect_socket(addr);
-	write_get_request(sock, addr, "/get-asource");
-	
-	std::string actual_body;
-	int actual_code;
-	std::tie(actual_code, std::ignore, actual_body) = unwrap receive_response(sock);
-	
-	BOOST_CHECK_EQUAL(actual_code, 200);
-	BOOST_CHECK_EQUAL(actual_body, "gp1part2end_part3");
-	
-	server.stop();
-}
 
 BOOST_DATA_TEST_CASE(body_destruction_test, make(configurations), configurator)
 {

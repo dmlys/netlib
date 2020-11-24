@@ -215,7 +215,13 @@ namespace ext::net::http
 			
 			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
 			std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization
-			std::atomic<http_server::closable_http_body *> body_closer = nullptr; // async_http_body_source/http_body_streambuf closing closer
+			
+			// async_http_body_source/http_body_streambuf closing closer
+			// allowed values:
+			//   0x00 - no body closer
+			//   0x01 - http_server is closing, already set body closer is taken, new should not be installed
+			//   other - some body closer
+			std::atomic_uintptr_t body_closer = 0;
 		};
 		
 		/// holds some configuration parameters sharable by processing contexts

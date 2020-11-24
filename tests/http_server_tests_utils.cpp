@@ -337,6 +337,18 @@ namespace ext::net::http::test_utils
 		return ext::async(ext::launch::async, std::move(func));
 	}
 	
+	auto infinite_asource::read_some(std::vector<char> buffer, std::size_t size) -> ext::future<chunk_type>
+	{
+		auto func = [this, buffer = std::move(buffer)]() mutable -> chunk_type
+		{
+			std::this_thread::yield();
+			buffer.assign(m_iter_data.begin(), m_iter_data.end());
+			return buffer;
+		};
+		
+		return ext::async(ext::launch::async, std::move(func));
+	}
+	
 	auto async_request_queue::next_request() -> http_request
 	{
 		std::unique_lock lk(m_mutex);

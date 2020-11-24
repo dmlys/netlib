@@ -292,11 +292,14 @@ namespace ext::net::http
 			std::atomic<unsigned> m_interrupt_work_flag = false;
 			std::atomic<bool>     m_finished = false;    // http body is finished, no more data
 			
-			bool m_interrupted = false; // this object is interrupted any read operation will throw
-			bool m_filtered;            // this object is filtered(http body filters)
+			bool m_closed = false; // this object is interrupted, any read operation will throw
+			bool m_filtered;       // this object is filtered(http body filters)
 			
 			// holds &underflow_normal or &underflow_filtered
 			int_type (http_body_streambuf_impl::*m_underflow_method)();
+			// buffer for holding stream served data,
+			// this is what client will read from this stream
+			std::vector<char> m_data;
 			
 			ext::promise<void> m_closed_promise; // close promise
 			http_server * m_server;              // owning http_server
@@ -344,42 +347,45 @@ namespace ext::net::http
 		friend http_server;
 		
 	protected:
-		// GOAL - see ext::closable_http_body description: we must implement interruption,
-		// through there is no blocking read from socket, adding request into http_server for reading it not atomic, and take some time.
-		// Also if there is no reading operation at all at this moment - it will be good if we complete close promise immediately.
-		// so we have 2 scenarios:
-		//  * there is no read_some call at the moment when close was called    -> from close method mark state to interrupted, complete close promise.
-		//  * there is active processing of read_some(request scheduling) at the moment when close was called -> mark interruption state,
-		//    that reading operation/thread will complete interruption, change state of this object to interrupted and complete close promise
-
+		// GOAL - see ext::closable_http_body description: we must implement interruption of current pending async operation on close
+		// This is done by holding current state flags in atomic variable, see method implementations
+		
 		class closable_http_body_impl : public http_server::closable_http_body
 		{
 			friend async_http_body_source_impl;
 			friend http_server;
 			
 		protected:
-			std::atomic<bool> m_pending_request = false; // have pending read_some request
-			std::atomic<bool> m_finished = false;        // http body is finished, no more data
-			std::atomic<bool> m_interrupted = false;     // this object is interrupted any read operation will throw
+			static constexpr unsigned pending_request_mask = 0x01 << 0; // have pending read_some request
+			static constexpr unsigned result_mask          = 0x01 << 1; // result is already set/is set right now
+			static constexpr unsigned closed_mask          = 0x01 << 2; // this object is closed any read operation will throw
+			static constexpr unsigned finished_mask        = 0x01 << 3; // http body is finished, no more data
+			
+			std::atomic_uint m_state_flags = 0;
 			bool m_filtered;
+			
 			// holds &http_server::handle_request_filtered_async_source_body_parsing 
 			//    or &http_server::handle_request_normal_async_source_body_parsing
 			auto (http_server::*m_async_method)(processing_context * context) -> handle_method_type;
 			
-			std::size_t m_asked_size;
-			ext::promise<void> m_closed_promise;
+			std::size_t m_asked_size;            // size asked by read_some operation
+			std::size_t m_default_buffer_size;   // default buffer size, used only for filtering case
 			ext::promise<chunk_type> m_read_promise;
 			
 			http_server * m_server;              // owning http_server
 			processing_context * m_context;      // context of this http request
 			
 		private:
+			closed_exception make_closed_exception() const;
+			ext::future<chunk_type> make_closed_result() const;
+			
+			auto take_result_promise() -> std::optional<ext::promise<chunk_type>>;
 			void set_value_result(chunk_type result);
 			void set_exception_result(std::exception_ptr ex);
 			
 		public:
 			virtual ext::future<void> close() override;
-			virtual bool is_finished() const noexcept override { return m_finished.load(std::memory_order_relaxed); }
+			virtual bool is_finished() const noexcept override { return m_state_flags.load(std::memory_order_relaxed) & finished_mask; }
 			
 		public:
 			closable_http_body_impl(http_server * server, processing_context * context);
@@ -387,9 +393,6 @@ namespace ext::net::http
 		
 	protected:
 		ext::intrusive_ptr<closable_http_body_impl> m_interrupt_state;
-		
-	protected:
-		ext::future<chunk_type> make_closed_result() const;
 		
 	public:
 		virtual auto read_some(std::vector<char> buffer, std::size_t size = 0) -> ext::future<chunk_type> override;

@@ -44,6 +44,15 @@ namespace ext::net::http
 	}
 	
 	template <class Type>
+	inline static void release_atomic_ptr(std::atomic<std::uintptr_t> & pointer)
+	{
+		auto old = pointer.exchange(0, std::memory_order_relaxed);
+		if (old <= 0x01) return;
+		
+		ext::intrusive_ptr_release(reinterpret_cast<Type *>(old));
+	}
+	
+	template <class Type>
 	class auto_release_atomic_ptr
 	{
 		std::atomic<Type *> * pointer;
@@ -132,10 +141,10 @@ namespace ext::net::http
 		{ // close(and interrupt) any http_body stream/source
 			for (auto * context : m_processing_contexts)
 			{
-				auto state = context->body_closer.exchange(reinterpret_cast<closable_http_body *>(1), std::memory_order_relaxed);
+				auto state = context->body_closer.exchange(1, std::memory_order_relaxed);
 				if (not state) continue;
 			
-				ext::intrusive_ptr state_ptr(state, ext::noaddref);
+				ext::intrusive_ptr state_ptr(reinterpret_cast<http_server::closable_http_body *>(state), ext::noaddref);
 				waiting_tasks.push_back(state_ptr->close());
 			}
 			
@@ -1510,18 +1519,18 @@ namespace ext::net::http
 		assert(not sock.throw_errors());
 
 		auto & parser = context->parser;
-		auto * ptr = context->body_closer.load(std::memory_order_acquire);
-		assert(ptr);
+		auto uptr = context->body_closer.load(std::memory_order_acquire);
+		if (uptr == 0x01) return nullptr;
 		
-		auto * body = static_cast<async_http_body_source_impl::closable_http_body_impl *>(ptr);
+		auto * body = reinterpret_cast<async_http_body_source_impl::closable_http_body_impl *>(uptr);
 		auto & data = context->request_raw_buffer;
 		auto asked_size = body->m_asked_size;
 		
-		assert(body->m_pending_request.load(std::memory_order_relaxed));
+		assert(body->m_state_flags.load(std::memory_order_relaxed) & body->pending_request_mask);
 		
 		SOCK_LOG_DEBUG("parsing http request body for async source");
 
-		if (body->m_finished.load(std::memory_order_relaxed)) // finished - return eof
+		if (body->m_state_flags.load(std::memory_order_relaxed) & body->finished_mask) // finished - return eof
 		{
 			body->set_value_result(std::nullopt);
 			return nullptr;
@@ -1549,7 +1558,7 @@ namespace ext::net::http
 				sock.gbump(static_cast<int>(read));
 				
 				if (parser.message_parsed())
-					body->m_finished.store(true, std::memory_order_relaxed);
+					body->m_state_flags.fetch_or(body->finished_mask, std::memory_order_relaxed);
 				else if (data.empty()) // explicit empty check for case asked_size == 0 - we need to read something
 					continue;
 				else if (data.size() < asked_size)
@@ -1570,22 +1579,22 @@ namespace ext::net::http
 	
 	auto http_server::handle_request_filtered_async_source_body_parsing(processing_context * context) -> handle_method_type
 	{
-		auto * ptr = context->body_closer.load(std::memory_order_acquire);
-		assert(ptr);
+		auto uptr = context->body_closer.load(std::memory_order_acquire);
+		if (uptr == 0x01) return nullptr;
 		
 		auto & parsed_data = context->request_raw_buffer;
 		auto & filtered_data = context->request_filtered_buffer;
 		
-		auto * body = static_cast<async_http_body_source_impl::closable_http_body_impl *>(ptr);
+		auto * body = reinterpret_cast<async_http_body_source_impl::closable_http_body_impl *>(uptr);
 		auto asked_size = body->m_asked_size;
 		
 		assert(body->m_filtered);
 		assert(context->filter_ctx and not context->filter_ctx->request_streaming_ctx.filters.empty());
-		assert(body->m_pending_request.load(std::memory_order_relaxed));
+		assert(body->m_state_flags.load(std::memory_order_relaxed) & body->pending_request_mask);
 		
 		SOCK_LOG_DEBUG("parsing and filtering http request body for async source");
 
-		if (body->m_finished.load(std::memory_order_relaxed)) // finished - return eof
+		if (body->m_state_flags.load(std::memory_order_relaxed) & body->finished_mask) // finished - return eof
 		{
 			body->set_value_result(std::nullopt);
 			return nullptr;
@@ -1630,7 +1639,7 @@ namespace ext::net::http
 				if (unconsumed < threshold and not dest_dctx.finished) continue;
 				
 				if (dest_dctx.finished)
-					body->m_finished.store(true, std::memory_order_relaxed);
+					body->m_state_flags.fetch_or(body->finished_mask, std::memory_order_relaxed);
 				else if (dest_dctx.written == 0) // explicit empty check for case asked_size == 0 - we need to read something
 					continue;
 				else if (dest_dctx.written < asked_size)
@@ -1853,6 +1862,13 @@ namespace ext::net::http
 			response = create_unknown_request_response(sock, request);
 		}
 
+		if (not m_running)
+		{
+			SOCK_LOG_INFO("abandoning http_response processing, server is stopping");
+			context->conn_action = connection_action_type::close;
+			return &http_server::handle_finish;
+		}
+		
 		return &http_server::handle_processing_result;
 	}
 
@@ -1948,7 +1964,14 @@ namespace ext::net::http
 
 		try
 		{
-			char * first, * last;
+			if (not m_running)
+			{
+				SOCK_LOG_INFO("abandoning http_response headers writting, server is stopping");
+				context->conn_action = connection_action_type::close;
+				return &http_server::handle_finish;
+			}
+			
+			const char * first, * last;
 			int written = buffer.size();
 			if (written) goto write;
 
@@ -2416,7 +2439,7 @@ namespace ext::net::http
 						unconsumed = source_dctx->written - source_dctx->consumed;
 						threshold  = ext::stream_filtering::fullbuffer_threshold(source_dctx->capacity, filter_params);
 						
-						// if less than 20% and source is not finished - read some
+						// if less than 80% and source is not finished - read some
 						if (unconsumed < threshold and not source_dctx->finished)
 						{
 							first = raw_data.data() + source_dctx->consumed;
@@ -2936,7 +2959,7 @@ namespace ext::net::http
 	{
 		release_atomic_ptr(context->executor_state);
 		release_atomic_ptr(context->async_task_state);
-		release_atomic_ptr(context->body_closer);
+		release_atomic_ptr<http_server::closable_http_body>(context->body_closer);
 		context->config = nullptr;
 		context->filter_ctx.reset();
 
@@ -3144,9 +3167,10 @@ namespace ext::net::http
 	
 	void http_server::check_response(processing_context * context) const
 	{
-		auto * body_closer = context->body_closer.load(std::memory_order_relaxed);
-		if (not body_closer) return;
-	
+		auto uptr = context->body_closer.load(std::memory_order_relaxed);
+		if (uptr <= 0x01) return;
+		
+		auto * body_closer = reinterpret_cast<http_server::closable_http_body *>(uptr);
 		bool finished = body_closer->is_finished();
 		if (not finished)
 		{

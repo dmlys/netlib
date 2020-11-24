@@ -20,25 +20,26 @@ namespace ext::net::http
 	    : m_server(server), m_context(context)
 	{
 		intrusive_ptr_add_ref(this);
-		http_server::closable_http_body * expected = nullptr;
-		if (context->body_closer.compare_exchange_strong(expected, this, std::memory_order_release))
+		std::uintptr_t expected = 0;
+		if (context->body_closer.compare_exchange_strong(expected, reinterpret_cast<std::uintptr_t>(this), std::memory_order_release))
 		{
 			m_filtered = m_context->filter_ctx and not m_context->filter_ctx->request_streaming_ctx.filters.empty();
-			m_context->parser.set_body_destination(m_context->request_raw_buffer);
 			
 			if (not m_filtered)
 			{
+				m_context->parser.set_body_destination(m_data);
 				m_finished.store(m_context->parser.message_parsed(), std::memory_order_relaxed);
 				m_underflow_method = &http_body_streambuf_impl::underflow_normal;
 			}
 			else
 			{
+				m_context->parser.set_body_destination(m_context->request_raw_buffer);
 				m_finished.store(false, std::memory_order_relaxed);
 				m_underflow_method = &http_body_streambuf_impl::underflow_filtered;
 				
 				m_server->prepare_request_http_body_filtering(m_context);
 				auto & params = m_context->filter_ctx->request_streaming_ctx.params;
-				auto & output = m_context->request_filtered_buffer;
+				auto & output = m_data;
 				
 				auto len = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
 				output.resize(std::max(output.capacity(), std::size_t(len)));
@@ -46,7 +47,7 @@ namespace ext::net::http
 		}
 		else
 		{
-			assert(expected == reinterpret_cast<http_server::closable_http_body *>(1));
+			assert(expected == 0x01);
 			intrusive_ptr_release(this);
 			this->close();
 		}
@@ -56,28 +57,38 @@ namespace ext::net::http
 	{
 		auto prev_value = m_interrupt_work_flag.fetch_xor(0x01, std::memory_order_relaxed);
 		if (prev_value == 0x00)
+		{
+			std::atomic_thread_fence(std::memory_order_acquire);
 			return;
+		}
 		
 		// interrupted by close call
 		assert(prev_value == 0x01);
-		m_interrupted = true;
+		m_closed = true;
 		throw_interrupted();
 	}
 	
 	void http_server::http_body_streambuf_impl::closable_http_body_impl::unmark_working()
 	{
 		unsigned expected = 0x01;
-		if (m_interrupt_work_flag.compare_exchange_strong(expected, 0x00, std::memory_order_relaxed))
+		if (m_interrupt_work_flag.compare_exchange_strong(expected, 0x00, std::memory_order_release))
 			return;
 		
 		m_closed_promise.set_value();
-		m_interrupted = true;
+		m_closed = true;
 		throw_interrupted();
 	}
 	
 	void http_server::http_body_streambuf_impl::closable_http_body_impl::check_interrupted()
 	{
-		if (m_interrupted) throw_interrupted();
+		// this method is called in working state, should be m_interrupt_work_flag == 0x01,
+		// unless close call was made
+		if (m_interrupt_work_flag.load(std::memory_order_relaxed) == 0x00)
+		{
+			m_closed_promise.set_value();
+			m_closed = true;
+			throw_interrupted();
+		}
 	}
 	
 	EXT_NORETURN void http_server::http_body_streambuf_impl::closable_http_body_impl::throw_interrupted()
@@ -91,7 +102,8 @@ namespace ext::net::http
 		auto close_future = m_closed_promise.get_future();
 		
 		// see class description
-		auto prev_value = m_interrupt_work_flag.fetch_xor(0x01, std::memory_order_relaxed);
+		// probably memory_order_reaxed is enough, promise.set_value have memory_order_acq_rel constraint
+		auto prev_value = m_interrupt_work_flag.fetch_xor(0x01, std::memory_order_acq_rel);
 		if (prev_value == 0x00)
 			m_closed_promise.set_value();
 		else
@@ -112,9 +124,7 @@ namespace ext::net::http
 	}
 	
 	void http_server::http_body_streambuf_impl::read_parse_some()
-	{
-		m_interrupt_state->mark_working();
-		
+	{		
 		auto * context = m_interrupt_state->m_context;
 		auto * server  = m_interrupt_state->m_server;
 		
@@ -127,7 +137,8 @@ namespace ext::net::http
 		auto peeked = ext::net::http::peek(sock);
 		EXT_UNUSED(peeked);
 		
-		m_interrupt_state->unmark_working();
+		// will throw if interrupted
+		m_interrupt_state->check_interrupted();
 		
 		if (sock.last_error() == ext::net::sock_errc::error)
 			sock.throw_last_error();
@@ -143,23 +154,27 @@ namespace ext::net::http
 	
 	auto http_server::http_body_streambuf_impl::underflow_normal() -> int_type
 	{
-		m_interrupt_state->check_interrupted();
-		
 		assert(not m_interrupt_state->m_filtered);
-		auto * context = m_interrupt_state->m_context;
-		auto & parsed_data = context->request_raw_buffer;
 		
 		if (m_interrupt_state->m_finished.load(std::memory_order_relaxed))
 			return traits_type::eof();
 		
+		auto & parsed_data = m_interrupt_state->m_data;
 		parsed_data.clear();
-					
+		
+		auto * context = m_interrupt_state->m_context;
+		m_interrupt_state->mark_working();
+		
 		do read_parse_some();
 		while (parsed_data.empty() and not context->parser.message_parsed());
 		
+		// those are from m_interrupt_state->m_data,
+		// so those pointers will not dangle in case of close event from http_server
 		char * first = parsed_data.data();
 		char * last  = first + parsed_data.size();
 		m_interrupt_state->m_finished.store(context->parser.message_parsed(), std::memory_order_relaxed);
+		
+		m_interrupt_state->unmark_working();
 		
 		setg(first, first, last);
 		return first == last ? traits_type::eof() 
@@ -168,23 +183,25 @@ namespace ext::net::http
 	
 	auto http_server::http_body_streambuf_impl::underflow_filtered() -> int_type
 	{
-		m_interrupt_state->check_interrupted();
-		
 		assert(m_interrupt_state->m_filtered);
-		auto * context = m_interrupt_state->m_context;
-		auto * server  = m_interrupt_state->m_server;
-		auto & parsed_data = context->request_raw_buffer;
-		auto & filtered_data = context->request_filtered_buffer;
 		
 		if (m_interrupt_state->m_finished.load(std::memory_order_relaxed))
 			return traits_type::eof();
-				
+		
+		m_interrupt_state->mark_working();
+		
+		auto * context = m_interrupt_state->m_context;
+		auto * server  = m_interrupt_state->m_server;
+		
+		auto & parsed_data = context->request_raw_buffer;
+		auto & filtered_data = m_interrupt_state->m_data;
+		
+		auto & source_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.front();
+		auto & dest_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.back();
+		auto & params = context->filter_ctx->request_streaming_ctx.params;
+		
 		for (;;)
 		{
-			auto & source_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.front();
-			auto & dest_dctx = context->filter_ctx->request_streaming_ctx.data_contexts.back();
-			auto & params = context->filter_ctx->request_streaming_ctx.params;
-			
 			auto unconsumed = source_dctx.written - source_dctx.consumed;
 			auto threshold  = ext::stream_filtering::emptybuffer_threshold(params.default_buffer_size, params);
 			
@@ -209,15 +226,19 @@ namespace ext::net::http
 			dest_dctx.capacity = filtered_data.size();
 			server->filter_request_http_body(context);
 			
-			char * first = dest_dctx.data_ptr + dest_dctx.consumed;
-			char * last  = dest_dctx.data_ptr + dest_dctx.written;
-			
 			unconsumed = dest_dctx.written - dest_dctx.consumed;
 			threshold  = ext::stream_filtering::emptybuffer_threshold(dest_dctx.capacity, params);
 			if (unconsumed < threshold and not dest_dctx.finished) continue;
 			
+			// those are from m_interrupt_state->m_data,
+			// so those pointers will not dangle in case of close event from http_server
+			char * first = dest_dctx.data_ptr + dest_dctx.consumed;
+			char * last  = dest_dctx.data_ptr + dest_dctx.written;
+			
 			dest_dctx.written = dest_dctx.consumed = 0;
 			m_interrupt_state->m_finished.store(dest_dctx.finished, std::memory_order_relaxed);
+			
+			m_interrupt_state->unmark_working();
 			
 			setg(first, first, last);
 			return first == last ? traits_type::eof() 
@@ -239,8 +260,8 @@ namespace ext::net::http
 		: m_server(server), m_context(context)
 	{
 		intrusive_ptr_add_ref(this);
-		http_server::closable_http_body * expected = nullptr;
-		if (context->body_closer.compare_exchange_strong(expected, this, std::memory_order_release))
+		std::uintptr_t expected = 0;
+		if (context->body_closer.compare_exchange_strong(expected, reinterpret_cast<std::uintptr_t>(this), std::memory_order_release))
 		{
 			m_filtered = m_context->filter_ctx and not m_context->filter_ctx->request_streaming_ctx.filters.empty();
 			m_context->parser.set_body_destination(m_context->request_raw_buffer);
@@ -255,85 +276,150 @@ namespace ext::net::http
 				auto & params = m_context->filter_ctx->request_streaming_ctx.params;
 				auto & output = m_context->request_filtered_buffer;
 				
-				auto len = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
-				output.resize(std::max(output.capacity(), std::size_t(len)));
+				m_default_buffer_size = std::clamp(params.default_buffer_size, params.minimum_buffer_size, params.maximum_buffer_size);
+				output.resize(std::max(output.capacity(), std::size_t(m_default_buffer_size)));
 			}
 		}
 		else
 		{
-			assert(expected == reinterpret_cast<http_server::closable_http_body *>(1));
+			assert(expected == 0x01);
 			intrusive_ptr_release(this);
 			this->close();
 		}
 	}
-	
-	ext::future<void> http_server::async_http_body_source_impl::closable_http_body_impl::close()
+		
+	auto http_server::async_http_body_source_impl::closable_http_body_impl::make_closed_exception() const -> closed_exception
 	{
-		return ext::make_ready_future();
+		return closed_exception("ext::net::http::http_server::async_http_body_source: interrupt, server is stopping");
+	}
+	
+	auto http_server::async_http_body_source_impl::closable_http_body_impl::make_closed_result() const -> ext::future<chunk_type>
+	{		
+		return ext::make_exceptional_future<chunk_type>(make_closed_exception());
+	}
+	
+	auto http_server::async_http_body_source_impl::closable_http_body_impl::take_result_promise() -> std::optional<ext::promise<chunk_type>>
+	{
+		// actually result can be set by 2 scenarios: 
+		// 1. normal operation result: data or runtime exception result
+		// 2. closed event, because of http_server stopping: closed exception result
+		// 
+		// 1 never concurates with itself, because we enforce one read_some operation at time
+		// 2 never concurates with itself either - body never closed twice
+		// so they only concurate with each other, and close can happen only once + sets closed flag.
+		// 
+		//
+		// Set result only if there are: pending flag and result flag is not set
+		// In normal situation this will always hold, except if close event came.
+		// In that case it can set result earlier - it's ok, just forget about current normal result.
+		// 
+		// If close result comes after regular result - we can drop first one, we already set closed flag,
+		// Any new read_some operation will just produce closed_exception immediately
+		
+		
+		// set result flag and check if it was not already set
+		unsigned prevstate = m_state_flags.load(std::memory_order_relaxed);
+		unsigned newstate;
+		
+		do {
+			if ((prevstate & pending_request_mask) == 0)
+				return std::nullopt; // no pending request, it was already fulfiled
+			
+			if (prevstate & result_mask)
+				return std::nullopt; // somebody already setting result
+			
+			newstate = prevstate | result_mask;
+		} while (not m_state_flags.compare_exchange_weak(prevstate, newstate, std::memory_order_relaxed));
+		
+		// Promise have to be taken/moved from m_read_promise before reseting pending request flag,
+		// otherwise new read_some call can potentialy happen before current result is set,
+		// with m_read_promise is reset in read_some method, effectively abandoning current promise.  
+		// 
+		// But result must be set after pending request flag is set,
+		// otherwise when client will try to request new data via read_some call from current future continuation,
+		// he will got a error that there is already pending request.
+		// Request is done, user should be ably to make new request.
+		auto promise = std::move(m_read_promise);
+		
+		// this is to establish happens before ordering constraints,
+		// moving promise should happen before storing to m_pending_request
+		std::atomic_thread_fence(std::memory_order_release);
+		// reset pending request and result flags
+		m_state_flags.fetch_and(~(pending_request_mask | result_mask), std::memory_order_release);
+		
+		return promise;
 	}
 	
 	void http_server::async_http_body_source_impl::closable_http_body_impl::set_value_result(chunk_type result)
 	{
-		auto promise = std::move(m_read_promise);
-		std::atomic_thread_fence(std::memory_order_release);
-		m_pending_request.store(false, std::memory_order_relaxed);
-		promise.set_value(std::move(result));
+		auto opt_promise = take_result_promise();
+		if (opt_promise) opt_promise->set_value(std::move(result));
 	}
 	
 	void http_server::async_http_body_source_impl::closable_http_body_impl::set_exception_result(std::exception_ptr ex)
 	{
-		auto promise = std::move(m_read_promise);
-		std::atomic_thread_fence(std::memory_order_release);
-		m_pending_request.store(false, std::memory_order_relaxed);
-		promise.set_exception(std::move(ex));
+		auto opt_promise = take_result_promise();
+		if (opt_promise) opt_promise->set_exception(std::move(ex));
 	}
 	
-	auto http_server::async_http_body_source_impl::make_closed_result() const -> ext::future<chunk_type>
+	ext::future<void> http_server::async_http_body_source_impl::closable_http_body_impl::close()
 	{
-		closed_exception ex("ext::net::http::http_server::async_http_body_source: interrupt, server is stopping");
-		return ext::make_exceptional_future<chunk_type>(std::move(ex));
+		m_state_flags.fetch_or(closed_mask, std::memory_order_relaxed);
+		
+		auto ex = make_closed_exception();
+		set_exception_result(std::make_exception_ptr(std::move(ex)));
+		
+		// and return closed ready future
+		return ext::make_ready_future();
 	}
 	
 	auto http_server::async_http_body_source_impl::read_some(std::vector<char> buffer, std::size_t size) -> ext::future<chunk_type>
 	{
-		if (m_interrupt_state->m_interrupted.load(std::memory_order_relaxed))
-			return make_closed_result();
-		
-		if (m_interrupt_state->m_finished.load(std::memory_order_relaxed))
+		constexpr unsigned closed_mask          = closable_http_body_impl::closed_mask;
+		constexpr unsigned finished_mask        = closable_http_body_impl::finished_mask;
+		constexpr unsigned pending_request_mask = closable_http_body_impl::pending_request_mask;
+		// check closed flag
+		if (m_interrupt_state->m_state_flags.load(std::memory_order_relaxed) & closed_mask)
+			return m_interrupt_state->make_closed_result();
+		// check finished flag
+		if (m_interrupt_state->m_state_flags.load(std::memory_order_relaxed) & finished_mask)
 			return ext::make_ready_future<chunk_type>(std::nullopt);
-		
-		if (m_interrupt_state->m_pending_request.exchange(true, std::memory_order_relaxed))
+		// set pending_request flag and check if it was not already set
+		if (m_interrupt_state->m_state_flags.fetch_or(pending_request_mask, std::memory_order_relaxed) & pending_request_mask)
 			throw std::logic_error("ext::net::http::http_server::async_http_body_source: already have pending request");
 		
+		// this is to establish happens before ordering constraints,
+		// reading and checking m_pending_request should happen defore reseting m_read_promise
 		std::atomic_thread_fence(std::memory_order_acquire);
-		auto * server  = m_interrupt_state->m_server;
-		auto * context = m_interrupt_state->m_context;
+		decltype (buffer) * dest;
 		
 		if (not m_interrupt_state->m_filtered)
 		{
 			buffer.clear();
-			m_interrupt_state->m_context->request_raw_buffer = std::move(buffer);
+			dest = &m_interrupt_state->m_context->request_raw_buffer;
 		}
 		else
 		{
-			auto & par = context->filter_ctx->request_streaming_ctx.params;
-			std::size_t default_size = std::clamp(par.default_buffer_size, par.minimum_buffer_size, par.maximum_buffer_size);
-			
-			auto bufsize = std::max(size, default_size);
+			auto bufsize = std::max(size, m_interrupt_state->m_default_buffer_size);
 			buffer.resize(bufsize);
 			
-			m_interrupt_state->m_context->request_filtered_buffer = std::move(buffer);
+			dest = &m_interrupt_state->m_context->request_filtered_buffer;
 		}
 		
 		m_interrupt_state->m_asked_size = size;
 		m_interrupt_state->m_read_promise = {}; // reset;
+		std::atomic_thread_fence(std::memory_order_release);
 		
 		// It is important to retrieve this future before submit handler
 		auto result_future = m_interrupt_state->m_read_promise.get_future();
 		
+		auto * server  = m_interrupt_state->m_server;
+		auto * context = m_interrupt_state->m_context;
+		
 		std::lock_guard lk(server->m_mutex);
 		if (server->m_running)
 		{
+			*dest = std::move(buffer);
 			server->submit_handler(lk, m_interrupt_state->m_async_method, context);
 			// during this submit_handler handler actually can be completed completely
 			// and even set_value_result/set_exception_result can be called, promise can be reset
@@ -342,11 +428,11 @@ namespace ext::net::http
 		}
 		else
 		{
-			m_interrupt_state->m_interrupted.store(true, std::memory_order_relaxed);
-			m_interrupt_state->m_pending_request.store(false, std::memory_order_relaxed);
+			m_interrupt_state->m_state_flags.fetch_or(closed_mask, std::memory_order_relaxed);            // set   closed flag
+			m_interrupt_state->m_state_flags.fetch_and(~pending_request_mask, std::memory_order_relaxed); // reset pending_request flag
 			m_interrupt_state->m_server = nullptr;
 			m_interrupt_state->m_context = nullptr;
-			return make_closed_result();
+			return m_interrupt_state->make_closed_result();
 		}
 	}
 	
