@@ -64,31 +64,33 @@ namespace ext::net::http
 	
 	void http_server::delayed_async_executor_task_continuation::continuate(shared_state_basic * caller) noexcept
 	{
-		auto owner = m_owner;
-		bool notify, running;
-
 		if (not mark_marked())
 			// http_server is destructed or destructing
 			return;
 		
 		// remove ourself from m_delayed and add m_task to http_server tasks list
 		{
-			std::lock_guard lk(owner->m_mutex);
-
-			auto & list = owner->m_delayed;
-			auto & delayed_count = owner->m_delayed_count;
+			std::lock_guard lk(m_owner->m_mutex);
+			
+			auto & list = m_owner->m_delayed;
+			auto & delayed_count = m_owner->m_delayed_count;
 			auto it = list.iterator_to(*this);
 			list.erase(it);
-
-			owner->submit_handler(lk, std::move(m_method), m_context);
-
-			notify = delayed_count == 0 or --delayed_count == 0;
-			running = owner->m_running;
+			
+			m_owner->submit_handler(lk, std::move(m_method), m_context);
+			
+			bool notify = delayed_count == 0 or --delayed_count == 0;
+			bool running = m_owner->m_running;
+			
+			// Notify http_server if needed
+			// NOTE: Notify have to be done under lock,
+			//  otherwise this http_server object can be destroyed between release of mutex and interrupt/notify_one call,
+			//  and m_owner becomes dangling pointer, and call to m_sock_queue.interrupt(), m_event.notify_one() are ill-formed.
+			//  While this situation is very rare - it can happen.
+			//  See do_reset method and destructor.
+			if (running) m_owner->m_sock_queue.interrupt();
+			if (notify)  m_owner->m_event.notify_one();
 		}
-
-		// notify http_server if needed
-		if (running) owner->m_sock_queue.interrupt();
-		if (notify)  owner->m_event.notify_one();
 
 		// we were removed from m_delayed - intrusive list,
 		// who does not manage lifetime, decrement refcount
