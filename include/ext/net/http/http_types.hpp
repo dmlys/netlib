@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <ostream>
 #include <algorithm>
 
@@ -60,12 +60,13 @@ namespace ext::net::http
 
 	enum class http_body_type : unsigned
 	{
-		            // http request/response body holds:
-		string = 0, //  * std::string
-		vector = 1, //  * std::vector
-		stream = 2, //  * http_body_streambuf
-		async  = 3, //  * async_http_body_source
-		null   = 4, //  * no body required/produced, represented as nullbody
+		             // http request/response body holds:
+		string  = 0, //  * std::string
+		vector  = 1, //  * std::vector
+		stream  = 2, //  * streambuf/http_body_streambuf
+		async   = 3, //  * async_http_body_source
+		lstream = 4, //  * lstream {streambuf + size}, valid only for response, in requests treated as stream
+		null    = 5, //  * no body required/produced, represented as nullbody
 	};
 
 	/// Special type representing null body.
@@ -151,12 +152,27 @@ namespace ext::net::http
 		virtual ~async_http_body_source() = default;
 	};
 
+	/// stream + size, only used in response. Filters are never applied.
+	/// 
+	/// When browser downloads any resource/file - to show progress it needs to know it's size,
+	/// after testing firefox and chrome - size is determined by Content-Length header and only if chunked encoding is not used.
+	/// So to properly handle case whgen we want to show progress in browser, our server must use simple encoding + Content-Length.
+	/// 
+	/// In general through, streambuf does not know it's size in advance. Also if filters are applied size can change and we don't want to filter all data beforehand to memory.
+	/// Instead we introduce special type lstream, which is a pair of stream and size. NOTE: filters never applied/called for that case
+	struct lstream
+	{
+		std::size_t size;
+		std::unique_ptr<std::streambuf> stream;
+	};
+	
 
 	using http_body = std::variant<
 		std::string,
 		std::vector<char>,
 		std::unique_ptr<std::streambuf>,
 		std::unique_ptr<async_http_body_source>,
+		lstream,
 		null_body_type
 	>;
 
@@ -321,7 +337,8 @@ namespace ext::net::http
 		void operator()(const std::string       & str ) const { cont->assign(str.begin(), str.end()); }
 		void operator()(const std::vector<char> & data) const { cont->assign(data.begin(), data.end()); }
 		void operator()(const std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy from http_body:std::streambuf"); }
-		void operator()(const std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy from http_body:std::streambuf"); }
+		void operator()(const std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy from http_body:async_http_body_source"); }
+		void operator()(const lstream & ) const { throw std::runtime_error("Can't copy from http_body:lstream"); }
 		void operator()(const null_body_type) const { cont->clear(); }
 	};
 	
@@ -335,6 +352,7 @@ namespace ext::net::http
 		void operator()(std::vector<char> & data) const { data.assign(cont->begin(), cont->end()); }
 		void operator()(std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy into http_body:std::streambuf"); }
 		void operator()(std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy into http_body:async_http_body_source"); }
+		void operator()(const lstream & ) const { throw std::runtime_error("Can't copy into http_body:lstream"); }
 		void operator()(null_body_type) const { throw std::runtime_error("Can't copy into http_body/null_body_type"); }
 	};
 	

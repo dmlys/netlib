@@ -26,6 +26,7 @@ namespace ext::net::http
 		std::optional<std::size_t> operator()(const std::vector<char> & data) const noexcept { return data.size(); }
 		std::optional<std::size_t> operator()(const std::unique_ptr<std::streambuf> & ) const noexcept { return std::nullopt; }
 		std::optional<std::size_t> operator()(const std::unique_ptr<async_http_body_source> & ) const noexcept { return std::nullopt; }
+		std::optional<std::size_t> operator()(const lstream & ls) const noexcept { return ls.size; }
 		std::optional<std::size_t> operator()(null_body_type) const noexcept { return 0; }
 	};
 	
@@ -40,6 +41,7 @@ namespace ext::net::http
 		void operator()(std::vector<char> & data) const noexcept { return data.clear(); }
 		void operator()(std::unique_ptr<std::streambuf> & ) const noexcept { }
 		void operator()(std::unique_ptr<async_http_body_source> & ) const noexcept { }
+		void operator()(lstream & ) const noexcept { }
 		void operator()(null_body_type) const noexcept { }
 	};
 	
@@ -103,6 +105,7 @@ namespace ext::net::http
 			std::string_view operator()(const std::vector<char> & data) const noexcept { return std::string_view(data.data(), data.size()); }
 			std::string_view operator()(const std::unique_ptr<std::streambuf> & ) const noexcept { return "<std::streambuf>"; }
 			std::string_view operator()(const std::unique_ptr<async_http_body_source> & ) const noexcept { return "<ext::net::http::async_http_body_source>"; }
+			std::string_view operator()(const lstream & l) const noexcept { return "<ext::net::http::lstream>"; }
 			std::string_view operator()(null_body_type) const noexcept { return "<ext::net::http::null_body>"; }
 		};
 	}

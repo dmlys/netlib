@@ -1823,8 +1823,13 @@ namespace ext::net::http
 			case http_body_type::async:
 				context->request.body = std::make_unique<async_http_body_source_impl>(this, context);
 				return &http_server::handle_parsed_request;
+			
+			case http_body_type::lstream:
+				EXT_UNREACHABLE();
+			
 			case http_body_type::null:
 				return &http_server::handle_discarded_request_body_parsing;
+				
 			default:
 				EXT_UNREACHABLE();
 		}
@@ -2045,6 +2050,9 @@ namespace ext::net::http
 				case http_body_type::async:
 					return not filtered ? &http_server::handle_response_normal_async_body_writting
 					                    : &http_server::handle_response_filtered_async_body_writting;
+					
+				case http_body_type::lstream:
+					return &http_server::handle_response_normal_stream_body_writting;
 					
 				case http_body_type::null:
 					return &http_server::handle_response_written;
@@ -2271,13 +2279,20 @@ namespace ext::net::http
 		assert(not sock.throw_errors());
 
 		SOCK_LOG_DEBUG("writting http response normal stream body");
-		assert(not (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty()));
+		
+		auto & body = std::get<http_response>(context->response).body;
+		auto body_type = static_cast<http_body_type>(body.index());
+		assert(body_type == http_body_type::lstream or not (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty()));
+		
+		auto & stream_ptr = body_type == http_body_type::stream
+		                  ? std::get<std::unique_ptr<std::streambuf>>(body)
+		                  : std::get<lstream>(body).stream;
 		
 		auto & raw_data = context->response_raw_buffer;
 		auto & chunk_prefix  = context->chunk_prefix;
 
-		const http_body & body = std::get<http_response>(context->response).body;
-		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
+		//const http_body & body = std::get<http_response>(context->response).body;
+		//auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
 		
 		try
 		{
@@ -2376,7 +2391,7 @@ namespace ext::net::http
 		}
 		catch (std::runtime_error & ex)
 		{
-			SOCK_LOG_WARN("got writting error while writting normal filtered stream body: {}", ex.what());
+			SOCK_LOG_WARN("got writting error while writting normal stream body: {}", ex.what());
 			context->async_state = 0, context->written_count = 0;
 			context->conn_action = connection_action_type::close;
 			return &http_server::handle_finish;
@@ -3158,8 +3173,9 @@ namespace ext::net::http
 			set_header(resp.headers, "Connection", "close");
 		
 		const bool filtered = context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty();
+		const bool is_lstream = static_cast<http_body_type>(resp.body.index()) == http_body_type::lstream;
 		auto opt_bodysize = size(resp.body);
-		if (opt_bodysize and not filtered)
+		if (is_lstream or (opt_bodysize and not filtered))
 			set_header(resp.headers, "Content-Length", std::to_string(*opt_bodysize));
 		else
 		{

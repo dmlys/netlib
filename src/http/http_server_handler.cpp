@@ -1,4 +1,4 @@
-﻿#include <ext/net/http/http_server_handler.hpp>
+#include <ext/net/http/http_server_handler.hpp>
 #include <ext/strings/aci_string.hpp>
 #include <ext/functors/ctpred.hpp>
 #include <boost/algorithm/string.hpp>
@@ -70,13 +70,14 @@ namespace ext::net::http
 
 	http_body_type simple_http_server_handler::deduce_body_type(const body_function_types & function) noexcept
 	{
-		return static_cast<http_body_type>(std::min<unsigned>(function.index(), 4));
+		return static_cast<http_body_type>(std::min<unsigned>(function.index(), 5));
 		//switch (auto type = static_cast<http_body_type>(function.index()))
 		//{
 		//	case http_body_type::string:
 		//	case http_body_type::vector:
 		//	case http_body_type::stream:
 		//	case http_body_type::async:
+		//	case http_body_type::lstream:
 		//	case http_body_type::null:
 		//		return type;
 		//		
