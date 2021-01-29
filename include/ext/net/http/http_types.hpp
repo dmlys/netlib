@@ -215,6 +215,9 @@ namespace ext::net::http
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
 
+	/// respwmime - response with mime: helper function for creating http response with mime type
+	template <class Type> http_response httpresp_wmime(std::string_view content_type, Type && http_body);
+	
 	/************************************************************************/
 	/*                   http_server_filter_control                         */
 	/************************************************************************/
@@ -368,6 +371,16 @@ namespace ext::net::http
 		std::visit(http_body_copy_to_visitor(cont), body);
 	}
 	
+	template <class Type>
+	http_response httpresp_wmime(std::string_view content_type, Type && http_body)
+	{
+		http_response response;
+		response.http_code = 200;
+		response.body = std::forward<Type>(http_body);
+		set_header(response.headers, "Content-Type", content_type);
+		
+		return response;
+	}
 	
 	template <class HeaderRange>
 	auto get_header_value(const HeaderRange & headers, std::string_view name) noexcept -> std::string_view
@@ -558,4 +571,5 @@ namespace ext::net
 {
 	using http::http_request;
 	using http::http_response;
+	using http::httpresp_wmime;
 }

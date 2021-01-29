@@ -3787,7 +3787,11 @@ namespace ext::net::http
 		std::unique_lock lk(m_mutex);
 		if (m_started)
 			do_stop(lk);
-		else
+		else {
+			// if was not started - do not log in reset method on destruction,
+			// we already stopped earlier(or did not run at all)
+			m_logger = nullptr;
 			do_reset(lk);
+		}
 	};
 }
