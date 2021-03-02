@@ -13,8 +13,8 @@
 
 #if BOOST_OS_WINDOWS
 #include <ext/errors.hpp>
-#include <ext/codecvt_conv/wincvt.hpp>
-namespace wincvt = ext::codecvt_convert::wincvt;
+#include <ext/codecvt_conv/wchar_cvt.hpp>
+namespace wchar_cvt = ext::codecvt_convert::wchar_cvt;
 #endif
 
 #ifdef _MSC_VER
@@ -375,8 +375,7 @@ namespace ext::net
 		if (res == nullptr)
 			throw_last_socket_error("InetNtopW failed");
 
-		auto in = boost::make_iterator_range_n(buffer, std::wcslen(buffer));
-		ext::codecvt_convert::to_bytes(wincvt::u8_cvt, in, str);
+		wchar_cvt::to_utf8(buffer, std::wcslen(buffer), str);
 	}
 
 	auto inet_ntop(const sockaddr * addr) -> std::pair<std::string, unsigned short>
@@ -419,15 +418,14 @@ namespace ext::net
 	bool inet_pton(int family, const char * addr, sockaddr * out)
 	{
 		auto in = boost::make_iterator_range_n(addr, std::strlen(addr));
-		auto waddr = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in);
+		auto waddr = wchar_cvt::to_wchar(in);
 
 		return inet_pton(family, waddr.c_str(), out);
 	}
 
 	bool inet_pton(int family, const std::string & addr, sockaddr * out)
 	{
-		auto waddr = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, addr);
-
+		auto waddr = wchar_cvt::to_wchar(addr);
 		return inet_pton(family, waddr.c_str(), out);
 	}
 
@@ -618,14 +616,14 @@ namespace ext::net
 		if (host)
 		{
 			auto in = boost::make_iterator_range_n(host, std::strlen(host));
-			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, whoststr);
+			wchar_cvt::to_wchar(in, whoststr);
 			whost = whoststr.c_str();
 		}
 
 		if (service)
 		{
 			auto in = boost::make_iterator_range_n(service, std::strlen(service));
-			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, wservicestr);
+			wchar_cvt::to_wchar(in, wservicestr);
 			wservice = wservicestr.c_str();
 		}
 
@@ -642,14 +640,14 @@ namespace ext::net
 		if (host)
 		{
 			auto in = boost::make_iterator_range_n(host, std::strlen(host));
-			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, whoststr);
+			wchar_cvt::to_wchar(in, whoststr);
 			whost = whoststr.c_str();
 		}
 
 		if (service)
 		{
 			auto in = boost::make_iterator_range_n(service, std::strlen(service));
-			ext::codecvt_convert::from_bytes(wincvt::u8_cvt, in, wservicestr);
+			wchar_cvt::to_wchar(in, whoststr);
 			wservice = wservicestr.c_str();
 		}
 

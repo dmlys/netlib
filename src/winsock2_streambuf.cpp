@@ -7,13 +7,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <codecvt>
 #include <utility>
 
 #include <ext/itoa.hpp>
 #include <ext/config.hpp>  // for EXT_UNREACHABLE
 #include <ext/codecvt_conv.hpp>
-#include <ext/codecvt_conv/wincvt.hpp>
+#include <ext/codecvt_conv/wchar_cvt.hpp>
 #include <ext/errors.hpp>  // for ext::format_error
 
 #include <ext/net/winsock2_streambuf.hpp>
@@ -26,7 +25,7 @@
 #pragma warning(disable : 4267 4244 4706)
 #endif // _MSC_VER
 
-namespace wincvt = ext::codecvt_convert::wincvt;
+namespace wchar_cvt = ext::codecvt_convert::wchar_cvt;
 
 namespace ext::net
 {
@@ -42,7 +41,7 @@ namespace ext::net
 			throw_last_socket_error("WSAAddressToStringW failed");
 
 		buflen -= 1; out.clear();
-		ext::codecvt_convert::to_bytes(wincvt::u8_cvt, boost::make_iterator_range_n(buffer, buflen), out);
+		wchar_cvt::to_utf8(buffer, buflen, out);
 	}
 
 	static std::string endpoint_noexcept(sockaddr * addr, int addrlen)
@@ -53,7 +52,7 @@ namespace ext::net
 		if (res != 0) make_addr_error_description(::WSAGetLastError());
 
 		buflen -= 1;
-		return ext::codecvt_convert::to_bytes(wincvt::u8_cvt, boost::make_iterator_range_n(buffer, buflen));
+		return wchar_cvt::to_utf8(boost::make_iterator_range_n(buffer, buflen));
 	}
 
 	/************************************************************************/
@@ -814,14 +813,14 @@ namespace ext::net
 
 	bool winsock2_streambuf::connect(const std::string & host, const std::string & service)
 	{
-		auto whost = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, host);
-		auto wservice = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, service);
+		auto whost = wchar_cvt::to_wchar(host);
+		auto wservice = wchar_cvt::to_wchar(service);
 		return connect(whost, wservice);
 	}
 
 	bool winsock2_streambuf::connect(const std::string & host, unsigned short port)
 	{
-		auto whost = ext::codecvt_convert::from_bytes(wincvt::u8_cvt, host);
+		auto whost = wchar_cvt::to_wchar(host);
 		return connect(whost, port);
 	}
 
@@ -1125,7 +1124,7 @@ namespace ext::net
 
 	bool winsock2_streambuf::start_ssl(const SSL_METHOD * sslmethod, const std::wstring & wservername)
 	{
-		auto servername = ext::codecvt_convert::to_bytes(wincvt::u8_cvt, wservername);
+		auto servername = wchar_cvt::to_utf8(wservername);
 		return start_ssl(sslmethod, servername);
 	}
 
