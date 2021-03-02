@@ -13,7 +13,7 @@ namespace ext::net
 	// parse_http_body implementation is defined http_parser_impl.hpp.
 	// This library provides explicit instantiations for std::string and std::vector<char>,
 	// others can be explicitly instantiated by hand
-
+	
 
 	int parse_http_response(std::streambuf & sb, std::string & response_body);
 	int parse_http_response(std::istream   & is, std::string & response_body);
@@ -70,7 +70,7 @@ namespace ext::net
 	}
 
 	/************************************************************************/
-	/*                     inline request impl                             */
+	/*                     inline request impl                              */
 	/************************************************************************/
 	inline std::tuple<std::string, std::string, std::string> parse_http_request(std::streambuf & sb)
 	{
@@ -99,4 +99,13 @@ namespace ext::net
 		parse_http_request(parser, is, method, url, body);
 		return {std::move(method), std::move(url), std::move(body)};
 	}
+
+	/************************************************************************/
+	/*         parse_http_body explicit instantiation declarations          */
+	/************************************************************************/
+	extern template void parse_http_body<std::string>(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url);
+	extern template void parse_http_body<std::string>(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url);
+	
+	extern template void parse_http_body<std::vector<char>>(http_parser & parser, std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
+	extern template void parse_http_body<std::vector<char>>(http_parser & parser, std::istream   & is, std::vector<char> & body, std::string * status_or_url);
 }
