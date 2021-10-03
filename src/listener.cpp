@@ -121,7 +121,7 @@ namespace ext::net
 		hints.ai_socktype = SOCK_STREAM;
 
 		std::error_code err;
-		addrinfo_ptr addrinfo = getaddrinfo(host, service, &hints, err);
+		addrinfo_uptr addrinfo = getaddrinfo(host, service, &hints, err);
 		if (err) throw std::system_error(err, "ext::net::listener::bind: ::getaddrinfo failed");
 
 		bind(addrinfo->ai_addr, addrinfo->ai_addrlen, addrinfo->ai_socktype, addrinfo->ai_protocol);

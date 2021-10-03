@@ -567,7 +567,7 @@ namespace ext::net
 		return 0;
 	}
 
-	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
+	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const noexcept
 	{
 		FreeAddrInfoW(ptr);
 	}
@@ -580,14 +580,14 @@ namespace ext::net
 	/************************************************************************/
 	/*                   getaddrinfo                                        */
 	/************************************************************************/
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err)
+	addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err)
 	{
 		addrinfo_type * ptr;
 		int res = ::GetAddrInfoW(host, service, hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();
-			return addrinfo_ptr(ptr);
+			return addrinfo_uptr(ptr);
 		}
 		else
 		{
@@ -596,17 +596,17 @@ namespace ext::net
 		}
 	}
 	
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints)
+	addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints)
 	{
 		addrinfo_type * ptr;
 		int res = ::GetAddrInfoW(host, service, hints, &ptr);
 		if (res == 0)
-			return addrinfo_ptr(ptr);
+			return addrinfo_uptr(ptr);
 		else
 			throw_socket_error(res, "GetAddrInfoW failed");
 	}
 	
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
 	{
 		std::wstring whoststr, wservicestr;
 
@@ -630,7 +630,7 @@ namespace ext::net
 		return getaddrinfo(whost, wservice, hints, err);
 	}
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
 	{
 		std::wstring whoststr, wservicestr;
 
@@ -1072,7 +1072,7 @@ namespace ext::net
 		return 0;
 	}
 
-	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const
+	void addrinfo_deleter::operator ()(addrinfo_type * ptr) const noexcept
 	{
 		::freeaddrinfo(ptr);
 	}
@@ -1082,7 +1082,7 @@ namespace ext::net
 		return ::close(sock);
 	}
 	
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)
 	{
 		std::error_code err;
 		auto result = getaddrinfo(host, service, hints, err);
@@ -1091,25 +1091,25 @@ namespace ext::net
 		throw std::system_error(err, "getaddrinfo failed");
 	}
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err)
 	{
 		addrinfo_type * ptr;
 		int res = ::getaddrinfo(host, service, hints, &ptr);
 		if (res == 0)
 		{
 			err.clear();
-			return addrinfo_ptr(ptr);
+			return addrinfo_uptr(ptr);
 		}
 
 		if (res == EAI_SYSTEM)
 		{
 			err.assign(errno, std::generic_category());
-			return addrinfo_ptr(nullptr);
+			return addrinfo_uptr(nullptr);
 		}
 		else
 		{
 			err.assign(res, gai_error_category());
-			return addrinfo_ptr(nullptr);
+			return addrinfo_uptr(nullptr);
 		}
 	}
 	
@@ -1134,7 +1134,7 @@ namespace ext::net
 	/************************************************************************/
 	/*                platform independent stuff                            */
 	/************************************************************************/
-	addrinfo_ptr loopback_addr(int address_family, int sock_type, int sock_proto)
+	addrinfo_uptr loopback_addr(int address_family, int sock_type, int sock_proto)
 	{
 		std::error_code err;
 		auto result = loopback_addr(err, address_family, sock_type, sock_proto);
@@ -1143,7 +1143,7 @@ namespace ext::net
 		throw std::system_error(err, "loopback_addr failed");
 	}
 	
-	addrinfo_ptr loopback_addr(std::error_code & err, int address_family, int sock_type, int sock_proto)
+	addrinfo_uptr loopback_addr(std::error_code & err, int address_family, int sock_type, int sock_proto)
 	{
 		// AI_ADDRCONFIG - Use configuration of this host to choose returned address type..
 		//   If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4 addresses are returned in the list pointed to by res only

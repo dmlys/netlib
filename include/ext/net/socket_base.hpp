@@ -94,10 +94,10 @@ namespace ext::net
 {
 	struct addrinfo_deleter
 	{
-		void operator()(addrinfo_type * ptr) const;
+		void operator()(addrinfo_type * ptr) const noexcept;
 	};
 
-	using addrinfo_ptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
+	using addrinfo_uptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
 	constexpr socket_handle_type invalid_socket = -1;
 
 	// special tag type, to disambiguate some overloaded constructors accepting socket handles(int type) and port(unsigned short type)
@@ -193,36 +193,36 @@ namespace ext::net
 	/// @Returns std::unique_ptr<addrinfo> resolved адрес, в случае ошибки - nullptr для error overloads
 	/// @Throws std::system_error в случае системной ошибки
 
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints);
-	addrinfo_ptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err);
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints);
+	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints, std::error_code & err);
 	
-	inline addrinfo_ptr getaddrinfo(const char * host, const char * service)                          { return getaddrinfo(host, service, nullptr); }
-	inline addrinfo_ptr getaddrinfo(const char * host, const char * service, std::error_code & err)   { return getaddrinfo(host, service, nullptr, err); }
+	inline addrinfo_uptr getaddrinfo(const char * host, const char * service)                          { return getaddrinfo(host, service, nullptr); }
+	inline addrinfo_uptr getaddrinfo(const char * host, const char * service, std::error_code & err)   { return getaddrinfo(host, service, nullptr, err); }
 
-	inline addrinfo_ptr getaddrinfo(const std::string & host, const std::string & service, std::error_code & err) { return getaddrinfo(host.c_str(), service.c_str(), err); }
-	inline addrinfo_ptr getaddrinfo(const std::string & host, std::error_code & err)                              { return getaddrinfo(host.c_str(), nullptr, err); }
-	inline addrinfo_ptr getaddrinfo(const std::string & host, const std::string & service)                        { return getaddrinfo(host.c_str(), service.c_str()); }
-	inline addrinfo_ptr getaddrinfo(const std::string & host)                                                     { return getaddrinfo(host.c_str(), nullptr); }
+	inline addrinfo_uptr getaddrinfo(const std::string & host, const std::string & service, std::error_code & err) { return getaddrinfo(host.c_str(), service.c_str(), err); }
+	inline addrinfo_uptr getaddrinfo(const std::string & host, std::error_code & err)                              { return getaddrinfo(host.c_str(), nullptr, err); }
+	inline addrinfo_uptr getaddrinfo(const std::string & host, const std::string & service)                        { return getaddrinfo(host.c_str(), service.c_str()); }
+	inline addrinfo_uptr getaddrinfo(const std::string & host)                                                     { return getaddrinfo(host.c_str(), nullptr); }
 
 #if BOOST_OS_WINDOWS
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints);
-	addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err);
+	addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints);
+	addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service, const addrinfo_type * hints, std::error_code & err);
 
-	inline addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service)                           { return getaddrinfo(host, service, nullptr); }
-	inline addrinfo_ptr getaddrinfo(const wchar_t * host, const wchar_t * service, std::error_code & err)    { return getaddrinfo(host, service, nullptr, err); }
+	inline addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service)                           { return getaddrinfo(host, service, nullptr); }
+	inline addrinfo_uptr getaddrinfo(const wchar_t * host, const wchar_t * service, std::error_code & err)    { return getaddrinfo(host, service, nullptr, err); }
 	
-	inline addrinfo_ptr getaddrinfo(const std::wstring & host, const std::wstring & service, std::error_code & err)  { return getaddrinfo(host.c_str(), service.c_str(), err); }
-	inline addrinfo_ptr getaddrinfo(const std::wstring & host, std::error_code & err)                                { return getaddrinfo(host.c_str(), nullptr, err); }
-	inline addrinfo_ptr getaddrinfo(const std::wstring & host, const std::wstring & service)                         { return getaddrinfo(host.c_str(), service.c_str()); }
-	inline addrinfo_ptr getaddrinfo(const std::wstring & host)                                                       { return getaddrinfo(host.c_str(), nullptr); }
+	inline addrinfo_uptr getaddrinfo(const std::wstring & host, const std::wstring & service, std::error_code & err)  { return getaddrinfo(host.c_str(), service.c_str(), err); }
+	inline addrinfo_uptr getaddrinfo(const std::wstring & host, std::error_code & err)                                { return getaddrinfo(host.c_str(), nullptr, err); }
+	inline addrinfo_uptr getaddrinfo(const std::wstring & host, const std::wstring & service)                         { return getaddrinfo(host.c_str(), service.c_str()); }
+	inline addrinfo_uptr getaddrinfo(const std::wstring & host)                                                       { return getaddrinfo(host.c_str(), nullptr); }
 #endif
 
 	/// \}
 
 	/// Returns loopback addr with port = 0 for given address family, socket type and protocol.
 	/// Resolution will be done with AI_ADDRCONFIG, so addr family in case of AF_UNSPEC, will depend on system configuration
-	addrinfo_ptr loopback_addr(int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
-	addrinfo_ptr loopback_addr(std::error_code & err, int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
+	addrinfo_uptr loopback_addr(int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	addrinfo_uptr loopback_addr(std::error_code & err, int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
 	
 	/// manual implementation of socket pair function.
 	/// This function creates listener with loopback address and zero port(port will be assigned by OS),
