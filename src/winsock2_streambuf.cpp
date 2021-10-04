@@ -505,7 +505,7 @@ namespace ext::net
 			goto error;
 		}
 
-		if (sock == invalid_socket)
+		if (sock == INVALID_SOCKET)
 		{
 			m_lasterror = std::make_error_code(std::errc::not_a_socket);
 			m_lasterror_context = "init_handle";
@@ -1371,8 +1371,10 @@ namespace ext::net
 
 	winsock2_streambuf::winsock2_streambuf(socket_handle_type sock_handle, std::size_t buffer_size)
 	{
-		if (sock_handle == invalid_socket)
+		if (sock_handle == INVALID_SOCKET)
 			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "winsock_streambuf::<ctor> failure");
+		
+		socket_uptr sock_ptr(sock_handle);
 		
 		if (not do_setnonblocking(sock_handle))
 		{
@@ -1383,9 +1385,9 @@ namespace ext::net
 			throw_last_error();
 		}
 
-		m_sockhandle = sock_handle;
-		m_state.store(Opened, std::memory_order_relaxed);
 		init_buffers(buffer_size);
+		m_sockhandle = sock_ptr.release();
+		m_state.store(Opened, std::memory_order_relaxed);
 	}
 
 	winsock2_streambuf::winsock2_streambuf(winsock2_streambuf && right) noexcept

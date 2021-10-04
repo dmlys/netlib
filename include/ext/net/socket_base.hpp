@@ -8,6 +8,7 @@
 
 #include <ext/config.hpp>
 #include <ext/net/socket_fwd.hpp>
+#include <ext/unique_handle.hpp>
 
 namespace ext::net
 {
@@ -92,21 +93,30 @@ namespace std
 
 namespace ext::net
 {
+	/// not a socket/invalid socket value
+	constexpr socket_handle_type invalid_socket = -1;
+	
+	/// on POSIX systems - return ::close(sock)
+	/// on WINDOWS       - return ::closesocket(sock);
+	int close(socket_handle_type sock);
+	
 	struct addrinfo_deleter
 	{
 		void operator()(addrinfo_type * ptr) const noexcept;
 	};
 
+	struct socket_closer
+	{
+		static void close(socket_handle_type sock) noexcept { ext::net::close(sock); }
+		static auto emptyval() noexcept -> socket_handle_type { return invalid_socket; }
+	};
+	
 	using addrinfo_uptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
-	constexpr socket_handle_type invalid_socket = -1;
+	using socket_uptr = ext::unique_handle<socket_handle_type, socket_closer>;
 
 	// special tag type, to disambiguate some overloaded constructors accepting socket handles(int type) and port(unsigned short type)
 	// ext::net::listener listener(handle_arg, handle);
 	struct handle_arg_type {} constexpr handle_arg;
-	
-	/// on POSIX systems - return ::close(sock)
-	/// on WINDOWS       - return ::closesocket(sock);
-	int close(socket_handle_type sock);
 
 	/// error category for network address and service translation.
 	/// EAI_* codes, gai_strerror

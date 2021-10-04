@@ -17,17 +17,21 @@ namespace ext::net
 			return;
 		}
 
-		// default internal buffer
-		buffer_size = std::clamp<std::size_t>(minimum_buffer_size, buffer_size, INT_MAX);
-
 		if (m_own_input_buffer)  delete [] m_input_buffer;
 		if (m_own_output_buffer) delete [] m_output_buffer;
-
+		
+		m_own_input_buffer = m_own_output_buffer = false;
+		m_default_internal_buffer = false;
+		
+		// default internal buffer
+		buffer_size = std::clamp<std::size_t>(minimum_buffer_size, buffer_size, INT_MAX);
+		auto buffer = std::make_unique<char_type[]>(buffer_size);
+		
 		m_default_internal_buffer = true;
 		m_own_input_buffer = true;
 		m_own_output_buffer = false;
 		
-		m_input_buffer = new char_type[buffer_size];
+		m_input_buffer = buffer.release();
 		m_input_buffer_size = buffer_size / 2;
 		m_output_buffer = m_input_buffer + m_input_buffer_size;
 		m_output_buffer_size = m_input_buffer_size;

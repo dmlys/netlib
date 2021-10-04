@@ -37,7 +37,7 @@ namespace ext::net
 		static constexpr std::size_t default_buffer_size = 2 * 4096;
 		static constexpr std::size_t minimum_buffer_size = 128;
 
-	private:
+	protected:
 		std::size_t write_all(const char_type * data, std::size_t count);
 		std::size_t read_all(char_type * data, std::size_t count);
 

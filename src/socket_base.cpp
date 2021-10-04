@@ -574,7 +574,7 @@ namespace ext::net
 
 	int close(socket_handle_type sock)
 	{
-		return ::closesocket(sock);
+		return sock != invalid_socket ? ::closesocket(sock) : 0;
 	}
 
 	/************************************************************************/
@@ -1079,7 +1079,7 @@ namespace ext::net
 
 	int close(socket_handle_type sock)
 	{
-		return ::close(sock);
+		return sock != invalid_socket ? ::close(sock) : 0;
 	}
 	
 	addrinfo_uptr getaddrinfo(const char * host, const char * service, const addrinfo_type * hints)

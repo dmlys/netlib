@@ -1314,6 +1314,8 @@ namespace ext::net
 		if (sock_handle == invalid_socket)
 			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "bsdsock_streambuf::<ctor> failure");
 		
+		socket_uptr sock_ptr(sock_handle);
+		
 		if (not do_setnonblocking(sock_handle))
 		{
 			// в случае ошибок - закрываем сокет, если только это не плохой дескриптор
@@ -1323,11 +1325,10 @@ namespace ext::net
 			
 			throw_last_error();
 		}
-			
-
-		m_sockhandle = sock_handle;
-		m_state.store(Opened, std::memory_order_relaxed);
+		
 		init_buffers(buffer_size);
+		m_sockhandle = sock_ptr.release();
+		m_state.store(Opened, std::memory_order_relaxed);
 	}
 
 	bsdsock_streambuf::bsdsock_streambuf(bsdsock_streambuf && right) noexcept
