@@ -164,7 +164,6 @@ namespace ext::net::mime
 		NameRandomAccessIterator name_first, NameRandomAccessIterator name_last,
 		ValRandomAccessIterator  val_first,  ValRandomAccessIterator  val_last)
 	{
-		using namespace detail;
 		using namespace encoding_tables;
 		using encode_utils::estimate_count;
 			
@@ -179,7 +178,7 @@ namespace ext::net::mime
 		// determine which way to encode header parameter.
 		// on current step do not count cur_pos, we only choosing encoding way,
 		// next steps, if needed - will split on next line and in case of simple header - will write full of it.
-		std::size_t avail = line_size - name_size - linebreak_size - 2; // -2 для '=' и ';'
+		std::size_t avail = line_size - name_size - linebreak_size - 2; // -2 for '=' и ';'
 		std::size_t count = val_last - val_first;
 		
 		// needed more than avail - it's folding anyway,
@@ -190,16 +189,16 @@ namespace ext::net::mime
 			auto est_count = estimate_count(parameter_unqouted_array, val_first, val_last);
 			// all characters can be written as is, and there is enough space - write as is
 			if (est_count == count)
-				return encode_simple_header_parameter(dest, false, cur_pos, line_size, name_first, name_last, val_first, val_last);
+				return detail::encode_simple_header_parameter(dest, false, cur_pos, line_size, name_first, name_last, val_first, val_last);
 
 			// can we write as is with quoting?
 			bool quoted_simple = avail >= count + 2 and // add +2 for quotes
 				count == estimate_count(parameter_qouted_array, val_first, val_last);
 			if (quoted_simple)
-				return encode_simple_header_parameter(dest, true, cur_pos, line_size, name_first, name_last, val_first, val_last);
+				return detail::encode_simple_header_parameter(dest, true, cur_pos, line_size, name_first, name_last, val_first, val_last);
 		}
 
-		return encode_folded_header_parameter(dest, cur_pos, line_size, name_first, name_last, val_first, val_last);
+		return detail::encode_folded_header_parameter(dest, cur_pos, line_size, name_first, name_last, val_first, val_last);
 	}
 
 	/// range overload

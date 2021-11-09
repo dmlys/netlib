@@ -8,6 +8,8 @@
 #include <ext/net/mime/encode_quoted_utils.hpp>
 #include <ext/net/mime/encoding_tables.hpp>
 
+// Encode and decode functions for percent encoding aka URL encoding.
+
 namespace ext::net::mime
 {
 	template <class Iterator, class OutIterator>

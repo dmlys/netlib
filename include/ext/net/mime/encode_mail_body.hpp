@@ -10,52 +10,57 @@
 
 namespace ext::net::mime
 {
+	/// Checks if given text [first;last) is suitable for 7bit encoding.
+	/// Text is searched for crln -> lines are found.
+	/// Each line should not longer then max_size and chars should be in [32;128) range
 	template <class RandomAccessIterator>
 	bool check_7bit_valid(RandomAccessIterator first, RandomAccessIterator last, std::size_t max_size = MailDefaultLineSize)
 	{
-		const auto crln = ext::str_view("\r\n");
+		using namespace encoding_tables;
 		const auto is_valid_char = [](auto ch) { return ch == ' ' or ch == '\t' or (ch >= 32 and ch < 128); };
 
 		for (;;)
 		{
-			auto it = std::search(first, last, crln.begin(), crln.end());
-			auto length = it - first + crln.size();
+			auto it = std::search(first, last, linebreak, linebreak + linebreak_size);
+			auto length = it - first + linebreak_size;
 
 			if (length > max_size) return false;
 			if (not std::all_of(first, it, is_valid_char)) return false;
 
 			if (it == last) break;
-			first = it + crln.size();
+			first = it + linebreak_size;
 		}
 
 		return true;
 	}
 
+	/// Checks if given text [first;last) is suitable for 8bit encoding.
+	/// Text is searched for crln -> lines are found.
+	/// Each line should not longer then max_size, chars can be any
 	template <class RandomAccessIterator>
 	bool check_8bit_valid(RandomAccessIterator first, RandomAccessIterator last, std::size_t max_size = MailMaxLineSize)
 	{
-		const auto crln = ext::str_view("\r\n");
-
+		using namespace encoding_tables;
+		
 		for (;;)
 		{
-			auto it = std::search(first, last, crln.begin(), crln.end());
-			auto length = it - first + crln.size();
+			auto it = std::search(first, last, linebreak, linebreak + linebreak_size);
+			auto length = it - first + linebreak_size;
 			if (length > max_size) return false;
 
 			if (it == last) break;
-			first = it + crln.size();
+			first = it + linebreak_size;
 		}
 
 		return true;
 	}
 
-
+	/// Calculates suitable body encoding based on text and allowed SMTP extensions
 	template <class RandomAccessIterator>
 	std::enable_if_t<ext::is_iterator_v<RandomAccessIterator>, mail_encoding>
 	estimate_body_encoding(RandomAccessIterator first, RandomAccessIterator last, smtp_extensions_bitset extensions)
 	{
 		constexpr std::ptrdiff_t huge_size = 1024 * 1024;
-		const auto crln = ext::str_view("\r\n");
 
 		if (last - first > huge_size)
 		{
@@ -78,18 +83,18 @@ namespace ext::net::mime
 		std::size_t qenc_est = 0;
 		for (;;)
 		{
-			auto it = std::search(first, last, crln.begin(), crln.end());
+			auto it = std::search(first, last, linebreak, linebreak + linebreak_size);
 			qenc_est += encode_utils::estimate_count(quoted_printable_array, first, it);
 
 			if (it == last) break;
-			first = it + crln.size();
+			first = it + linebreak_size;
 		}
 
 		auto quoted_groups_count = (qenc_est - count) / 2;
 		return count / quoted_groups_count >= 3 ? mail_encoding::quoted_printable : mail_encoding::base64;
 	}
 
-
+	/// Calculates suitable body encoding based on text and allowed SMTP extensions
 	template <class String>
 	std::enable_if_t<ext::is_string_v<String>, mail_encoding>
 	estimate_body_encoding(const String & str, smtp_extensions_bitset extensions)
@@ -99,7 +104,17 @@ namespace ext::net::mime
 	}
 
 
-
+	/// Encodes email body text [first;last) into destination(sink, iterator or STL container)
+	/// according to MIME Internet Message Body RFC 2045.
+	/// Only utf-8 is supported, internally some utf-8 processing is done.
+	/// https://tools.ietf.org/html/rfc2045
+	///
+	/// Formating and encoding is done in following way:
+	///  * line length does not exceed line_size chars(including \r\n).
+	///    lines do end with \r\n
+	///  * text is base64 encoded
+	///  * splitting is done on base64 group boundaries, i.e. num of base64 chars is multiple of 4
+	///  * splitting is done only between full utf-8 sequences, that way every word is a valid utf-8
 	template <class Destination, class RandomAccessIterator>
 	std::enable_if_t<ext::is_iterator_v<RandomAccessIterator>, std::size_t>
 	encode_base64_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, RandomAccessIterator first, RandomAccessIterator last)
@@ -147,6 +162,17 @@ namespace ext::net::mime
 	}
 
 
+	/// Encodes email body text into destination(sink, iterator or STL container)
+	/// according to MIME Internet Message Body RFC 2045.
+	/// Only utf-8 is supported, internally some utf-8 processing is done.
+	/// https://tools.ietf.org/html/rfc2045
+	///
+	/// Formating and encoding is done in following way:
+	///  * line length does not exceed line_size chars(including \r\n).
+	///    lines do end with \r\n
+	///  * text is base64 encoded
+	///  * splitting is done on base64 group boundaries, i.e. num of base64 chars is multiple of 4
+	///  * splitting is done only between full utf-8 sequences, that way every word is a valid utf-8
 	template <class Destination, class BodyString>
 	inline std::enable_if_t<ext::is_string_v<BodyString>, std::size_t>
 	encode_base64_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, const BodyString & body)
@@ -155,6 +181,22 @@ namespace ext::net::mime
 		return encode_base64_mail_body(dest, cur_pos, line_size, lit.begin(), lit.end());
 	}
 
+	
+	/// Encodes email body text [first;last) into destination(sink, iterator or STL container)
+	/// according to MIME Internet Message Body RFC 2045.
+	/// https://tools.ietf.org/html/rfc2045
+	/// https://en.wikipedia.org/wiki/Quoted-printable
+	///
+	/// Formating and encoding is done in following way:
+	///  * line length does not exceed line_size chars(including \r\n).
+	///    lines do end with \r\n
+	///  * text is quoted printable encoded
+	///  * if natural crln is found - it will be printed as is(hard line break)
+	///  * if line length exceeded - soft line break(=\r\n) will be inserted and new line started
+	///  * space characters(' ', '\t') are represented as is, except if at the end of encoded line,
+	///    in this case they are protected via encoding or soft line break
+	///  * splitting is done on group boundaries, i.e. '=20' will not be split in any way (=/20, =2/0)
+	///  * splitting is done only between full utf-8 sequences, that way every word is a valid utf-8
 	template <class Destination, class RandomAccessIterator>
 	std::enable_if_t<ext::is_iterator_v<RandomAccessIterator>, std::size_t>
 	encode_quoted_printable_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, RandomAccessIterator first, RandomAccessIterator last)
@@ -191,6 +233,8 @@ namespace ext::net::mime
 			out_first = buffer;
 			out_last  = buffer + written;
 
+			// if there are natural line breaks(crln) we must print them as is,
+			// also if there are space(' ', '\t') before that line break, it must be protected by quoted encoding
 			for (;;)
 			{
 				auto it = std::search(out_first, out_last, escaped_crln.begin(), escaped_crln.end());
@@ -234,6 +278,21 @@ namespace ext::net::mime
 		return cur_pos;
 	}
 
+	/// Encodes email body text into destination(sink, iterator or STL container)
+	/// according to MIME Internet Message Body RFC 2045.
+	/// https://tools.ietf.org/html/rfc2045
+	/// https://en.wikipedia.org/wiki/Quoted-printable
+	///
+	/// Formating and encoding is done in following way:
+	///  * line length does not exceed line_size chars(including \r\n).
+	///    lines do end with \r\n
+	///  * text is quoted printable encoded
+	///  * if natural crln is found - it will be printed as is(hard line break)
+	///  * if line length exceeded - soft line break(=\r\n) will be inserted and new line started
+	///  * space characters(' ', '\t') are represented as is, except if at the end of encoded line,
+	///    in this case they are protected via encoding or soft line break
+	///  * splitting is done on group boundaries, i.e. '=20' will not be split in any way (=/20, =2/0)
+	///  * splitting is done only between full utf-8 sequences, that way every word is a valid utf-8
 	template <class Destination, class BodyString>
 	inline std::enable_if_t<ext::is_string_v<BodyString>, std::size_t>
 	encode_quoted_printable_mail_body(Destination & dest, std::size_t cur_pos, std::size_t line_size, const BodyString & body)
@@ -242,7 +301,7 @@ namespace ext::net::mime
 		return encode_quoted_printable_mail_body(dest, cur_pos, line_size, lit.begin(), lit.end());
 	}
 
-
+	/// Encodes email body text into destination(sink, iterator or STL container) according to given encoding
 	template <class Destination, class BodyString>
 	std::enable_if_t<ext::is_string_v<BodyString>, std::size_t>
 	encode_mail_body(Destination & dest, mail_encoding enc, const BodyString & body)

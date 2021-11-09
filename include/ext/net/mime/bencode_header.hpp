@@ -8,7 +8,7 @@
 
 namespace ext::net::mime
 {
-	/// Encodes text [first;last) into destination(sink, iterator or STL container)
+	/// Encodes header value text [first;last) into destination(sink, iterator or STL container)
 	/// according to MIME encoded-word RFC 2047.
 	/// https://tools.ietf.org/html/rfc2047
 	/// https://en.wikipedia.org/wiki/MIME#Encoded-Word
@@ -56,7 +56,7 @@ namespace ext::net::mime
 	}
 
 
-	/// Encodes text [first;last) into destination(sink, iterator or STL container)
+	/// Encodes header value text [first;last) into destination(sink, iterator or STL container)
 	/// according to MIME encoded-word RFC 2047.
 	/// Only utf-8 is supported, internally some utf-8 processing is done.
 	/// https://tools.ietf.org/html/rfc2047
@@ -123,7 +123,7 @@ namespace ext::net::mime
 		return cur_pos + encoded_suffix_size;
 	}
 		
-	/// Encodes text [first;last) into destination(sink, iterator or STL container)
+	/// Encodes header value into destination(sink, iterator or STL container)
 	/// according to MIME encoded-word RFC 2047.
 	/// Only utf-8 is supported, internally some utf-8 processing is done.
 	/// https://tools.ietf.org/html/rfc2047
@@ -144,7 +144,7 @@ namespace ext::net::mime
 		return bencode_header_folded(dest, cur_pos, line_size, boost::begin(inplit), boost::end(inplit));
 	}
 
-	/// Encodes text [first;last) into destination(sink, iterator or STL container)
+	/// Encodes header name and value into destination(sink, iterator or STL container)
 	/// according to MIME encoded-word RFC 2047.
 	/// Only utf-8 is supported, internally some utf-8 processing is done.
 	/// https://tools.ietf.org/html/rfc2047

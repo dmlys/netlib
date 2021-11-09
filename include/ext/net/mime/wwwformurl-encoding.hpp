@@ -8,6 +8,10 @@
 #include <ext/net/mime/encode_quoted_utils.hpp>
 #include <ext/net/mime/encoding_tables.hpp>
 
+// Encode and decode functions for application/x-www-form-urlencoded encoding.
+// This is similar to URL encoding, except space is encoded as '+'
+
+
 namespace ext::net::mime
 {
 	template <class Iterator, class OutIterator>

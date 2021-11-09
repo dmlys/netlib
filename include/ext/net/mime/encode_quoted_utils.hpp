@@ -21,7 +21,7 @@ namespace ext::net
 
 	/// helper functions for encoding chars using different mime encodings.
 	/// those print some characters as is, others are quoted as <qchar><hex1><hex2>,
-	/// for example '=20'. Such encodings are qencoding, http percent encoding, etc.
+	/// for example '=20'. Such encodings are: qencoding, http percent encoding, etc.
 	/// 
 	/// functions take encoding table, describing what symbols should be quoted.
 	/// if table element is < 0 - symbol should be quoted, otherwise printed by element value.
