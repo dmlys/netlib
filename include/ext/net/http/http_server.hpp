@@ -34,7 +34,7 @@
 namespace ext::net::http
 {
 	/// Simple embedded http server.
-	/// Listens for incoming connections on given listeners sockets,
+	/// Listens for incoming connections on given listener sockets,
 	/// parses http requests, calls registered handler that accepts that request
 	///
 	/// supports:
@@ -451,15 +451,16 @@ namespace ext::net::http
 		/// Release processing context after http request processed, this method should place this context to cache or delete it, if cache is full
 		virtual void release_context(processing_context * context);
 		/// Prepares processing context, called each time new http request should be processed.
-		/// Makes http handlers, filters snapshot if needed.
-		virtual void prepare_context(processing_context * context, socket_streambuf sock, bool newconn);
+		/// Makes http handlers and filters snapshots if needed.
+		virtual void prepare_context(processing_context * context, const socket_streambuf & sock, bool newconn);
 		/// Called when processing context is created, default implementation does nothing
 		virtual void construct_context(processing_context * context);
 		/// Called when processing context is deleted, default implementation does nothing
 		virtual void destruct_context(processing_context * context);
 
 		/// Checks if there is pending context for this socket and returns it, otherwise returns new context via acquire_context()
-		virtual auto acquire_context(socket_streambuf sock) -> processing_context *;
+		/// Can return null if maximum number of contexts are created.
+		virtual auto acquire_context(socket_streambuf & sock) -> processing_context *;
 		/// Checks if there is pending context for this socket and release it, otherwise does nothing
 		virtual void release_context(socket_streambuf & sock);
 		
@@ -560,12 +561,10 @@ namespace ext::net::http
 		virtual void add_filter(ext::intrusive_ptr<http_filter_base> filter);
 		/// Adds listener with optional SSL configuration
 		virtual void add_listener(listener listener, ssl_ctx_iptr ssl_ctx = nullptr);
-		/// Adds and opens listener by port number with optional SSL configuration
-		virtual void add_listener(unsigned short port, ssl_ctx_iptr ssl_ctx = nullptr);
 		/// Adds opens listener with given backlog with optional SSL configuration
 		virtual void add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx = nullptr);
-		/// Adds and opens listener by port number with given backlog and optional SSL configuration
-		virtual void add_listener(unsigned short port, int backlog, ssl_ctx_iptr ssl_ctx = nullptr);
+		/// Adds and opens listener by port number with optional SSL configuration
+		virtual void add_listener(unsigned short port, ssl_ctx_iptr ssl_ctx = nullptr);
 
 		/// Adds http handler
 		virtual void add_handler(std::unique_ptr<const http_server_handler> handler);

@@ -470,7 +470,7 @@ namespace ext::net::http
 			// set socket operation timeout, while in sock_queue socket have m_keep_alive_timeout
 			sock.timeout(m_socket_timeout);
 
-			auto * context = acquire_context(std::move(sock));
+			auto * context = acquire_context(sock);
 			if (context)
 			{
 				// run_socket will do full handling of socket, asyncly if needed:
@@ -478,6 +478,7 @@ namespace ext::net::http
 				// * process request
 				// * write request
 				// * place socket back into queue or close it, depending on errors/Close header
+				context->sock = std::move(sock);
 				run_socket(context);
 				continue;
 			}
@@ -879,7 +880,7 @@ namespace ext::net::http
 
 			if (len > 0) goto success;
 
-			// no error and no data -> EOF -> no request, just close it quitly
+			// no error and no data -> EOF -> no request, just close it quietly
 			return &http_server::handle_close;
 		}
 
@@ -2589,6 +2590,7 @@ namespace ext::net::http
 					case 0:
 						if (not raw_data.empty())
 						{
+							chunk_length = std::min<std::size_t>(INT_MAX - crlf.size(), raw_data.size());
 							context->async_state = 2;
 							goto prepare_data;
 						}
@@ -2994,9 +2996,8 @@ namespace ext::net::http
 		}
 	}
 
-	void http_server::prepare_context(processing_context * context, socket_streambuf sock, bool newconn)
+	void http_server::prepare_context(processing_context * context, const socket_streambuf & sock, bool newconn)
 	{
-		context->sock = std::move(sock);
 		context->conn_action = connection_action_type::close;
 		context->next_method = nullptr;
 
@@ -3038,7 +3039,7 @@ namespace ext::net::http
 		#ifdef EXT_ENABLE_OPENSSL
 		if (newconn)
 		{
-			const auto & listener_context = get_listener_context(context->sock);
+			const auto & listener_context = get_listener_context(sock);
 			if (listener_context.ssl_ctx)
 			{
 				auto * ssl = ::SSL_new(listener_context.ssl_ctx.get());
@@ -3058,13 +3059,12 @@ namespace ext::net::http
 	void http_server::construct_context(processing_context * context) {}
 	void http_server::destruct_context(processing_context * context) {}
 
-	auto http_server::acquire_context(socket_streambuf sock) -> processing_context *
+	auto http_server::acquire_context(socket_streambuf & sock) -> processing_context *
 	{
 		auto it = m_pending_contexts.find(sock.handle());
 		if (it != m_pending_contexts.end())
 		{
 			auto * context = it->second;
-			context->sock = std::move(sock);
 			m_pending_contexts.erase(it);
 			return context;
 		}
@@ -3080,7 +3080,7 @@ namespace ext::net::http
 			}
 
 			auto * context = acquire_context();
-			if (context) prepare_context(context, std::move(sock), inserted);
+			if (context) prepare_context(context, sock, inserted);
 			return context;
 		}
 	}
@@ -3655,18 +3655,6 @@ namespace ext::net::http
 	void http_server::add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx)
 	{
 		return do_add_listener(std::move(listener), backlog, std::move(ssl_ctx)).get();
-	}
-
-	void http_server::add_listener(unsigned short port, int backlog, ssl_ctx_iptr ssl_ctx)
-	{
-		listener listener;
-		ext::packaged_task<void()> task = [port, &listener] { listener.bind(port); };
-		auto fres = task.get_future();
-
-		if (task(); fres.has_exception())
-			return fres.get();
-
-		return add_listener(std::move(listener), backlog, std::move(ssl_ctx));
 	}
 
 	void http_server::set_processing_context_limits(std::size_t minimum, std::size_t maximum)

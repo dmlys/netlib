@@ -66,7 +66,7 @@ namespace ext::net::http
 		stream  = 2, //  * streambuf/http_body_streambuf
 		async   = 3, //  * async_http_body_source
 		lstream = 4, //  * lstream {streambuf + size}, valid only for response, in requests treated as stream
-		null    = 5, //  * no body required/produced, represented as nullbody
+		null    = 5, //  * no body required/produced, represented as null_body
 	};
 
 	/// Special type representing null body.
@@ -156,7 +156,7 @@ namespace ext::net::http
 	/// 
 	/// When browser downloads any resource/file - to show progress it needs to know it's size,
 	/// after testing firefox and chrome - size is determined by Content-Length header and only if chunked encoding is not used.
-	/// So to properly handle case whgen we want to show progress in browser, our server must use simple encoding + Content-Length.
+	/// So to properly handle case when we want to show progress in browser, our server must use simple encoding + Content-Length.
 	/// 
 	/// In general through, streambuf does not know it's size in advance. Also if filters are applied size can change and we don't want to filter all data beforehand to memory.
 	/// Instead we introduce special type lstream, which is a pair of stream and size. NOTE: filters never applied/called for that case
