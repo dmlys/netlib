@@ -2053,7 +2053,7 @@ namespace ext::net::http
 					                    : &http_server::handle_response_filtered_async_body_writting;
 					
 				case http_body_type::lstream:
-					return &http_server::handle_response_normal_stream_body_writting;
+					return &http_server::handle_response_lstream_body_writting;
 					
 				case http_body_type::null:
 					return &http_server::handle_response_written;
@@ -2274,26 +2274,101 @@ namespace ext::net::http
 		}
 	}
 
+	auto http_server::handle_response_lstream_body_writting(processing_context * context) -> handle_method_type
+	{
+		auto & sock = context->sock;
+		assert(not sock.throw_errors());
+		
+		SOCK_LOG_DEBUG("writting http response lstream body");
+		
+		auto & body = std::get<http_response>(context->response).body;
+		auto & stream_ptr = std::get<lstream>(body).stream;
+		auto & raw_data = context->response_raw_buffer;
+		
+		try
+		{
+			char * first, * last;
+			int written;
+			
+			for (;;)
+			{
+				if (not m_running)
+				{
+					SOCK_LOG_INFO("abandoning http_response body writting, server is stopping");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
+				switch (context->async_state)
+				{
+					case 0: // initial preparing
+						raw_data.resize(std::max(raw_data.capacity(), sendbuf_size(context)));
+						
+						context->async_state += 1;
+						context->written_count = 0;
+						
+					case 1: // read next chunk
+						raw_data.resize(raw_data.capacity());
+						written = stream_ptr->sgetn(raw_data.data(), raw_data.size());
+						raw_data.resize(written);
+						
+						if (written == 0) goto finished;
+						
+						context->written_count = 0;
+						context->async_state += 1;
+						
+					case 2: //write_chunk:
+						first = raw_data.data();
+						last  = first + raw_data.size();
+						first += context->written_count;
+						
+						if (auto next = send(context, first, last - first, written))
+							return next;
+		
+						log_write_buffer(sock.handle(), first, written);
+						context->written_count += written;
+						if (first + written < last)
+						{
+							SOCK_LOG_DEBUG("send: writting less than got, scheduling socket waiting");
+							return async_method(socket_queue::writable, &http_server::handle_response_lstream_body_writting);
+						}
+						
+						context->async_state = 1;
+						context->written_count = 0;
+						
+						continue;
+						
+					default: EXT_UNREACHABLE();
+				}
+			}
+
+		finished:
+			raw_data.clear();
+			context->async_state = 0, context->written_count = 0;
+			return &http_server::handle_response_written;
+		}
+		catch (std::runtime_error & ex)
+		{
+			SOCK_LOG_WARN("got writting error while writting lstream body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
+			context->conn_action = connection_action_type::close;
+			return &http_server::handle_finish;
+		}
+	}
+	
 	auto http_server::handle_response_normal_stream_body_writting(processing_context * context) -> handle_method_type
 	{
 		auto & sock = context->sock;
 		assert(not sock.throw_errors());
 
 		SOCK_LOG_DEBUG("writting http response normal stream body");
+		assert(not context->filter_ctx or context->filter_ctx->response_streaming_ctx.filters.empty());
 		
 		auto & body = std::get<http_response>(context->response).body;
-		auto body_type = static_cast<http_body_type>(body.index());
-		assert(body_type == http_body_type::lstream or not (context->filter_ctx and not context->filter_ctx->response_streaming_ctx.filters.empty()));
-		
-		auto & stream_ptr = body_type == http_body_type::stream
-		                  ? std::get<std::unique_ptr<std::streambuf>>(body)
-		                  : std::get<lstream>(body).stream;
+		auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
 		
 		auto & raw_data = context->response_raw_buffer;
 		auto & chunk_prefix  = context->chunk_prefix;
-
-		//const http_body & body = std::get<http_response>(context->response).body;
-		//auto & stream_ptr = std::get<std::unique_ptr<std::streambuf>>(body);
 		
 		try
 		{

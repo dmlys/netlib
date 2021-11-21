@@ -431,10 +431,12 @@ namespace ext::net::http
 		
 		virtual auto handle_response_normal_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_filtered_body_writting(processing_context * context) -> handle_method_type;
+		virtual auto handle_response_lstream_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_normal_stream_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_filtered_stream_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_normal_async_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_filtered_async_body_writting(processing_context * context) -> handle_method_type;
+		
 		
 		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
 
