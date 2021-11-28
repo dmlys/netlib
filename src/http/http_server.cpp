@@ -116,7 +116,6 @@ namespace ext::net::http
 		// clean everything,
 		// close any socks and listeners
 		m_listener_contexts.clear();
-		m_sock_handles.clear();
 		m_sock_queue.clear();
 		assert(m_sock_queue.empty());
 
@@ -3114,7 +3113,10 @@ namespace ext::net::http
 		#ifdef EXT_ENABLE_OPENSSL
 		if (newconn)
 		{
-			const auto & listener_context = get_listener_context(sock);
+			auto lhandle = m_sock_queue.lasl();
+			assert(lhandle != invalid_socket);
+			
+			const auto & listener_context = get_listener_context(lhandle);
 			if (listener_context.ssl_ctx)
 			{
 				auto * ssl = ::SSL_new(listener_context.ssl_ctx.get());
@@ -3145,9 +3147,7 @@ namespace ext::net::http
 		}
 		else
 		{
-			bool inserted;
-			std::tie(std::ignore, inserted) = m_sock_handles.insert(sock.handle());
-
+			bool inserted = m_sock_queue.lasl() != invalid_socket;
 			if (inserted)
 			{
 				sock.throw_errors(false);
@@ -3195,8 +3195,6 @@ namespace ext::net::http
 			LOG_WARN("connection failed(sock={}): peer {} <-> sock {}; error is {}", sock.handle(), sock.peer_endpoint_noexcept(), sock.sock_endpoint_noexcept(), format_error(sock.last_error()));
 		else
 			LOG_INFO("connection closed(sock={}): peer {} <-> sock {}", sock.handle(), sock.peer_endpoint_noexcept(), sock.sock_endpoint_noexcept());
-
-		m_sock_handles.erase(sock.handle());
 		
 		sock.throw_errors(false);
 		sock.close();
@@ -3319,40 +3317,50 @@ namespace ext::net::http
 		return std::visit(visitor, result);
 	}
 
-	auto http_server::get_listener_context(const socket_streambuf & sock) const -> const listener_context &
+	auto http_server::get_listener_context(socket_handle_type listener_handle) const -> const listener_context &
 	{
-		sockaddr_storage addrstore;
-		socklen_t addrlen = sizeof(addrstore);
-		auto * addrptr = reinterpret_cast<sockaddr *>(&addrstore);
-		sock.getsockname(addrptr, &addrlen);
+		auto it = m_listener_contexts.find(listener_handle);
 		
-		auto addr = sock_addr(addrptr);
-		auto it = m_listener_contexts.find(addr);
 		if (it == m_listener_contexts.end())
-		{
-			if (addrptr->sa_family == AF_INET)
-			{   // IP4
-				addr = "0.0.0.0";
-				addr += ":";
-				ext::itoa_buffer<unsigned short> buffer;
-				addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
-				it = m_listener_contexts.find(addr);
-			}
-			else if (addrptr->sa_family == AF_INET6)
-			{   // IP6
-				addr = "[::]";
-				addr += ":";
-				ext::itoa_buffer<unsigned short> buffer;
-				addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
-				it = m_listener_contexts.find(addr);
-			}
-		}
-
-		if (it == m_listener_contexts.end())
-			throw std::runtime_error(fmt::format("can't find listener context for socket {}", sock.handle()));
-
+			throw std::runtime_error(fmt::format("Can't find listener context for handle {}", listener_handle)); // actually should not happen
+	
 		return it->second;
 	}
+	
+	//auto http_server::get_listener_context(const socket_streambuf & sock) const -> const listener_context &
+	//{
+	//	sockaddr_storage addrstore;
+	//	socklen_t addrlen = sizeof(addrstore);
+	//	auto * addrptr = reinterpret_cast<sockaddr *>(&addrstore);
+	//	sock.getsockname(addrptr, &addrlen);
+	//	
+	//	auto addr = sock_addr(addrptr);
+	//	auto it = m_listener_contexts.find(addr);
+	//	if (it == m_listener_contexts.end())
+	//	{
+	//		if (addrptr->sa_family == AF_INET)
+	//		{   // IP4
+	//			addr = "0.0.0.0";
+	//			addr += ":";
+	//			ext::itoa_buffer<unsigned short> buffer;
+	//			addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
+	//			it = m_listener_contexts.find(addr);
+	//		}
+	//		else if (addrptr->sa_family == AF_INET6)
+	//		{   // IP6
+	//			addr = "[::]";
+	//			addr += ":";
+	//			ext::itoa_buffer<unsigned short> buffer;
+	//			addr += ext::itoa(sock_port_noexcept(addrptr), buffer);
+	//			it = m_listener_contexts.find(addr);
+	//		}
+	//	}
+	//
+	//	if (it == m_listener_contexts.end())
+	//		throw std::runtime_error(fmt::format("can't find listener context for socket {}", sock.handle()));
+	//
+	//	return it->second;
+	//}
 
 	auto http_server::find_handler(processing_context & context) const -> const http_server_handler *
 	{
@@ -3592,7 +3600,7 @@ namespace ext::net::http
 	
 	auto http_server::do_add_listener(listener listener, int backlog, ssl_ctx_iptr ssl_ctx) -> ext::future<void>
 	{
-		//assert(listener.is_bound());
+		assert(listener.is_socket());
 		std::unique_lock lk(m_mutex);
 		if (m_started)
 		{
@@ -3604,11 +3612,11 @@ namespace ext::net::http
 				context.ssl_ctx = std::move(ssl_ctx);
 
 				bool inserted;
-				std::tie(std::ignore, inserted) = m_listener_contexts.emplace(addr, std::move(context));
+				std::tie(std::ignore, inserted) = m_listener_contexts.emplace(listener.handle(), std::move(context));
 				if (not inserted)
 				{
-					auto err_msg = fmt::format("can't add listener on {}, already have one", addr);
-					LOG_ERROR("can't add listener on {}, already have one", addr);
+					auto err_msg = fmt::format("Can't add listener(handle = {}) on {}, already have one", listener.handle(), addr);
+					LOG_ERROR("{}", err_msg);
 					throw std::runtime_error(err_msg);
 				}
 
@@ -3630,12 +3638,12 @@ namespace ext::net::http
 			context.ssl_ctx = std::move(ssl_ctx);
 
 			bool inserted;
-			std::tie(std::ignore, inserted) = m_listener_contexts.emplace(addr, std::move(context));
+			std::tie(std::ignore, inserted) = m_listener_contexts.emplace(context.listener.handle(), std::move(context));
 
 			if (not inserted)
 			{
-				auto err_msg = fmt::format("can't add listener on {}, already have one", addr);
-				LOG_ERROR("can't add listener on {}, already have one", addr);
+				auto err_msg = fmt::format("Can't add listener(handle = {}) on {}, already have one", context.listener.handle(), addr);
+				LOG_ERROR("{}", err_msg);
 				return ext::make_exceptional_future<void>(std::runtime_error(err_msg));
 			}
 

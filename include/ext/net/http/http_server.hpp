@@ -253,8 +253,7 @@ namespace ext::net::http
 		
 	protected:
 		socket_queue m_sock_queue; // intenal socket and listener queue
-		boost::container::flat_set<socket_streambuf::handle_type> m_sock_handles; // set of current pending sockets, used to detect new connections
-		boost::container::flat_map<std::string, listener_context> m_listener_contexts; // listener contexts map by <addr:port>
+		boost::container::flat_map<socket_handle_type, listener_context> m_listener_contexts; // listener contexts map by listener handle
 		
 		// sharable cow config context, see config_context description
 		std::shared_ptr<config_context> m_config_context = std::make_shared<config_context>();
@@ -495,8 +494,8 @@ namespace ext::net::http
 		/// Also checks if future is cancelled or abandoned.
 		virtual auto process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> process_result;
 
-		/// Searches listener context by sock addr: from what listener does this socket came
-		virtual const listener_context & get_listener_context(const socket_streambuf & sock) const;
+		/// Searches listener context by listener handle
+		virtual const listener_context & get_listener_context(socket_handle_type listener_handle) const;
 		/// Searches acceptable http handler, nullptr if not found
 		virtual const http_server_handler * find_handler(processing_context & context) const;
 
