@@ -1,5 +1,7 @@
 #pragma once
 #include <fmt/format.h>
+#include <fmt/ostream.h>
+
 #include <ext/library_logger/logger.hpp>
 #include <ext/library_logger/logging_macros.hpp>
 
