@@ -54,9 +54,10 @@ namespace ext::net
 	private:
 		struct item
 		{
-			socket_streambuf sock;   /// pending socket
-			time_point submit_time;  /// time point of socket submission into this queue
-			wait_type  wtype;        /// socket wait type: readable, writable or both
+			socket_streambuf sock;        /// pending socket
+			time_point       submit_time; /// time point of socket submission into this queue
+			handle_type      listener;    /// if new socket, holds handle to a listener from which this socket was accepted
+			wait_type        wtype;       /// socket wait type: readable, writable or both
 
 			unsigned ready        : 1; /// ready status flag
 			unsigned ready_status : 2; /// ready status wait_status::ready or wait_status::timeout
@@ -71,6 +72,9 @@ namespace ext::net
 
 		/// current position in socket queue list, where search should be started
 		sock_list::iterator m_cur = m_socks.begin();
+		/// Holds item.listener for last socket retrieved with take method.
+		/// This handle is valid for sockets accepted from listeners in this queue
+		handle_type m_last_accepted_socket_listener;
 
 		/// interruption flag
 		std::atomic_bool m_interrupted = ATOMIC_VAR_INIT(false);
@@ -95,7 +99,13 @@ namespace ext::net
 		/// creates socket sets for select call - call it, process select result, accepts new incoming connections from listeners, etc
 		/// returns waiting result, and if there is ready socket - m_cur will point to it
 		auto wait_ready(time_point until) -> wait_status;
-
+		
+	private:
+		/// submits socket_streambuf for waiting: readable, writable or both
+		void submit(socket_streambuf sock, handle_type listener, wait_type wtype);
+		/// erases all bindings of socket items to listeners(nullifiers item.from_listener)
+		void erase_listener_tracking();
+		
 	public:
 		/// waits until some socket becomes ready for read or write(depends on submission flag).
 		wait_status wait() const;
@@ -121,7 +131,13 @@ namespace ext::net
 		/// submits socket_stream from socket_stream for waiting: readable, writable or both.
 		/// socket_stream itself is discarded and destroyed
 		void submit(socket_stream    sock, wait_type wtype = readable);
-
+		
+	public:
+		/// lasl - last accepted socket listener.
+		/// If last taken socket was accepted from one of listeners in this queue, this method will return that listener, otherwise invalid_handle.
+		/// Calling this method only allowed after successful take call(wait_status == ready), otherwise calling this method is undefined behaviour.
+		handle_type lasl() const { return m_last_accepted_socket_listener; }
+		
 	public:
 		/// queue is empty if it does not have any listeners or sockets
 		bool empty() const noexcept { return m_listeners.empty() and m_socks.empty(); }
@@ -136,8 +152,8 @@ namespace ext::net
 		auto take_listener(unsigned short port) -> ext::net::listener { return remove_listener(port); }
 
 		auto get_listeners() const -> const listener_list & { return m_listeners; }
-		auto get_listeners()       ->       listener_list & { return m_listeners; }
-		auto take_listeners()      ->       listener_list   { return std::move(m_listeners); }
+		auto get_listeners()       ->       listener_list & { erase_listener_tracking(); return m_listeners; }
+		auto take_listeners()      ->       listener_list   { erase_listener_tracking(); return std::move(m_listeners); }
 		auto take_sockets()        ->       std::vector<socket_streambuf>;
 
 	public:

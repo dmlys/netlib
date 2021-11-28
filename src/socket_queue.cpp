@@ -196,6 +196,7 @@ namespace ext::net
 					{
 						LOG_INFO("socket {} timed out", sock_handle);
 						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_queue");
+						item.ready = 1, item.ready_status = timeout;
 					}
 				}
 				else
@@ -226,6 +227,9 @@ namespace ext::net
 					// that probably should never happen for getsockopt(..., SO_ERROR, ...)
 					if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) continue;
 
+					item.ready_status = ready;
+					item.ready = 1;
+					
 					auto errc = std::error_code(err, socket_error_category());
 					item.sock.set_last_error(errc, "socket_queue");
 
@@ -348,7 +352,7 @@ namespace ext::net
 					{
 						LOG_INFO("socket {} timed out", sock_handle);
 						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_queue");
-						item.ready = 1, item.ready_status = ready;
+						item.ready = 1, item.ready_status = timeout;
 					}
 				}
 				else
@@ -487,20 +491,21 @@ namespace ext::net
 			LOG_DEBUG("got new socket {} connection from {}", new_sock.handle(), new_sock.peer_endpoint());
 
 			configure(new_sock);
-			submit(std::move(new_sock));
+			submit(std::move(new_sock), listener.handle(), wait_type::readable);
 		}
 
 		// calculate state of sockets, ready, timeout, errors... transfer into internal queue
 #if EXT_NET_USE_POLL
-		helper::calculate_socket_state(*this, now = time_point::clock::now(), psfirst, pslast); goto restart;
+		helper::calculate_socket_state(*this, now = time_point::clock::now(), psfirst, pslast);
 #else
-		helper::calculate_socket_state(*this, now = time_point::clock::now(), &readset, &writeset); goto restart;
+		helper::calculate_socket_state(*this, now = time_point::clock::now(), &readset, &writeset);
 #endif
+		goto restart;
 
 	interrupted:
 		return process_interrupted();
 	}
-
+	
 	auto socket_queue::wait() const -> wait_status
 	{
 		return wait_until(time_point::max());
@@ -524,6 +529,7 @@ namespace ext::net
 		if (result_status == ready)
 		{
 			result = std::move(m_cur->sock);
+			m_last_accepted_socket_listener = m_cur->listener;
 			m_cur = m_socks.erase(m_cur);
 
 			LOG_TRACE("socket {} taken", result.handle());
@@ -546,23 +552,29 @@ namespace ext::net
 		return pending;
 	}
 
-	void socket_queue::submit(socket_streambuf buf, wait_type wtype)
+	void socket_queue::submit(socket_streambuf sock, handle_type listener, wait_type wtype)
 	{
-		LOG_TRACE("socket {} submitted", buf.handle());
+		LOG_TRACE("socket {} submitted", sock.handle());
 		assert(wtype & readable or wtype & writable);
 
 		unsigned ready = 0;
 		unsigned ready_status = ready;
 
 		if (wtype & readable)
-			ready = socket_streambuf_have_pending_data(buf);
+			ready = socket_streambuf_have_pending_data(sock);
 
 		m_socks.push_back({
-			std::move(buf),
+			std::move(sock),
 			time_point::clock::now(),
+			listener,
 			wtype,
 			ready, ready_status
-		});
+		});		
+	}	
+	
+	void socket_queue::submit(socket_streambuf sock, wait_type wtype)
+	{
+		return submit(std::move(sock), invalid_socket, wtype);
 	}
 
 	void socket_queue::submit(socket_stream sock, wait_type wtype)
@@ -582,6 +594,13 @@ namespace ext::net
 		m_listeners.push_back(std::move(listener));
 	}
 
+	
+	void socket_queue::erase_listener_tracking()
+	{
+		for (auto & sock_item : m_socks)
+			sock_item.listener = invalid_socket;
+	}
+	
 	auto socket_queue::remove_listener(unsigned short port) -> ext::net::listener
 	{
 		auto first = m_listeners.begin();
@@ -593,8 +612,13 @@ namespace ext::net
 			auto sock_port = listener.sock_port();
 			if (sock_port == port)
 			{
+				for (auto & sock_item : m_socks)
+					if (sock_item.listener == listener.handle())
+						sock_item.listener = invalid_socket;
+				
 				auto result = std::move(listener);
 				m_listeners.erase(first);
+				
 				return result;
 			}
 		}
