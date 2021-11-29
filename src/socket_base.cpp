@@ -107,6 +107,22 @@ namespace ext::net
 		return socket_condition_category_impl_instance;
 	}
 
+	
+	auto add_timeout(std::chrono::steady_clock::time_point tp, std::chrono::steady_clock::duration timeout) -> std::chrono::steady_clock::time_point
+	{
+		assert(tp.time_since_epoch().count() >= 0);
+		assert(timeout >= std::chrono::steady_clock::duration::zero());
+		
+		// auto result = tp + timeout;
+		// if (result >= tp) return result;
+		// // overflow happened
+		// return std::chrono::steady_clock::time_point::max();
+		
+		if (tp > std::chrono::steady_clock::time_point::max() - timeout) // overflow
+			return std::chrono::steady_clock::time_point::max();
+		
+		return tp + timeout;
+	}
 
 	/************************************************************************/
 	/*                platform dependent stuff                              */
@@ -830,7 +846,7 @@ namespace ext::net
 		unsigned short port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
 		return ntohs(port);
 	}
-
+	
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
 	{
 		using rep_type = std::chrono::microseconds::duration::rep;

@@ -143,8 +143,12 @@ namespace ext::net
 
 	void set_port(addrinfo_type * addr, unsigned short port);
 	auto get_port(addrinfo_type * addr) -> unsigned short;
+	
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv);
 	int poll_mktimeout(std::chrono::steady_clock::duration val);
+	
+	/// overflow safe timeout addition, if adding timeout will overflow - returns std::chrono::steady_clock::time_point::max()
+	auto add_timeout(std::chrono::steady_clock::time_point tp, std::chrono::steady_clock::duration timeout) -> std::chrono::steady_clock::time_point;
 
 	/// ::inet_ntop wrapper, все строки в utf8
 	/// @Throws std::system_error в случае системной ошибки

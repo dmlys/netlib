@@ -170,10 +170,7 @@ namespace ext::net
 				max_handle = std::max(max_handle, handle);
 			}
 
-			until = time_point::max() - until >= min_timeout // check overflow
-			        ? until + min_timeout
-			        : time_point::max();
-
+			until = add_timeout(until, min_timeout);
 			return std::make_tuple(max_handle, until);
 		}
 
@@ -272,9 +269,7 @@ namespace ext::net
 				min_timeout = std::min(timeout, min_timeout);
 			}
 
-			until = time_point::max() - until >= min_timeout // check overflow
-			        ? until + min_timeout
-			        : time_point::max();
+			until = add_timeout(until, min_timeout);
 
 			auto first = poll_array.data();
 			auto socks_first = first + 1 + queue.m_listeners.size();
@@ -513,7 +508,7 @@ namespace ext::net
 
 	auto socket_queue::wait_for(duration_type timeout) const -> wait_status
 	{
-		return wait_until(time_point::clock::now() + timeout);
+		return wait_until(add_timeout(time_point::clock::now(), timeout));
 	}
 
 	auto socket_queue::wait_until(time_point until) const -> wait_status

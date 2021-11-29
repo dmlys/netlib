@@ -154,7 +154,7 @@ namespace ext::net
 		int wsaerr, res, solen;
 		StateType prevstate;
 		bool closesock, pubres; // в случае ошибки закрыть сокет
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 		
 		prevstate = Closed;
 		m_lasterror.clear();
@@ -664,7 +664,7 @@ namespace ext::net
 	{
 		//if (!is_valid()) return 0;
 
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 		do {
 
 #ifdef EXT_ENABLE_OPENSSL
@@ -698,7 +698,7 @@ namespace ext::net
 	{
 		//if (!is_valid()) return 0;
 
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 		do {
 
 #ifdef EXT_ENABLE_OPENSSL
@@ -948,7 +948,7 @@ namespace ext::net
 			return false;
 		}
 
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 		int fstate;
 
 		do {
@@ -975,7 +975,7 @@ namespace ext::net
 			return false;
 		}
 
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 		int fstate;
 
 		do {
@@ -1002,7 +1002,7 @@ namespace ext::net
 		long int rc;
 		handle_type sock;
 
-		auto until = time_point::clock::now() + m_timeout;
+		auto until = add_timeout(time_point::clock::now(), m_timeout);
 
 		// first shutdown
 		do {
