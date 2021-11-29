@@ -854,12 +854,15 @@ namespace ext::net::http
 	std::size_t http_server::sendbuf_size(processing_context * context) const
 	{
 		constexpr int max_bufsize = 10 * 1024;
+		constexpr int min_bufsize =  2 * 1024;
+		
 		int n = 0;
 		socklen_t m = sizeof(m);
 		int res = ::getsockopt(context->sock.handle(), SOL_SOCKET, SO_SNDBUF, reinterpret_cast<char *>(&n), &m);
-		if (res == -1) return max_bufsize;
-
-		return std::min(max_bufsize, n);
+		// if OS not reporting SNDBUF - use maximum
+		if (res == -1 or n == 0) return max_bufsize;
+		
+		return std::clamp(n, min_bufsize, max_bufsize);
 	}
 
 	auto http_server::handle_start(processing_context * context) -> handle_method_type
