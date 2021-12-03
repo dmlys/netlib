@@ -88,7 +88,7 @@ namespace ext::net::http
 	/// 
 	/// Lifetime and close method:
 	///  http_body_streambuf, async_http_body_source and alike classes can be bound to some parent object, in case of request - http_server.
-	///  Life time of parent object should not linger on those classes, yet it can require some resources from it.
+	///  Life time of parent object should not linger on those classes, yet those classes require some resources from parent object.
 	///
 	///  Thats what for close method is: whenever parent object can no longer/don't want to serve child objects
 	///  like http_body_streambuf, async_http_body_source - it should close them via close method, severing any connections with those objects.

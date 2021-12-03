@@ -6,7 +6,7 @@ using namespace ext::net::http;
 
 BOOST_AUTO_TEST_SUITE(http_headers_utils_method_tests)
 
-BOOST_AUTO_TEST_CASE(http_headers_append_test)
+BOOST_AUTO_TEST_CASE(http_headers_prepend_test)
 {
 	http_headers_vector headers = 
 	{
@@ -40,7 +40,7 @@ BOOST_AUTO_TEST_CASE(http_headers_append_test)
 	BOOST_CHECK_EQUAL(get_header_value(headers, "Test"), "zstd");
 }
 
-BOOST_AUTO_TEST_CASE(http_headers_prepend_test)
+BOOST_AUTO_TEST_CASE(http_headers_append_test)
 {
 	http_headers_vector headers = 
 	{
