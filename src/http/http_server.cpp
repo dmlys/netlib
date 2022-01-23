@@ -599,7 +599,7 @@ namespace ext::net::http
 		handle->add_continuation(cont.get());
 	}
 
-	static bool pending_ssl_hanshake(socket_streambuf & sock)
+	bool http_server::pending_ssl_hanshake(socket_streambuf & sock)
 	{
 		auto handle = sock.handle();
 		char ch;

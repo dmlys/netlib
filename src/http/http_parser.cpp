@@ -1,6 +1,6 @@
-#include <ext/net/http_parser.hpp>
+#include <ext/net/http/http_parser.hpp>
 
-namespace ext::net
+namespace ext::net::http
 {
 	int parse_http_response(http_parser & parser, std::streambuf & sb, std::string & response_body)
 	{
@@ -48,10 +48,10 @@ namespace ext::net
 	}
 }
 
-#include <ext/net/http_parser_impl.hpp>
+#include <ext/net/http/http_parser_impl.hpp>
 
-template void ext::net::parse_http_body<std::string>(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url);
-template void ext::net::parse_http_body<std::string>(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url);
+template void ext::net::http::parse_http_body<std::string>(http_parser & parser, std::streambuf & sb, std::string & body, std::string * status_or_url);
+template void ext::net::http::parse_http_body<std::string>(http_parser & parser, std::istream   & is, std::string & body, std::string * status_or_url);
 
-template void ext::net::parse_http_body<std::vector<char>>(http_parser & parser, std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
-template void ext::net::parse_http_body<std::vector<char>>(http_parser & parser, std::istream   & is, std::vector<char> & body, std::string * status_or_url);
+template void ext::net::http::parse_http_body<std::vector<char>>(http_parser & parser, std::streambuf & sb, std::vector<char> & body, std::string * status_or_url);
+template void ext::net::http::parse_http_body<std::vector<char>>(http_parser & parser, std::istream   & is, std::vector<char> & body, std::string * status_or_url);

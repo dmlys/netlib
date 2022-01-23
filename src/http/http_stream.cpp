@@ -1,6 +1,6 @@
-#include <ext/net/http_stream.hpp>
+#include <ext/net/http/http_stream.hpp>
 
-namespace ext::net
+namespace ext::net::http
 {
 	auto http_streambuf::underflow() -> int_type
 	{

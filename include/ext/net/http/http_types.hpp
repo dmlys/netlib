@@ -376,6 +376,7 @@ namespace ext::net::http
 	{
 		http_response response;
 		response.http_code = 200;
+		response.status = "OK";
 		response.body = std::forward<Type>(http_body);
 		set_header(response.headers, "Content-Type", content_type);
 		

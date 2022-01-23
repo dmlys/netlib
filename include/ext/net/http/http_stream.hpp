@@ -8,9 +8,9 @@
 #include <ext/cppzlib.hpp>
 #include <ext/iostreams/streambuf.hpp>
 #include <ext/net/socket_stream.hpp>
-#include <ext/net/http_parser.hpp>
+#include <ext/net/http/http_parser.hpp>
 
-namespace ext::net
+namespace ext::net::http
 {
 	/************************************************************************/
 	/*                       http_streambuf                                 */

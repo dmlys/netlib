@@ -23,7 +23,7 @@
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/socket_queue.hpp>
 
-#include <ext/net/http_parser.hpp>
+#include <ext/net/http/http_parser.hpp>
 #include <ext/net/http/http_types.hpp>
 #include <ext/net/http/http_server_handler.hpp>
 #include <ext/net/http/http_server_filter.hpp>
@@ -366,6 +366,11 @@ namespace ext::net::http
 		static  auto async_method(ext::intrusive_ptr<ext::shared_state_basic> future_handle, regular_handle_methed async_method) -> handle_method_type;
 		static  auto async_method(socket_queue::wait_type wait,                              regular_handle_methed async_method) -> handle_method_type;
 
+		/// Checks if there is a pending ssl handshake on socket:
+		///   peeks one byte available from socket via MSG_PEEK,
+		///   and checks it start on ssl handshake packet( == 0x16)
+		virtual bool pending_ssl_hanshake(socket_streambuf & sock);
+		
 		/// non blocking recv with MSG_PEEK:
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,

@@ -2,7 +2,7 @@
 #include <ext/net/http/parse_header.hpp>
 #include <ext/net/http/blocking_http_parser.hpp>
 
-namespace ext::net
+namespace ext::net::http
 {
 	using http_parser = http::blocking_http_parser;
 

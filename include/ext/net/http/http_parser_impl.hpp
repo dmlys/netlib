@@ -3,9 +3,9 @@
 #include <ext/cppzlib.hpp>
 #include <ext/range.hpp>
 #include <ext/iostreams/streambuf.hpp>
-#include <ext/net/http_parser.hpp>
+#include <ext/net/http/http_parser.hpp>
 
-namespace ext::net
+namespace ext::net::http
 {
 	template <class Container>
 	void parse_http_body(http_parser & parser, std::streambuf & sb, Container & body, std::string * pstatus_url /* = nullptr */)
