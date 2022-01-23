@@ -94,4 +94,19 @@ namespace ext::net::http
 	///   double    html_weight = extract_weight(accept_header, "text/html");
 	double extract_weight(std::string_view field, std::string_view name, double defval = 0.0);
 	
+	/// sets header list_item value to given value.
+	///  headerstr - string holding header value, it will be modified
+	///  valname - name of header list item value
+	///  newparstr - new value of list item - it is parameter string
+	/// examples:
+	///   "br;q=1.0, gzip;q=0.8, *;q=0.1; some=123"    "gzip"    "q=1.9"    -> "br;q=1.0, gzip;q=1.9, *;q=0.1; some=123"
+	///   "          gzip;q=0.8, *;q=0.1; some=123"    "gzip"    ""         -> "          gzip, *;q=0.1; some=123"
+	///   "br;q=1.0"                                   "gzip"    "q=1.1"    -> "br;q=1.0, gzip; q=1.1"
+	/// 
+	/// Basicly it treats header value as comma separated list of values. Each value is identified by its value-name and can have it's own value - parameter.
+	/// This function finds given header value valname in list and sets/replaces its parameter string to given argument.
+	///  If valname not found - it is appended
+	void set_header_value_list_item(std::string & headerstr, std::string_view valname, std::string_view newparstr);
+	
+	
 }

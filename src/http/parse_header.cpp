@@ -11,17 +11,23 @@
 
 namespace ext::net::http
 {
-	static std::string & trim(std::string & view)
+	template <class Iterator>
+	static void trim(Iterator & first, Iterator & last) noexcept
 	{
-		auto first = view.data();
-		auto last  = first + view.size();
 		auto notspace = [](char ch) { return ch != ' '; };
 
 		// trim left
 		first = std::find_if(first, last, notspace);
 		// trim right
 		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
-
+	}
+	
+	static std::string & trim(std::string & view)
+	{
+		auto first = view.data();
+		auto last  = first + view.size();
+		
+		trim(first, last);
 		return view.assign(first, last);
 	}
 
@@ -29,16 +35,10 @@ namespace ext::net::http
 	{
 		auto first = view.data();
 		auto last  = first + view.size();
-		auto notspace = [](char ch) { return ch != ' '; };
-
-		// trim left
-		first = std::find_if(first, last, notspace);
-		// trim right
-		last = std::find_if(std::make_reverse_iterator(last), std::make_reverse_iterator(first), notspace).base();
-
+		
+		trim(first, last);
 		return view = std::string_view(first, last - first);
 	}
-
 
 	bool parse_header_value(std::string & header_str, std::string & value, std::string & params)
 	{
@@ -330,5 +330,76 @@ namespace ext::net::http
 		else
 			return defval;
 	}
+	
+	void set_header_value_list_item(std::string & headerstr, std::string_view valname, std::string_view newparstr)
+	{
+		auto first = headerstr.begin();
+		auto last  = headerstr.end();
 
+		while (first != last)
+		{
+			// split/search values by comma
+			auto val_first = first;
+			auto val_last  = std::find(first, last, ',');
+			
+			// find parameter string
+			auto par_first = std::find(val_first, val_last, ';');
+			auto par_last  = val_last;
+			
+			val_last = par_first;
+			first = par_last;
+			if (first < last) ++first; // if found comma - start from next char on next iteration
+			
+			trim(val_first, val_last);
+			
+			if (not std::equal(valname.begin(), valname.end(), val_first, val_last))
+				continue;
+			
+			if (par_first == par_last) // value has no par string
+			{
+				if (newparstr.empty())
+					return;
+				else
+				{
+					auto insert_pos = val_last - headerstr.begin();
+					headerstr.insert(insert_pos, newparstr.size() + 1, ' ');
+					headerstr[insert_pos] = ';', insert_pos += 1;
+					std::copy(newparstr.begin(), newparstr.end(), headerstr.begin() + insert_pos);
+					return;
+				}
+			}
+			else // value has par string
+			{
+				if (not newparstr.empty())
+				{
+					// skip one for already existing ';' char
+					headerstr.replace(par_first + 1, par_last, newparstr.begin(), newparstr.end());
+					return;
+				}
+				else
+				{
+					headerstr.erase(par_first, par_last);
+					return;
+				}
+			}
+		}
+		
+		// could not found list item with name valname - append it
+		auto extension_size = valname.size() + 2;
+		if (not newparstr.empty()) extension_size += 1 + newparstr.size();
+		
+		headerstr.append(extension_size, ' ');
+		auto out = headerstr.end() - extension_size;
+		
+		*out = ',', ++out, *out = ' ', ++out;
+		out = std::copy(valname.begin(), valname.end(), out);
+		
+		if (not newparstr.empty())
+		{
+			*out = ';', ++out;
+			out = std::copy(newparstr.begin(), newparstr.end(), out);
+		}
+		
+		return;
+	}
 }

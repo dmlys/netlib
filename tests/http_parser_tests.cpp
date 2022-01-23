@@ -3,7 +3,9 @@
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
 
-BOOST_AUTO_TEST_CASE(http_parser_response_test)
+BOOST_AUTO_TEST_SUITE(http_parse_tests)
+
+BOOST_AUTO_TEST_CASE(parse_response_test)
 {
 	std::string text;
 	LoadTestFile("test-files/post.example.txt", text);
@@ -17,7 +19,7 @@ BOOST_AUTO_TEST_CASE(http_parser_response_test)
 	BOOST_CHECK(body   == "licenseID=string&content=string&/paramsXML=string");
 }
 
-BOOST_AUTO_TEST_CASE(http_parse_header_test)
+BOOST_AUTO_TEST_CASE(parse_header_test)
 {
 	using namespace ext::net::http;
 	std::string_view text;
@@ -52,7 +54,7 @@ BOOST_AUTO_TEST_CASE(http_parse_header_test)
 	BOOST_CHECK_EQUAL(parval, "1");
 }
 
-BOOST_AUTO_TEST_CASE(http_parse_query_test)
+BOOST_AUTO_TEST_CASE(parse_query_test)
 {
 	using namespace ext::net::http;
 	std::string_view text;
@@ -80,3 +82,27 @@ BOOST_AUTO_TEST_CASE(http_parse_query_test)
 	BOOST_CHECK(extract_query(text, "", value));
 	BOOST_CHECK_EQUAL(value, "treason");
 }
+
+BOOST_AUTO_TEST_CASE(set_header_value_test)
+{
+	using namespace ext::net::http;
+	std::string header;
+	
+	header = "br;q=1.0";
+	set_header_value_list_item(header, "gzip", "q=1.9");
+	BOOST_CHECK_EQUAL(header, "br;q=1.0, gzip;q=1.9");
+	
+	header = "gzip;q=0.8, *;q=0.1; some=123";
+	set_header_value_list_item(header, "gzip", "");
+	BOOST_CHECK_EQUAL(header, "gzip, *;q=0.1; some=123");
+	
+	header = "gzip, br;q=1.0";
+	set_header_value_list_item(header, "gzip", "q=1.1");
+	BOOST_CHECK_EQUAL(header, "gzip;q=1.1, br;q=1.0");
+	
+	header = "br;q=1, gzip";
+	set_header_value_list_item(header, "gzip", "q=1.1");
+	BOOST_CHECK_EQUAL(header, "br;q=1, gzip;q=1.1");
+}
+
+BOOST_AUTO_TEST_SUITE_END()
