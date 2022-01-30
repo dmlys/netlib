@@ -101,7 +101,7 @@ namespace ext::net
 	bool bsdsock_streambuf::do_sockconnect(handle_type sock, addrinfo_type * addr, unsigned short port) noexcept
 	{
 		auto * in = reinterpret_cast<sockaddr_in *>(addr->ai_addr);
-		in->sin_port = ::htons(port);
+		in->sin_port = htons(port);
 		return do_sockconnect(sock, addr);
 	}
 	

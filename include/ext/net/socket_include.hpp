@@ -39,6 +39,7 @@
 #include <sys/select.h> /* According to POSIX.1-2001, POSIX.1-2008 */
 #include <sys/ioctl.h>  // for ioctl
 #include <arpa/inet.h>  // for inet_ntop/inet_pton
+#include <netinet/in.h> // Some systems require the inclusion of <netinet/in.h> instead of <arpa/inet.h>
 #include <netdb.h>      // for getaddrinfo/freeaddrinfo
 
 #include <netinet/in.h>

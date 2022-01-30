@@ -340,13 +340,13 @@ namespace ext::net
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
 			res = ::InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
-			port = ::ntohs(addr4->sin_port);
+			port = ntohs(addr4->sin_port);
 		}
 		else if (addr->sa_family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
 			res = InetNtopW(AF_INET6, const_cast<in_addr6 *>(&addr6->sin6_addr), buffer, buflen);
-			port = ::ntohs(addr6->sin6_port);
+			port = ntohs(addr6->sin6_port);
 		}
 		else
 		{
@@ -372,13 +372,13 @@ namespace ext::net
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
 			res = ::InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
-			port = ::ntohs(addr4->sin_port);
+			port = ntohs(addr4->sin_port);
 		}
 		else if (addr->sa_family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
 			res = InetNtopW(AF_INET6, const_cast<in_addr6 *>(&addr6->sin6_addr), buffer, buflen);
-			port = ::ntohs(addr6->sin6_port);
+			port = ntohs(addr6->sin6_port);
 		}
 		else
 		{
@@ -562,7 +562,7 @@ namespace ext::net
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
 			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-			return ::ntohs(port);
+			return ntohs(port);
 		}
 		
 		throw std::system_error(
@@ -577,7 +577,7 @@ namespace ext::net
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
 			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-			return ::ntohs(port);
+			return ntohs(port);
 		}
 		
 		return 0;
@@ -1067,7 +1067,7 @@ namespace ext::net
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
 			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-			return ::ntohs(port);
+			return ntohs(port);
 		}
 		
 		throw std::system_error(
@@ -1082,7 +1082,7 @@ namespace ext::net
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
 			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-			return ::ntohs(port);
+			return ntohs(port);
 		}
 		
 		return 0;
