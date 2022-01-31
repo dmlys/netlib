@@ -150,7 +150,7 @@ namespace ext::net::http::test_utils
 	{
 		http_response resp;
 		std::string name, value, body;
-		ext::net::http_parser parser;
+		ext::net::http::http_parser parser;
 		parser.parse_status(sock, resp.status);
 		
 		if (parser.http_code() == 100) // Expect answer, skip it

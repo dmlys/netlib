@@ -1,4 +1,4 @@
-#include <ext/net/http_parser.hpp>
+#include <ext/net/http/http_parser.hpp>
 #include <ext/net/http/parse_header.hpp>
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
@@ -12,7 +12,7 @@ BOOST_AUTO_TEST_CASE(parse_response_test)
 
 	std::istringstream is(text);
 	std::string method, url, body;
-	std::tie(method, url, body) = ext::net::parse_http_request(is);
+	std::tie(method, url, body) = ext::net::http::parse_http_request(is);
 
 	BOOST_CHECK(method == "POST");
 	BOOST_CHECK(url    == "/test/index.html");
