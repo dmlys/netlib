@@ -239,7 +239,7 @@ namespace ext::net::http::test_utils
 		
 		std::size_t len = 0;
 		len = std::accumulate(request_body_parts.begin(), request_body_parts.end(), len,
-			[](std::size_t & acc, auto & part) { return acc + part.size(); });
+			[](std::size_t acc, auto & part) { return acc + part.size(); });
 		
 		sock
 			<< "PUT " << url << " HTTP/1.1\r\n"

@@ -339,7 +339,7 @@ namespace ext::net
 		if (addr->sa_family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
-			res = ::InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			res = InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
 			port = ntohs(addr4->sin_port);
 		}
 		else if (addr->sa_family == AF_INET6)
@@ -371,7 +371,7 @@ namespace ext::net
 		if (addr->sa_family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
-			res = ::InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			res = InetNtopW(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
 			port = ntohs(addr4->sin_port);
 		}
 		else if (addr->sa_family == AF_INET6)
@@ -408,12 +408,12 @@ namespace ext::net
 		if (family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<sockaddr_in *>(out);
-			res = ::InetPton(family, waddr, &addr4->sin_addr);
+			res = InetPton(family, waddr, &addr4->sin_addr);
 		}
 		else if (family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<sockaddr_in6 *>(out);
-			res = ::InetPton(family, waddr, &addr6->sin6_addr);
+			res = InetPton(family, waddr, &addr6->sin6_addr);
 		}
 		else
 		{
@@ -484,7 +484,7 @@ namespace ext::net
 		if (addr->sa_family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
-			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			host_ptr = inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
 			port = ntohs(addr6->sin6_port);
 			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
 
@@ -495,7 +495,7 @@ namespace ext::net
 		else if (addr->sa_family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
-			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			host_ptr = inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
 			port = ntohs(addr4->sin_port);
 			if (not host_ptr) throw_last_socket_error("inet_ntop failed");
 
@@ -527,7 +527,7 @@ namespace ext::net
 		if (addr->sa_family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<const sockaddr_in6 *>(addr);
-			host_ptr = ::inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
+			host_ptr = inet_ntop(AF_INET6, const_cast<in6_addr *>(&addr6->sin6_addr), buffer, buflen);
 			port = ntohs(addr6->sin6_port);
 			if (not host_ptr) return make_addr_error_description(::WSAGetLastError());
 
@@ -538,7 +538,7 @@ namespace ext::net
 		else if (addr->sa_family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<const sockaddr_in *>(addr);
-			host_ptr = ::inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
+			host_ptr = inet_ntop(AF_INET, const_cast<in_addr *>(&addr4->sin_addr), buffer, buflen);
 			port = ntohs(addr4->sin_port);
 			if (not host_ptr) return make_addr_error_description(::WSAGetLastError());
 
