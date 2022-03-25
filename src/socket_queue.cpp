@@ -400,9 +400,9 @@ namespace ext::net
 		socks_last  = m_socks.end();
 
 		m_cur = find_ready_socket(socks_it = m_cur, socks_last);
-		if (m_cur != socks_last) return static_cast<wait_status>(m_cur->ready_status);
+		if (m_cur != socks_last) return ready;
 		m_cur = find_ready_socket(socks_first, socks_it);
-		if (m_cur != socks_it)   return static_cast<wait_status>(m_cur->ready_status);
+		if (m_cur != socks_it)   return ready;
 
 	again:
 		if (m_interrupted.load(std::memory_order_relaxed))

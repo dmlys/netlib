@@ -17,11 +17,11 @@ namespace ext::net
 {
 	/// NOTE: this is very simple class, it can be used is some trivial/simple applications, in other cases you should use more adequate solution.
 	/// socket_queue class manages and allows waiting on set of sockets and listeners in a queue fashion.
-	/// It have 2 sets: sockets and listeners. Both are waited to be readable/writable with select system call.
-	/// When select finishes waiting:
+	/// It have 2 sets: sockets and listeners. Both are waited to be readable/writable with select/poll system call.
+	/// When select/poll finishes waiting:
 	/// * check listeners and if there are pending connections - accept then, submit to queue end
 	/// * check sockets from queue, find first ready one remove it from queue, return to client
-	///   remember next position, next search start from it, that way socket are treated in fair way
+	///   remember next position, next search starts from it, that way socket are treated in fair way
 	///
 	/// This class is not thread safe, except interrupt method, which can be called from any thread or signal handler.
 	class socket_queue
@@ -78,7 +78,7 @@ namespace ext::net
 
 		/// interruption flag
 		std::atomic_bool m_interrupted = ATOMIC_VAR_INIT(false);
-		/// pipe pair used to interrupt blocking select syscall
+		/// pipe pair used to interrupt blocking select/poll syscall
 		handle_type m_interrupt_listen = -1;
 		handle_type m_interrupt_write  = -1;
 		/// default timeout for newly accepted sockets
@@ -96,7 +96,7 @@ namespace ext::net
 		/// finds ready socket in given range, returns iterator to it
 		auto find_ready_socket(sock_list::iterator first, sock_list::iterator last) -> sock_list::iterator;
 		/// this is actually heart of this class, it searches for ready socket, if there are no such -
-		/// creates socket sets for select call - call it, process select result, accepts new incoming connections from listeners, etc
+		/// creates socket sets for select/poll call - call it, process select/poll result, accepts new incoming connections from listeners, etc
 		/// returns waiting result, and if there is ready socket - m_cur will point to it
 		auto wait_ready(time_point until) -> wait_status;
 		
