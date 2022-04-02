@@ -902,9 +902,11 @@ namespace ext::net::http
 			return &http_server::handle_finish;
 		}
 		
+#ifdef EXT_ENABLE_OPENSSL
 		auto & sock = context->sock;
 		if (sock.ssl_handle())
 			return &http_server::handle_ssl_shutdown;
+#endif
 		
 		// can't close socket here, see close_connection:
 		// prints some info, and erases from some maps by socket handle
@@ -3372,33 +3374,6 @@ namespace ext::net::http
 				return handler;
 
 		return nullptr;
-	}
-
-	static socket_streambuf & operator <<(socket_streambuf & sock, std::string_view str)
-	{
-		sock.sputn(str.data(), str.size());
-		return sock;
-	}
-
-	static socket_streambuf & operator <<(socket_streambuf & sock, std::size_t num)
-	{
-		ext::itoa_buffer<decltype(num)> buffer;
-		sock << ext::itoa(num, buffer);
-		return sock;
-	}
-
-	static std::string http_version_string(int version)
-	{
-		std::string str;
-		ext::itoa_buffer<int> buffer;
-
-		str.reserve(10);
-		str += "HTTP/";
-		str += ext::itoa(version / 10, buffer);
-		str += ".";
-		str += ext::itoa(version % 10, buffer);
-
-		return str;
 	}
 
 	void http_server::log_request(const http_request & request) const
