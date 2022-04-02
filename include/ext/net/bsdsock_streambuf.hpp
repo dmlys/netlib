@@ -97,9 +97,10 @@ namespace ext::net
 		error_code_type m_lasterror;
 		const char * m_lasterror_context = nullptr;
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 		SSL * m_sslhandle = nullptr;
-		openssl::error_retrieve m_error_retrieve_type = openssl::error_retrieve::get;
+		std::string m_last_openssl_error_queue; // holds openssl error queue of last openssl error
+		ext::openssl::error_retrieve m_error_retrieve_type = ext::openssl::error_retrieve::get;
 #endif
 
 	protected:
@@ -145,14 +146,13 @@ namespace ext::net
 		bool do_connect(const addrinfo_type * addr) noexcept;
 
 		/// анализирует ошибку read/wrtie операции.
-		/// res - результат операции recv/write, если 0 - то это eof и проверяется только State >=
+		/// res - результат операции recv/write, если 0 - то это eof и проверяется только State
 		/// err - код ошибки операции errno/getsockopt(..., SO_ERROR, ...)
 		/// В err_code записывает итоговую ошибку.
 		/// возвращает была ли действительно ошибка, или нужно повторить операцию(реакция на EINTR).
 		bool rw_error(int res, int err, error_code_type & err_code) noexcept;
 		
 #ifdef EXT_ENABLE_OPENSSL
-		error_code_type ssl_error(SSL * ssl, int error) noexcept;
 		/// анализирует ошибку ssl read/write операции.
 		/// res[in] - результат операции(возвращаемое значение ::SSL_read, ::SSL_write).
 		/// res[out] - результат ::SSL_get_error(ctx, res);
@@ -213,7 +213,13 @@ namespace ext::net
 		/// read, connect, getaddrinfo, socket close, etc
 		const char * last_error_context() const noexcept { return m_lasterror_context; }
 		/// устанавливает последнюю ошибку и опционально контекст
+		void set_last_error(int err, const std::error_category & errcat, const char * context = nullptr) noexcept;
 		void set_last_error(error_code_type err, const char * context = nullptr) noexcept;
+#ifdef EXT_ENABLE_OPENSSL
+		/// Устанавливает последнюю ошибку, контекст и очередь ошибок openssl
+		void set_last_error(int err, const std::error_category & errcat, const char * context, std::string openssl_errqueue) noexcept;
+		void set_last_error(error_code_type errc, const char * context, std::string openssl_errqueue) noexcept;
+#endif
 		/// возвращает имя данного класса, для логирования
 		static const char * class_name() noexcept { return "bsdsock_streambuf"; }
 		/// Бросает исключение с последней ошибкой
@@ -299,13 +305,12 @@ namespace ext::net
 		bool connect(const std::string & host, unsigned short port);
 
 #ifdef EXT_ENABLE_OPENSSL
-		/// устанавливает способ получение openssl ошибок, смотри описание к openssl::error_retrieve_type,
+		/// устанавливает способ получение openssl ошибок, смотри описание к ext::openssl::error_retrieve_type,
 		/// по умолчанию всегда выставлен error_retrieve_get
 		auto ssl_error_retrieve() const noexcept { return m_error_retrieve_type; }
-		auto ssl_error_retrieve(openssl::error_retrieve retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
+		auto ssl_error_retrieve(ext::openssl::error_retrieve retrieve) noexcept { return std::exchange(m_error_retrieve_type, retrieve); }
 
-		/// управление ssl сессией
-		/// есть ли активная ssl сессия
+		/// есть ли установленное ssl соединение, по факту вызывает SSL_is_init_finished
 		bool ssl_started() const noexcept;
 
 		/// возвращает текущую SSL сессию.

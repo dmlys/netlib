@@ -33,6 +33,7 @@ namespace ext::net
 
 		const error_code_type & last_error() const noexcept { return m_streambuf.last_error(); }
 		const char * last_error_context() const noexcept { return m_streambuf.last_error_context(); }
+		void set_last_error(int err, const std::error_category & errcat, const char * context = nullptr) noexcept { return m_streambuf.set_last_error(err, errcat, context); }
 		void set_last_error(error_code_type errc, const char * context = nullptr) noexcept { return m_streambuf.set_last_error(errc, context); }
 
 		socket_streambuf * rdbuf() noexcept { return &m_streambuf; }
@@ -56,13 +57,15 @@ namespace ext::net
 		unsigned short sock_port() { return m_streambuf.sock_port(); }
 
 
-
 		/// подключение не валидно, если оно не открыто или была ошибка в процессе работы
 		bool is_valid() const noexcept { return m_streambuf.is_valid(); }
 		/// подключение открыто, если была попытка подключения, даже если не успешная.
 		/// если resolve завершился неудачей - класс не считается открытым
 		bool is_open() const noexcept { return m_streambuf.is_open(); }
 
+		/// инициализирует объект заданным socket handle'ом.
+		bool init_handle(handle_type handle) { return m_streambuf.init_handle(handle); }
+		
 		/// выоляет подключение rdbuf()->connect(host, port);
 		/// в случае ошибки устанавливает failbit | badbit
 		void connect(const std::string & host, unsigned short port);

@@ -15,6 +15,16 @@
 #include <ext/net/bsdsock_streambuf.hpp>
 #include <ext/net/socket_include.hpp>
 
+
+#ifdef EXT_ENABLE_OPENSSL
+#define clear_last_openssl_error_queue()  m_last_openssl_error_queue.clear()
+#define read_last_openssl_error_queue()   if (m_error_retrieve_type == ext::openssl::error_retrieve::peek) m_last_openssl_error_queue.clear();  \
+                                          else m_last_openssl_error_queue = ext::openssl::print_error_queue();
+#else
+#define clear_last_openssl_error_queue()
+#endif
+
+
 namespace ext::net
 {
 	const std::string bsdsock_streambuf::empty_str;
@@ -40,6 +50,7 @@ namespace ext::net
 		else
 			m_lasterror.assign(res, gai_error_category());
 		
+		clear_last_openssl_error_queue();
 		return false;
 	}
 	
@@ -50,8 +61,7 @@ namespace ext::net
 		return true;
 
 	sockerror:
-		m_lasterror_context = "setnonblocking";
-		m_lasterror.assign(errno, std::generic_category());
+		set_last_error(errno, std::generic_category(), "setnonblocking");
 		return false;
 	}
 
@@ -60,8 +70,7 @@ namespace ext::net
 		sock = ::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		if (sock != -1) return true;
 
-		m_lasterror_context = "socket_creation";
-		m_lasterror.assign(errno, std::generic_category());
+		set_last_error(errno, std::generic_category(), "socket_creation");
 		return false;
 	}
 
@@ -76,8 +85,7 @@ namespace ext::net
 		// ENOTCONN        - socket not connected, other side closed it, not a error actually
 		if (err == ENOTCONN) return true;
 
-		m_lasterror_context = "socket_shutdown";
-		m_lasterror.assign(err, std::generic_category());
+		set_last_error(errno, std::generic_category(), "socket_shutdown");
 		return err != ENOTCONN;
 	}
 
@@ -93,8 +101,7 @@ namespace ext::net
 		// both this on most unix'es, with exception of HP-UX, will close descriptor
 
 		// ENOSPC, EDQUOT - who knows how to handle them
-		m_lasterror_context = "socket_close";
-		m_lasterror.assign(errno, std::generic_category());
+		set_last_error(errno, std::generic_category(), "socket_close");
 		return true;
 	}
 
@@ -115,6 +122,7 @@ namespace ext::net
 		
 		prevstate = Closed;
 		m_lasterror.clear();
+		clear_last_openssl_error_queue();
 
 		res = ::pipe(pipefd);
 		if (res != 0) goto sockerror;
@@ -325,8 +333,7 @@ namespace ext::net
 		assert(prev == Interrupted || prev == Shutdowned);
 		if (prev == Interrupted)
 		{
-			m_lasterror_context = "shutdown";
-			m_lasterror = std::make_error_code(std::errc::interrupted);
+			set_last_error(std::make_error_code(std::errc::interrupted), "shutdown");
 			return false;
 		}
 
@@ -384,7 +391,7 @@ namespace ext::net
 		}
 
 		// если закрытие успешно, очищаем последнюю ошибку
-		if (result) m_lasterror.clear();
+		if (result) { m_lasterror.clear(); clear_last_openssl_error_queue(); }
 		return process_result(result);
 	}
 	
@@ -461,15 +468,13 @@ namespace ext::net
 
 		if (is_open())
 		{
-			m_lasterror = std::make_error_code(std::errc::already_connected);
-			m_lasterror_context = "init_handle";
+			set_last_error(std::make_error_code(std::errc::already_connected), "init_handle");
 			goto error;
 		}
 
 		if (sock == invalid_socket)
 		{
-			m_lasterror = std::make_error_code(std::errc::not_a_socket);
-			m_lasterror_context = "init_handle";
+			set_last_error(std::make_error_code(std::errc::not_a_socket), "init_handle");
 			goto error;
 		}
 		
@@ -488,8 +493,7 @@ namespace ext::net
 
 	//interrupted:
 		// нас interrupt'нули - выставляем соответствующий код ошибки
-		m_lasterror = std::make_error_code(std::errc::interrupted);
-		m_lasterror_context = "init_handle";
+		set_last_error(std::make_error_code(std::errc::interrupted), "init_handle");
 	error:
 		// в случае ошибок - закрываем сокет, если только это не плохой дескриптор
 		int code = m_lasterror.value();
@@ -532,6 +536,7 @@ namespace ext::net
 		if (res == 0) // timeout
 		{
 			m_lasterror = make_error_code(sock_errc::timeout);
+			clear_last_openssl_error_queue();
 			return false;
 		}
 
@@ -580,6 +585,7 @@ namespace ext::net
 		if (res == 0) // timeout
 		{
 			m_lasterror = make_error_code(sock_errc::timeout);
+			clear_last_openssl_error_queue();
 			return false;
 		}
 
@@ -691,6 +697,7 @@ namespace ext::net
 		if (state >= Interrupting)
 		{
 			err_code = std::make_error_code(std::errc::interrupted);
+			clear_last_openssl_error_queue();
 			return true;
 		}
 		
@@ -698,6 +705,7 @@ namespace ext::net
 		if (res >= 0)
 		{
 			err_code = make_error_code(sock_errc::eof);
+			clear_last_openssl_error_queue();
 			return true;
 		}
 		
@@ -706,6 +714,7 @@ namespace ext::net
 		if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR) return false;
 		
 		err_code.assign(err, std::generic_category());
+		clear_last_openssl_error_queue();
 		return true;
 	}
 	
@@ -717,9 +726,7 @@ namespace ext::net
 		assert(&addr);
 		if (is_open())
 		{
-			m_lasterror_context = "connect";
-			m_lasterror = std::make_error_code(std::errc::already_connected);
-
+			set_last_error(std::make_error_code(std::errc::already_connected), "connect");
 			return process_result(false);
 		}
 		
@@ -731,9 +738,7 @@ namespace ext::net
 	{
 		if (is_open())
 		{
-			m_lasterror_context = "connect";
-			m_lasterror = std::make_error_code(std::errc::already_connected);
-
+			set_last_error(std::make_error_code(std::errc::already_connected), "connect");
 			return process_result(false);
 		}
 
@@ -752,8 +757,7 @@ namespace ext::net
 	{
 		if (is_open())
 		{
-			m_lasterror_context = "connect";
-			m_lasterror = std::make_error_code(std::errc::already_connected);
+			set_last_error(std::make_error_code(std::errc::already_connected), "connect");
 			return process_result(false);
 		}
 
@@ -789,6 +793,7 @@ namespace ext::net
 		if (state >= Interrupting)
 		{
 			err_code = std::make_error_code(std::errc::interrupted);
+			clear_last_openssl_error_queue();
 			return true;
 		}
 
@@ -808,9 +813,10 @@ namespace ext::net
 			case SSL_ERROR_SSL:
 			case SSL_ERROR_SYSCALL:
 				// if it some generic SSL error
-				if ((err = m_error_retrieve_type == openssl::error_retrieve::get ? ::ERR_get_error() : ::ERR_peek_error()))
+				if ((err = ::ERR_peek_error()))
 				{
 					err_code.assign(err, openssl_err_category());
+					read_last_openssl_error_queue();
 					return true;
 				}
 
@@ -823,6 +829,7 @@ namespace ext::net
 					if (err == EAGAIN || err == EWOULDBLOCK) return false;
 
 					err_code.assign(err, std::generic_category());
+					clear_last_openssl_error_queue();
 					return true;
 				}
 
@@ -830,6 +837,7 @@ namespace ext::net
 				if (ret == 0)
 				{
 					err_code = make_error_code(sock_errc::eof);
+					clear_last_openssl_error_queue();
 					return true;
 				}
 
@@ -841,19 +849,14 @@ namespace ext::net
 			case SSL_ERROR_WANT_ACCEPT:
 			default:
 			    err_code.assign(res, openssl_ssl_category());
+				clear_last_openssl_error_queue();
 				return true;
 		}
 	}
 
 	bool bsdsock_streambuf::ssl_started() const noexcept
 	{
-		return m_sslhandle != nullptr && ::SSL_get_session(m_sslhandle) != nullptr;
-	}
-
-	bsdsock_streambuf::error_code_type bsdsock_streambuf::ssl_error(SSL * ssl, int error) noexcept
-	{
-		int ssl_err = ::SSL_get_error(ssl, error);
-		return openssl_geterror(ssl_err, m_error_retrieve_type);
+		return m_sslhandle != nullptr && SSL_is_init_finished(m_sslhandle);
 	}
 
 	bool bsdsock_streambuf::do_createssl(SSL *& ssl, SSL_CTX * sslctx) noexcept
@@ -862,7 +865,9 @@ namespace ext::net
 		if (ssl) return true;
 
 		m_lasterror_context = "createssl";
-		m_lasterror = openssl::last_error(m_error_retrieve_type);
+		m_lasterror = ext::openssl::last_error(ext::openssl::error_retrieve::peek);
+		read_last_openssl_error_queue();
+		
 		return false;
 	}
 
@@ -880,7 +885,10 @@ namespace ext::net
 
 	error:
 		m_lasterror_context = "configuressl";
-		m_lasterror = ssl_error(ssl, res);
+		res = ::SSL_get_error(ssl, res);
+		m_lasterror = ext::openssl::openssl_geterror(res, ext::openssl::error_retrieve::peek);
+		read_last_openssl_error_queue();
+		
 		::SSL_free(ssl);
 		ssl = nullptr;
 		return false;
@@ -892,7 +900,9 @@ namespace ext::net
 		if (res <= 0)
 		{
 			m_lasterror_context = "sslconnect";
-			m_lasterror = ssl_error(ssl, res);
+			res = ::SSL_get_error(ssl, res);
+			m_lasterror = ext::openssl::openssl_geterror(res, ext::openssl::error_retrieve::peek);
+			read_last_openssl_error_queue();
 			return false;
 		}
 
@@ -919,7 +929,9 @@ namespace ext::net
 		if (res <= 0)
 		{
 			m_lasterror_context = "ssl_accept";
-			m_lasterror = ssl_error(ssl, res);
+			res = ::SSL_get_error(ssl, res);
+			m_lasterror = ext::openssl::openssl_geterror(res, ext::openssl::error_retrieve::peek);
+			read_last_openssl_error_queue();
 			return false;
 		}
 
@@ -991,8 +1003,9 @@ namespace ext::net
 		res = ::SSL_clear(ssl);
 		if (res > 0) return true;
 
-		m_lasterror = ssl_error(ssl, res);
-		return false;
+		res = ::SSL_get_error(ssl, res);
+		m_lasterror = ext::openssl::openssl_geterror(res, ext::openssl::error_retrieve::peek);
+		read_last_openssl_error_queue();
 
 	error:
 		m_lasterror_context = "sslshutdown";
@@ -1012,8 +1025,7 @@ namespace ext::net
 	{
 		if (!is_open())
 		{
-			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(ENOTSOCK, std::generic_category());
+			set_last_error(ENOTSOCK, std::generic_category(), "start_ssl");
 			return process_result(false);
 		}
 
@@ -1037,8 +1049,7 @@ namespace ext::net
 	{
 		if (!is_open())
 		{
-			m_lasterror_context = "start_ssl";
-			m_lasterror.assign(ENOTSOCK, std::generic_category());
+			set_last_error(ENOTSOCK, std::generic_category(), "start_ssl");
 			return process_result(false);
 		}
 
@@ -1049,7 +1060,9 @@ namespace ext::net
 		if (sslctx == nullptr)
 		{
 			m_lasterror_context = "start_ssl";
-			m_lasterror = openssl::last_error(m_error_retrieve_type);
+			m_lasterror = ext::openssl::last_error(ext::openssl::error_retrieve::peek);
+			read_last_openssl_error_queue();
+			
 			return process_result(false);
 		}
 		
@@ -1088,8 +1101,7 @@ namespace ext::net
 	{
 		if (!is_open())
 		{
-			m_lasterror_context = "accept_ssl";
-			m_lasterror.assign(ENOTSOCK, std::generic_category());
+			set_last_error(ENOTSOCK, std::generic_category(), "accept_ssl");
 			return process_result(false);
 		}
 
@@ -1139,11 +1151,35 @@ namespace ext::net
 		return std::exchange(m_timeout, newtimeout);
 	}
 
+	void bsdsock_streambuf::set_last_error(int err, const std::error_category & errcat, const char * context) noexcept
+	{
+		m_lasterror.assign(err, errcat);
+		m_lasterror_context = context;
+		clear_last_openssl_error_queue();
+	}
+
 	void bsdsock_streambuf::set_last_error(error_code_type errc, const char * context) noexcept
 	{
 		m_lasterror = errc;
 		m_lasterror_context = context;
+		clear_last_openssl_error_queue();
 	}
+
+#ifdef EXT_ENABLE_OPENSSL
+	void bsdsock_streambuf::set_last_error(int err, const std::error_category & errcat, const char * context, std::string openssl_errqueue) noexcept
+	{
+		m_lasterror.assign(err, errcat);
+		m_lasterror_context = context;
+		m_last_openssl_error_queue = std::move(openssl_errqueue);
+	}
+	
+	void bsdsock_streambuf::set_last_error(error_code_type errc, const char * context, std::string openssl_errqueue) noexcept
+	{
+		m_lasterror = errc;
+		m_lasterror_context = context;
+		m_last_openssl_error_queue = std::move(openssl_errqueue);
+	}
+#endif
 
 	void bsdsock_streambuf::throw_last_error()
 	{
@@ -1154,7 +1190,14 @@ namespace ext::net
 		err_msg += m_lasterror_context;
 		err_msg += " failure";
 
+#ifdef EXT_ENABLE_OPENSSL
+		if (m_lasterror.category() == ext::openssl::openssl_err_category() or m_lasterror.category() == ext::openssl::openssl_ssl_category())
+			throw openssl_error(m_lasterror, err_msg, m_last_openssl_error_queue);
+		else
+			throw system_error_type(m_lasterror, err_msg);
+#else
 		throw system_error_type(m_lasterror, err_msg);
+#endif
 	}
 
 	void bsdsock_streambuf::getpeername(sockaddr_type * addr, socklen_t * addrlen) const
@@ -1340,7 +1383,9 @@ namespace ext::net
 		  m_lasterror(std::exchange(right.m_lasterror, error_code_type {})),
 		  m_lasterror_context(std::exchange(right.m_lasterror_context, nullptr))
 #ifdef EXT_ENABLE_OPENSSL
-		  , m_sslhandle(std::exchange(right.m_sslhandle, nullptr))
+		, m_sslhandle(std::exchange(right.m_sslhandle, nullptr))
+		, m_last_openssl_error_queue(std::move(right.m_last_openssl_error_queue))
+		, m_error_retrieve_type(std::exchange(right.m_error_retrieve_type, ext::openssl::error_retrieve::get))
 #endif
 	{
 
@@ -1362,6 +1407,8 @@ namespace ext::net
 			m_lasterror_context = std::exchange(right.m_lasterror_context, nullptr);
 #ifdef EXT_ENABLE_OPENSSL
 			m_sslhandle = std::exchange(right.m_sslhandle, nullptr);
+			m_last_openssl_error_queue = std::move(right.m_last_openssl_error_queue);
+			m_error_retrieve_type = std::exchange(right.m_error_retrieve_type, ext::openssl::error_retrieve::get);
 #endif
 		}
 
