@@ -130,14 +130,23 @@ namespace ext::net
 	/// returns last socket error
 	std::error_code last_socket_error_code() noexcept;
 
+	/// throws std::system_error with given socket error code and message
 	BOOST_NORETURN void throw_socket_error(int code, const char * errmsg);
 	BOOST_NORETURN void throw_socket_error(int code, const std::string & errmsg);
+	/// throws std::system_error with last socket error and given message
 	BOOST_NORETURN void throw_last_socket_error(const std::string & errmsg);
 	BOOST_NORETURN void throw_last_socket_error(const char * errmsg);
 
+	/// Analyzes socket read/write operation error and returns it.
+	/// res - result of recv/send operation, if res >= 0 - this is eof
+	/// last_error - error code: errno/getsockopt(..., SO_ERROR, ...)
 	std::error_code socket_rw_error(int res, int last_error = last_socket_error());
 
 #ifdef EXT_ENABLE_OPENSSL
+	/// Analyzes socket SSL read/write operation error and returns it.
+	/// res - result of SSL operation: ::SSL_read/SSL_write,
+	/// This functions uses SSL_get_error(ssl, res) call to get SSL error,
+	/// and in case of SSL_ERROR_SYSCALL further checks for ERR_peek_error
 	std::error_code socket_ssl_rw_error(int res, SSL * ssl);
 #endif
 

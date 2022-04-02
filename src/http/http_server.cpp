@@ -642,12 +642,12 @@ namespace ext::net::http
 
 		if (errc == std::errc::interrupted) goto again;
 	#ifdef EXT_ENABLE_OPENSSL
-		if (errc == openssl::ssl_error::want_read)
+		if (errc == openssl::ssl_errc::want_read)
 		{
 			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
-		if (errc == openssl::ssl_error::want_write)
+		if (errc == openssl::ssl_errc::want_write)
 		{
 			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
@@ -705,12 +705,12 @@ namespace ext::net::http
 
 		if (errc == std::errc::interrupted) goto again;
 	#ifdef EXT_ENABLE_OPENSSL
-		if (errc == openssl::ssl_error::want_read)
+		if (errc == openssl::ssl_errc::want_read)
 		{
 			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
-		if (errc == openssl::ssl_error::want_write)
+		if (errc == openssl::ssl_errc::want_write)
 		{
 			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
@@ -768,12 +768,12 @@ namespace ext::net::http
 
 		if (errc == std::errc::interrupted) goto again;
 	#ifdef EXT_ENABLE_OPENSSL
-		if (errc == openssl::ssl_error::want_read)
+		if (errc == openssl::ssl_errc::want_read)
 		{
 			SOCK_LOG_DEBUG("SSL_write: got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, context->cur_method);
 		}
-		if (errc == openssl::ssl_error::want_write)
+		if (errc == openssl::ssl_errc::want_write)
 		{
 			SOCK_LOG_DEBUG("SSL_write: got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, context->cur_method);
@@ -1006,13 +1006,13 @@ namespace ext::net::http
 		errc = socket_ssl_rw_error(res, ssl_ptr.get());
 		if (errc == std::errc::interrupted) goto again;
 
-		if (errc == openssl::ssl_error::want_read)
+		if (errc == openssl::ssl_errc::want_read)
 		{
 			SOCK_LOG_DEBUG("SSL handshake(SSL_accept): got WANT_READ, scheduling socket waiting");
 			return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
 		}
 
-		if (errc == openssl::ssl_error::want_write)
+		if (errc == openssl::ssl_errc::want_write)
 		{
 			SOCK_LOG_DEBUG("SSL handshake(SSL_accept): got WANT_WRITE, scheduling socket waiting");
 			return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
@@ -1091,13 +1091,13 @@ namespace ext::net::http
 				errc = socket_ssl_rw_error(res, ssl);
 				if (errc == std::errc::interrupted) goto again;
 				
-				if (errc == openssl::ssl_error::want_read)
+				if (errc == openssl::ssl_errc::want_read)
 				{
 					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_READ, scheduling socket waiting");
 					return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
 				}
 		
-				if (errc == openssl::ssl_error::want_write)
+				if (errc == openssl::ssl_errc::want_write)
 				{
 					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_WRITE, scheduling socket waiting");
 					return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);
@@ -1127,13 +1127,13 @@ namespace ext::net::http
 				errc = socket_ssl_rw_error(res, ssl);
 				if (errc == std::errc::interrupted) goto again;
 				
-				if (errc == openssl::ssl_error::want_read)
+				if (errc == openssl::ssl_errc::want_read)
 				{
 					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_READ, scheduling socket waiting");
 					return async_method(socket_queue::readable, &http_server::handle_ssl_continue_handshake);
 				}
 		
-				if (errc == openssl::ssl_error::want_write)
+				if (errc == openssl::ssl_errc::want_write)
 				{
 					SOCK_LOG_DEBUG("SSL_shutdown: got WANT_WRITE, scheduling socket waiting");
 					return async_method(socket_queue::writable, &http_server::handle_ssl_continue_handshake);

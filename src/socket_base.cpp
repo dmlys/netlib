@@ -71,8 +71,8 @@ namespace ext::net
 		switch (static_cast<sock_errc>(cond_val))
 		{
 #ifdef EXT_ENABLE_OPENSSL
-			case sock_errc::eof:          return code == openssl_error::zero_return;
-			case sock_errc::ssl_error:    return code != openssl_error::zero_return and (code.category() == openssl::openssl_err_category() or code.category() == openssl::openssl_ssl_category());
+			case sock_errc::eof:          return code == openssl_errc::zero_return;
+			case sock_errc::ssl_error:    return code != openssl_errc::zero_return and (code.category() == openssl::openssl_err_category() or code.category() == openssl::openssl_ssl_category());
 #else
 			case sock_errc::eof:          return false;
 			case sock_errc::ssl_error:    return false;
