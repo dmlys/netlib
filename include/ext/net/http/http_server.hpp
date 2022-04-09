@@ -141,6 +141,7 @@ namespace ext::net::http
 		using finalizer_handle_method = void (http_server::*)(processing_context * context);
 
 	protected:
+		using property_map = boost::container::flat_map<std::string, http::http_server_control::property>;
 		using streaming_context = ext::stream_filtering::streaming_context
 		<
 			std::vector<std::unique_ptr<ext::stream_filtering::filter>>, // FilterVector
@@ -162,7 +163,7 @@ namespace ext::net::http
 		struct filtering_context
 		{
 			streaming_context request_streaming_ctx, response_streaming_ctx;
-			boost::container::flat_map<std::string, http::http_server_control::property> property_map;
+			ext::stream_filtering::processing_parameters filter_params;
 		};
 		
 		/// groups some context parameters for processing http request
@@ -198,7 +199,7 @@ namespace ext::net::http
 			
 			// contexts for filtering request/reply http_body;
 			std::unique_ptr<filtering_context> filter_ctx;
-			ext::stream_filtering::processing_parameters filter_params;
+			std::unique_ptr<property_map> property_map;
 			
 			http_request request;                    // current http request,  valid after is was parsed
 			process_result response = null_response; // current http response, valid after handler was called
@@ -442,7 +443,6 @@ namespace ext::net::http
 		virtual auto handle_response_normal_async_body_writting(processing_context * context) -> handle_method_type;
 		virtual auto handle_response_filtered_async_body_writting(processing_context * context) -> handle_method_type;
 		
-		
 		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
 
 	protected: // filtering
@@ -460,6 +460,9 @@ namespace ext::net::http
 		/// Prepares processing context, called each time new http request should be processed.
 		/// Makes http handlers and filters snapshots if needed.
 		virtual void prepare_context(processing_context * context, const socket_streambuf & sock, bool newconn);
+		/// Cleans proccessing context, called each time after http request is processed
+		/// clears some members, resets collections, etc
+		virtual void cleanup_context(processing_context * context);
 		/// Called when processing context is created, default implementation does nothing
 		virtual void construct_context(processing_context * context);
 		/// Called when processing context is deleted, default implementation does nothing
@@ -494,8 +497,8 @@ namespace ext::net::http
 		/// NOTE: postprocess_response is called separately
 		virtual void check_response(processing_context * context) const;
 
-		/// Exception wrapper for handler.process(request), on exception returns create_internal_server_error_response(sock, request, ex)
-		virtual auto process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result;
+		/// Exception wrapper for handler.process(context), on exception returns create_internal_server_error_response(sock, request, ex)
+		virtual auto process_request(processing_context * context) -> process_result;
 		/// Exception wrapper for getting result from ext::future<http_response>, on exception returns create_internal_server_error_response(sock, request, ex).
 		/// Also checks if future is cancelled or abandoned.
 		virtual auto process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> process_result;

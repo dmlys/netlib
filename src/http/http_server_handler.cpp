@@ -17,8 +17,10 @@ namespace ext::net::http
 		return false;
 	}
 
-	bool simple_http_server_handler::accept(const http_request & req, const socket_streambuf & sock) const
+	bool simple_http_server_handler::accept(http_server_control & control) const
 	{
+		auto & req = control.request();
+		
 		if (not method_accepted(req.method)) return false;
 		if (not boost::starts_with(req.url, m_url)) return false;
 
@@ -51,39 +53,63 @@ namespace ext::net::http
 
 	struct simple_http_server_handler::call_dispatcher
 	{
-		http_request * request;
+		http_server_control * control;
 
-		http_server_handler::result_type operator()(const std::function<result_type(std::string & )>                            & func)  const { return std::visit(result_dispatcher(), func(std::get<std::string>(request->body))); }
-		http_server_handler::result_type operator()(const std::function<result_type(std::vector<char> & )>                      & func)  const { return std::visit(result_dispatcher(), func(std::get<std::vector<char>>(request->body))); }
-		http_server_handler::result_type operator()(const std::function<result_type(std::unique_ptr<std::streambuf> &)>         & func)  const { return std::visit(result_dispatcher(), func(std::get<std::unique_ptr<std::streambuf>>(request->body))); }
-		http_server_handler::result_type operator()(const std::function<result_type(std::unique_ptr<async_http_body_source> &)> & func)  const { return std::visit(result_dispatcher(), func(std::get<std::unique_ptr<async_http_body_source>>(request->body))); }
-		http_server_handler::result_type operator()(const std::function<result_type(null_body_type)>                            & func)  const { return std::visit(result_dispatcher(), func(std::get<null_body_type>(request->body))); }
+		http_server_handler::result_type operator()(const std::function<result_type(std::string & )>                            & func)  const { return std::visit(result_dispatcher(), func(std::get<std::string>(control->request().body))); }
+		http_server_handler::result_type operator()(const std::function<result_type(std::vector<char> & )>                      & func)  const { return std::visit(result_dispatcher(), func(std::get<std::vector<char>>(control->request().body))); }
+		http_server_handler::result_type operator()(const std::function<result_type(std::unique_ptr<std::streambuf> &)>         & func)  const { return std::visit(result_dispatcher(), func(std::get<std::unique_ptr<std::streambuf>>(control->request().body))); }
+		http_server_handler::result_type operator()(const std::function<result_type(std::unique_ptr<async_http_body_source> &)> & func)  const { return std::visit(result_dispatcher(), func(std::get<std::unique_ptr<async_http_body_source>>(control->request().body))); }
+		http_server_handler::result_type operator()(const std::function<result_type(http_request & )>                           & func)  const { return std::visit(result_dispatcher(), func(control->request())); }
+		http_server_handler::result_type operator()(const std::function<result_type(null_body_type)>                            & func)  const { return std::visit(result_dispatcher(), func(std::get<null_body_type>(control->request().body))); }
 		
-		http_server_handler::result_type operator()(const std::function<result_type()> & func)                const { return std::visit(result_dispatcher(), func()); }
-		http_server_handler::result_type operator()(const std::function<result_type(http_request & )> & func) const { return std::visit(result_dispatcher(), func(*request)); }
+		http_server_handler::result_type operator()(const std::function<result_type()> & func)                       const { return std::visit(result_dispatcher(), func()); }
+		http_server_handler::result_type operator()(const std::function<result_type(http_server_control & )> & func) const { return std::visit(result_dispatcher(), func(*control)); }
 	};
 
-	auto simple_http_server_handler::process(http_request & req) const -> http_server_handler::result_type
+	auto simple_http_server_handler::process(http_server_control & control) const -> http_server_handler::result_type
 	{
-		return std::visit(call_dispatcher{&req}, m_function);
+		return std::visit(call_dispatcher{&control}, m_function);
 	}
 
+	template <std::size_t index, class arg_type>
+	constexpr bool deduce_body_test = std::is_same_v<
+		std::variant_alternative_t<index, simple_http_server_handler::body_function_types>,
+		std::function<simple_http_server_handler::result_type(arg_type)>
+	>;
+	
+	template <std::size_t index>
+	constexpr bool deduce_body_test<index, void> = std::is_same_v<
+		std::variant_alternative_t<index, simple_http_server_handler::body_function_types>,
+		std::function<simple_http_server_handler::result_type()>
+	>;
+	
 	http_body_type simple_http_server_handler::deduce_body_type(const body_function_types & function) noexcept
 	{
-		return static_cast<http_body_type>(std::min<unsigned>(function.index(), 5));
-		//switch (auto type = static_cast<http_body_type>(function.index()))
-		//{
-		//	case http_body_type::string:
-		//	case http_body_type::vector:
-		//	case http_body_type::stream:
-		//	case http_body_type::async:
-		//	case http_body_type::lstream:
-		//	case http_body_type::null:
-		//		return type;
-		//		
-		//	default:
-		//		return http_body_type::null;
-		//}
+		static_assert(std::variant_size_v<body_function_types> == 6);
+		static_assert(deduce_body_test<0, std::string &>);
+		static_assert(deduce_body_test<1, std::vector<char> &>);
+		static_assert(deduce_body_test<2, std::unique_ptr<std::streambuf> &>);
+		static_assert(deduce_body_test<3, std::unique_ptr<async_http_body_source> &>);
+		static_assert(deduce_body_test<4, null_body_type>);
+		static_assert(deduce_body_test<5, void>);
+		
+		//0 - std::string
+		//1 - std::vector<char>
+		//2 - std::unique_ptr<std::streambuf>
+		//3 - std::unique_ptr<async_http_body_source>
+		//4 - null_body_type
+		//5 - ()
+		switch (auto index = function.index())
+		{
+			case 0: return http_body_type::string;
+			case 1: return http_body_type::vector;
+			case 2: return http_body_type::stream;
+			case 3: return http_body_type::async;
+			case 4: return http_body_type::null;
+			case 5: return http_body_type::null;
+			
+			default: EXT_UNREACHABLE();
+		}
 	}
 	
 	simple_http_server_handler::simple_http_server_handler(std::string url, body_function_types function)

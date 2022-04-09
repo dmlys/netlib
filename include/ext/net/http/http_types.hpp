@@ -254,11 +254,11 @@ namespace ext::net::http
 		virtual auto response() -> http_response & = 0;
 		/// Sets response, this is for handlers taking http_server_filter_control directly, other handlers just return response.
 		/// Filters and others should use override_response.
-		virtual void set_response(http_response resp) = 0;
+		virtual void set_response(http_response && resp) = 0;
 		/// Overrides response, even if it was already set previously.
 		/// If final == true - no filters or anything else would affect that response,
 		/// through some basic post-processing still can be make: like Content-Length header
-		virtual void override_response(http_response resp, bool final = true) = 0;
+		virtual void override_response(http_response && resp, bool final = true) = 0;
 		/// Overrides response with null, even if it was already set previously.
 		/// After that no filters/handlers should be invoked and connection should be immediately closed.
 		/// Same as returning null response from handler directly.

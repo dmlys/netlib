@@ -51,8 +51,9 @@ namespace ext::net::http
 		return rpos;
 	}
 	
-	bool filesystem_handler::accept(const ext::net::http::http_request & req, const ext::net::socket_streambuf & sock) const
+	bool filesystem_handler::accept(http_server_control & control) const
 	{
+		auto & req = control.request();
 		ext::ctpred::equal_to<ext::aci_char_traits> eq;
 		if (not eq(req.method, "get") and not eq(req.method, "headers")) return false;
 		
@@ -182,8 +183,9 @@ namespace ext::net::http
 		}
 	}
 	
-	auto filesystem_handler::process(ext::net::http::http_request & request) const -> result_type
+	auto filesystem_handler::process(http_server_control & control) const -> result_type
 	{
+		auto & request = control.request();
 		LOG_INFO("Processing filesystem_handler request, url = {}", request.url);
 		
 		std::filesystem::path path = m_filesystem_root;

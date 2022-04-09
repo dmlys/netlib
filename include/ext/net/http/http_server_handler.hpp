@@ -39,9 +39,9 @@ namespace ext::net::http
 			ext::future<http_response>
 		>;
 
-		virtual auto wanted_body_type() const noexcept -> http_body_type = 0;
-		virtual bool accept(const http_request & req, const socket_streambuf & sock) const = 0;
-		virtual auto process(http_request & req) const -> result_type = 0;
+		virtual auto wanted_body_type(http_server_control & control) const noexcept -> http_body_type = 0;
+		virtual bool accept(http_server_control & control) const = 0;
+		virtual auto process(http_server_control & control) const -> result_type = 0;
 
 		virtual ~http_server_handler() = default;
 	};
@@ -93,10 +93,14 @@ namespace ext::net::http
 			std::function<result_type()>
 		>;
 		
-		using request_function_type = std::function<result_type(http_request & req)>;
+		using request_function_type = std::variant<
+			std::function<result_type(http_request & request)>,
+			std::function<result_type(http_server_control & control)>
+		>;
+		
 		
 		using function_type = boost::mp11::mp_append<
-			body_function_types, boost::mp11::mp_list<request_function_type>
+			body_function_types, request_function_type
 		>;
 		
 		//using function_type = std::variant<
@@ -115,15 +119,15 @@ namespace ext::net::http
 		function_type m_function;
 
 	public:
-		virtual auto wanted_body_type() const noexcept -> http_body_type override { return m_wanted_body_type; }
-		virtual bool accept(const http_request & req, const socket_streambuf & sock) const override;
-		virtual auto process(http_request & req) const -> http_server_handler::result_type override;
+		virtual auto wanted_body_type(http_server_control & control) const noexcept -> http_body_type override { return m_wanted_body_type; }
+		virtual bool accept(http_server_control & control) const override;
+		virtual auto process(http_server_control & control) const -> http_server_handler::result_type override;
 		virtual bool method_accepted(const std::string & method) const;
 
 	protected:
 		static http_body_type deduce_body_type(const body_function_types & function) noexcept;
 		static function_type convert(body_function_types function) { return std::visit([](auto func) -> function_type { return func; }, std::move(function)); }
-		static function_type convert(request_function_type function) { return function; }
+		static function_type convert(request_function_type function) { return std::visit([](auto func) -> function_type { return func; }, std::move(function)); }
 		
 	public:
 		simple_http_server_handler(std::string url, body_function_types function);

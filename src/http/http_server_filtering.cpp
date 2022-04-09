@@ -26,7 +26,7 @@ namespace ext::net::http
 		assert(not ctx.filters.empty());
 		
 		SOCK_LOG_DEBUG("preparing request http body filtering, filters are: {}", filter_names(ctx.filters));
-		ctx.params = context->filter_params;
+		ctx.params = context->filter_ctx->filter_params;
 		preprocess_processing_parameters(ctx.params);
 				
 		ctx.data_contexts.resize(ctx.filters.size() + 1);
@@ -106,7 +106,7 @@ namespace ext::net::http
 		assert(not ctx.filters.empty());
 		
 		SOCK_LOG_DEBUG("preparing response http body filtering, filters are: {}", filter_names(ctx.filters));
-		ctx.params = context->filter_params;
+		ctx.params = context->filter_ctx->filter_params;
 		preprocess_processing_parameters(ctx.params);
 		
 		ctx.data_contexts.resize(ctx.filters.size() + 1);

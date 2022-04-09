@@ -921,6 +921,7 @@ namespace ext::net::http
 		else
 			submit_connection(std::move(context->sock));
 
+		cleanup_context(context);
 		release_context(context);
 	}
 
@@ -1818,7 +1819,8 @@ namespace ext::net::http
 			context->parser.set_body_destination(context->request_raw_buffer);
 		}
 		
-		auto want_type = context->handler->wanted_body_type();
+		http_server_control control(context);
+		auto want_type = context->handler->wanted_body_type(control);
 		switch (want_type)
 		{
 			case http_body_type::string:
@@ -1873,7 +1875,7 @@ namespace ext::net::http
 		if (handler)
 		{
 			SOCK_LOG_INFO("invoking http handler", request.method, request.url);
-			response = process_request(sock, *handler, request);
+			response = process_request(context);
 		}
 		else
 		{
@@ -3072,12 +3074,6 @@ namespace ext::net::http
 	
 	void http_server::release_context(processing_context * context)
 	{
-		release_atomic_ptr(context->executor_state);
-		release_atomic_ptr(context->async_task_state);
-		release_atomic_ptr<http_server::closable_http_body>(context->body_closer);
-		context->config = nullptr;
-		context->filter_ctx.reset();
-
 		if (m_free_contexts.size() < m_minimum_contexts)
 		{
 			m_free_contexts.push_back(context);
@@ -3108,15 +3104,7 @@ namespace ext::net::http
 		context->writer.reset(nullptr);		
 		
 		context->async_state = 0;
-		context->chunk_prefix.clear();
-		//context->input_buffer.clear();
-		context->request_raw_buffer.clear();
-		context->request_filtered_buffer.clear();
-		context->response_raw_buffer.clear();
-		context->response_filtered_buffer.clear();
-
 		context->response = null_response;
-		clear(context->request); // parser.reset already cleans request
 
 		if (m_config_context->dirty)
 		{
@@ -3155,6 +3143,27 @@ namespace ext::net::http
 		}
 		#endif
 	}
+	
+	void http_server::cleanup_context(processing_context * context)
+	{
+		release_atomic_ptr(context->executor_state);
+		release_atomic_ptr(context->async_task_state);
+		release_atomic_ptr<http_server::closable_http_body>(context->body_closer);
+		
+		context->config = nullptr;
+		context->filter_ctx.reset();
+		context->property_map.reset();
+		
+		context->chunk_prefix.clear();
+		//context->input_buffer.clear();
+		context->request_raw_buffer.clear();
+		context->request_filtered_buffer.clear();
+		context->response_raw_buffer.clear();
+		context->response_filtered_buffer.clear();
+		
+		clear(context->request);
+		context->response = null_response;
+	}
 
 	void http_server::construct_context(processing_context * context) {}
 	void http_server::destruct_context(processing_context * context) {}
@@ -3190,7 +3199,9 @@ namespace ext::net::http
 
 		auto * context = it->second;
 		m_pending_contexts.erase(it);
-		return release_context(context);
+		
+		cleanup_context(context);
+		release_context(context);
 	}
 
 	void http_server::wait_connection(processing_context * context)
@@ -3293,11 +3304,16 @@ namespace ext::net::http
 		}
 	}
 
-	auto http_server::process_request(socket_streambuf & sock, const http_server_handler & handler, http_request & request) -> process_result
+	auto http_server::process_request(processing_context * context) -> process_result
 	{
+		auto & sock = context->sock;
+		auto * handler = context->handler;
+		auto & request = context->request;
+		
 		try
 		{
-			return handler.process(request);
+			http_server_control control(context);
+			return handler->process(control);
 		}
 		catch (std::exception & ex)
 		{
@@ -3387,8 +3403,9 @@ namespace ext::net::http
 
 	auto http_server::find_handler(processing_context & context) const -> const http_server_handler *
 	{
+		http_server_control control(&context);
 		for (auto & handler : context.config->handlers)
-			if (handler->accept(context.request, context.sock))
+			if (handler->accept(control))
 				return handler;
 
 		return nullptr;

@@ -453,6 +453,14 @@ namespace ext::net::http
 		return *m_context->filter_ctx;
 	}
 	
+	auto http_server::http_server_control::acquire_property_map() -> property_map &
+	{
+		if (not m_context->property_map)
+			m_context->property_map = std::make_unique<property_map>();
+		
+		return *m_context->property_map;
+	}
+	
 	void http_server::http_server_control::request_filter_append(std::unique_ptr<filter> filter)
 	{
 		auto & fctx = acquire_filtering_context();
@@ -523,7 +531,7 @@ namespace ext::net::http
 		throw std::runtime_error("http_server::http_server_filter_control: http response not available");
 	}
 	
-	void http_server::http_server_control::set_response(http_response resp)
+	void http_server::http_server_control::set_response(http_response && resp)
 	{
 		if (not std::holds_alternative<null_response_type>(m_context->response))
 			throw std::runtime_error("http_server::http_server_filter_control: http response is already set");
@@ -531,7 +539,7 @@ namespace ext::net::http
 		m_context->response = std::move(resp);
 	}
 	
-	void http_server::http_server_control::override_response(http_response resp, bool final)
+	void http_server::http_server_control::override_response(http_response && resp, bool final)
 	{
 		m_context->response = std::move(resp);
 		m_context->response_is_final = final;
@@ -545,19 +553,19 @@ namespace ext::net::http
 	
 	auto http_server::http_server_control::get_property(std::string_view name) const -> std::optional<property>
 	{
-		if (not m_context->filter_ctx) return std::nullopt;
+		if (not m_context->property_map) return std::nullopt;
 		
-		auto & fctx = *m_context->filter_ctx;
+		auto & pmap = *m_context->property_map;
 		std::string key(name);
-		auto it = fctx.property_map.find(key);
-		if (it == fctx.property_map.end()) return std::nullopt;
+		auto it = pmap.find(key);
+		if (it == pmap.end()) return std::nullopt;
 		
 		return it->second;
 	}
 	
 	void http_server::http_server_control::set_property(std::string_view name, property prop)
 	{
-		auto & fctx = acquire_filtering_context();
-		fctx.property_map.insert_or_assign(std::string(name), std::move(prop));
+		auto & pmap = acquire_property_map();
+		pmap.insert_or_assign(std::string(name), std::move(prop));
 	}
 }

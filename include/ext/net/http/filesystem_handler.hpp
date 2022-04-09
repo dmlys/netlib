@@ -28,10 +28,10 @@ namespace ext::net::http
 		virtual auto make_special_response(const http_request & request, const std::filesystem::path & path, std::filesystem::file_status stat, std::filebuf & fb) const -> http_response;
 		
 	public:
-		virtual auto wanted_body_type() const noexcept -> ext::net::http::http_body_type override { return ext::net::http::http_body_type::null; }
-		virtual bool accept(const ext::net::http::http_request & req, const ext::net::socket_streambuf & sock) const override;
+		virtual auto wanted_body_type(http_server_control & control) const noexcept -> ext::net::http::http_body_type override { return ext::net::http::http_body_type::null; }
+		virtual bool accept(http_server_control & control) const override;
+		virtual result_type process(http_server_control & control) const override;
 		virtual auto serve_request(const ext::net::http::http_request & req, const std::filesystem::path & path) const -> ext::net::http_response;
-		virtual result_type process(ext::net::http::http_request & req) const override;
 		
 	public:
 		filesystem_handler(std::string url_root, std::string filesystem_root);

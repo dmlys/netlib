@@ -418,6 +418,7 @@ namespace ext::net::http
 		
 	private:
 		filtering_context & acquire_filtering_context();
+		property_map & acquire_property_map();
 		
 	public:
 		virtual void request_filter_append(std::unique_ptr<filter> filter) override;
@@ -436,8 +437,9 @@ namespace ext::net::http
 		virtual auto socket() const -> const ext::net::socket_streambuf & override;
 		virtual auto request() -> http_request & override;
 		virtual auto response() -> http_response & override;
-		virtual void set_response(http_response resp) override;
-		virtual void override_response(http_response resp, bool final = true) override;
+		
+		virtual void set_response(http_response && resp) override;
+		virtual void override_response(http_response && resp, bool final = true) override;
 		virtual void override_response(null_response_type) override;
 		
 	public:
