@@ -259,6 +259,10 @@ namespace ext::net::http
 		/// If final == true - no filters or anything else would affect that response,
 		/// through some basic post-processing still can be make: like Content-Length header
 		virtual void override_response(http_response resp, bool final = true) = 0;
+		/// Overrides response with null, even if it was already set previously.
+		/// After that no filters/handlers should be invoked and connection should be immediately closed.
+		/// Same as returning null response from handler directly.
+		virtual void override_response(null_response_type) = 0;
 		
 	public:
 		/// properties can be used for handler filter communications, including pre and post filter phases

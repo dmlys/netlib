@@ -537,6 +537,12 @@ namespace ext::net::http
 		m_context->response_is_final = final;
 	}
 	
+	void http_server::http_server_control::override_response(null_response_type)
+	{
+		m_context->response_is_null = true;
+		m_context->response_is_final = true; // unnecessary
+	}
+	
 	auto http_server::http_server_control::get_property(std::string_view name) const -> std::optional<property>
 	{
 		if (not m_context->filter_ctx) return std::nullopt;

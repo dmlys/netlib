@@ -438,6 +438,7 @@ namespace ext::net::http
 		virtual auto response() -> http_response & override;
 		virtual void set_response(http_response resp) override;
 		virtual void override_response(http_response resp, bool final = true) override;
+		virtual void override_response(null_response_type) override;
 		
 	public:
 		virtual auto get_property(std::string_view name) const -> std::optional<property> override;

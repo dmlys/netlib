@@ -21,8 +21,6 @@ namespace ext::net::http
 	protected:
 		// gzip_weight, deflate_weight
 		auto parse_accept_encoding(std::string_view accept_encoding_field) const -> std::tuple<double, double>;
-		std::string inflate(const std::string & data) const;
-		std::string deflate(const std::string & data, bool deflate) const;
 
 	public:
 		virtual void prefilter(http_server_control & control) const override;

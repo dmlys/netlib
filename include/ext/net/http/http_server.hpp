@@ -212,6 +212,7 @@ namespace ext::net::http
 			bool final_response_written;   // wrote final(possibly second) response
 			
 			bool response_is_final;        // response was marked as final, see http_server_filter_control
+			bool response_is_null;         // response was set to null, no response should be sent, connection should be closed
 			
 			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
 			std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization

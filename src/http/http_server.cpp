@@ -1692,6 +1692,13 @@ namespace ext::net::http
 			http_server_control filter_control(context);
 			for (const auto * filter : context->config->prefilters)
 			{
+				if (context->response_is_null)
+				{
+					SOCK_LOG_DEBUG("got null response from prefilter, connection will be closed");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
 				// if response overridden - return it
 				if (context->response_is_final)
 					return &http_server::handle_request_header_processing;
@@ -1907,7 +1914,8 @@ namespace ext::net::http
 			}
 			else if constexpr (std::is_same_v<arg_type, null_response_type>)
 			{
-				SOCK_LOG_DEBUG("got nullopt response from http_handler, connection will be closed");
+				SOCK_LOG_DEBUG("got null response from http_handler, connection will be closed");
+				context->response_is_null = true;
 				context->conn_action = connection_action_type::close;
 				return &http_server::handle_finish;
 			}
@@ -1930,7 +1938,16 @@ namespace ext::net::http
 			http_server_control filter_control(context);
 			for (const auto * filter : context->config->postfilters)
 			{
-				if (context->response_is_final) break;
+				if (context->response_is_null)
+				{
+					SOCK_LOG_DEBUG("got null response from postfilter, connection will be closed");
+					context->conn_action = connection_action_type::close;
+					return &http_server::handle_finish;
+				}
+				
+				if (context->response_is_final)
+					break;
+				
 				filter->postfilter(filter_control);
 			}
 
@@ -3085,6 +3102,7 @@ namespace ext::net::http
 		context->expect_extension = context->continue_answer = false;
 		context->first_response_written = context->final_response_written = false;
 		context->response_is_final = false;
+		context->response_is_null = false;
 
 		context->parser.reset(&context->request);
 		context->writer.reset(nullptr);		
