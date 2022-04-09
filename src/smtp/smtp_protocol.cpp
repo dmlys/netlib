@@ -5,7 +5,7 @@
 
 #include <ext/net/smtp/smtp_protocol.hpp>
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 #	include <openssl/ssl.h>
 #endif
 
@@ -116,7 +116,7 @@ namespace ext::net::smtp
 		ses.send("HELO " + client_name, 220);
 	}
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 	void establish_connection_starttls(smtp_session & ses, std::string_view client_name)
 	{
 		establish_connection_starttls(ses, client_name, SSLv23_client_method());

@@ -32,7 +32,7 @@ namespace ext::net::mail::simple
 
 		std::string client_name = "[" + sock.sock_address() + "]";
 		
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 		if (sp.smtp_startssl)
 			establish_connection_starttls(ses, client_name);
 		else
@@ -167,7 +167,7 @@ namespace ext::net::mail::simple
 
 		os << subject(msg.subject);
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 		if (msg.private_key)
 		{
 			std::ostringstream ostr;

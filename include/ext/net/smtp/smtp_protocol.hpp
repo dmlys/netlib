@@ -21,7 +21,7 @@ namespace ext::net::smtp
 	/// в случае ошибки кидает smtp_session_exception
 	void establish_connection(smtp_session & ses, std::string_view client_name);
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 	/// устанавливает незащищенное соединение, ожидает строку ответа с 220 кодом,
 	/// шлет ehlo и ожидает 250 код ответа.
 	/// после шлет starttls, повышает соединение до защищенного,

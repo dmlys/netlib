@@ -8,7 +8,7 @@
 #include <ext/net/mime/mail_encoding.hpp>
 #include <ext/net/smtp/smtp_extensions.hpp>
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 #include <ext/openssl.hpp>
 #include <ext/net/mail/cms_sign.hpp>
 #endif
@@ -42,7 +42,7 @@ namespace ext::net::mail::simple
 
 		std::vector<mail_attachment> attachments;
 
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 		// certificate and private key for signing
 		openssl::evp_pkey_iptr private_key;
 		openssl::x509_iptr     x509;
@@ -60,7 +60,7 @@ namespace ext::net::mail::simple
 		std::string smtp_addr = "localhost";
 		std::string smtp_service = "smtp";
 		
-#if EXT_ENABLE_OPENSSL
+#ifdef EXT_ENABLE_OPENSSL
 		bool smtp_startssl = false;
 #endif
 
