@@ -24,7 +24,7 @@ namespace ext::net::mail
 		if (not bio_input_ptr)  throw_last_error("ext::net::openssl::sign_mail: input  BIO_mem fail(::BIO_new_mem_buf)");
 		if (not bio_output_ptr) throw_last_error("ext::net::openssl::sign_mail: output BIO_mem fail(::BIO_new(::BIO_s_mem()))");
 
-		int flags = CMS_STREAM | CMS_CRLFEOL;
+		int flags = CMS_CRLFEOL;
 		if (detached) flags |= CMS_DETACHED;
 
 		cms_contentinfo_ptr cms_info(::CMS_sign(x509, pkey, additional_certs, bio_input_ptr.get(), flags));
