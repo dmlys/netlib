@@ -199,7 +199,7 @@ namespace ext::net::http
 			
 			// contexts for filtering request/reply http_body;
 			std::unique_ptr<filtering_context> filter_ctx;
-			std::unique_ptr<property_map> property_map;
+			std::unique_ptr<property_map> prop_map;
 			
 			http_request request;                    // current http request,  valid after is was parsed
 			process_result response = null_response; // current http response, valid after handler was called

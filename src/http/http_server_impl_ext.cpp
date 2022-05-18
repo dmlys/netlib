@@ -455,10 +455,10 @@ namespace ext::net::http
 	
 	auto http_server::http_server_control::acquire_property_map() -> property_map &
 	{
-		if (not m_context->property_map)
-			m_context->property_map = std::make_unique<property_map>();
+		if (not m_context->prop_map)
+			m_context->prop_map = std::make_unique<property_map>();
 		
-		return *m_context->property_map;
+		return *m_context->prop_map;
 	}
 	
 	void http_server::http_server_control::request_filter_append(std::unique_ptr<filter> filter)
@@ -553,9 +553,9 @@ namespace ext::net::http
 	
 	auto http_server::http_server_control::get_property(std::string_view name) const -> std::optional<property>
 	{
-		if (not m_context->property_map) return std::nullopt;
+		if (not m_context->prop_map) return std::nullopt;
 		
-		auto & pmap = *m_context->property_map;
+		auto & pmap = *m_context->prop_map;
 		std::string key(name);
 		auto it = pmap.find(key);
 		if (it == pmap.end()) return std::nullopt;

@@ -3152,7 +3152,7 @@ namespace ext::net::http
 		
 		context->config = nullptr;
 		context->filter_ctx.reset();
-		context->property_map.reset();
+		context->prop_map.reset();
 		
 		context->chunk_prefix.clear();
 		//context->input_buffer.clear();
