@@ -3452,9 +3452,17 @@ namespace ext::net::http
 			return ext::format_error(errc);
 		else
 		{
-			// if no errors in queue, print errc as is
+			
 			if (not openssl::last_error(openssl::error_retrieve::peek))
-				return ext::format_error(errc);
+			{
+				// if no errors in queue, print errc as is
+				auto err = ext::format_error(errc);
+				// if it's syscall - print also errno
+				if (errc == openssl::ssl_errc::syscall)
+					err.append(", errno - ").append(ext::format_errno(errno));
+				
+				return err;
+			}
 
 			// print_error_queue effectively clears openssl error queue
 			auto output = openssl::print_error_queue();
