@@ -806,8 +806,8 @@ namespace ext::net
 					break;
 				}
 
-				// it was unexpected eof
-				if (ssl_err == 0)
+				// it was eof
+				if (res == 0)
 				{
 					errc = make_error_code(sock_errc::eof);
 					break;
