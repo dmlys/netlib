@@ -1069,7 +1069,7 @@ namespace ext::net::http
 		long int rc;
 		std::error_code errc;
 		
-		switch (context->async_state) again:
+		again: switch (context->async_state)
 		{
 			case 0:
 				sock.timeout(m_close_socket_timeout);
@@ -1149,7 +1149,7 @@ namespace ext::net::http
 					return async_method(socket_queue::both, &http_server::handle_ssl_continue_handshake);
 				}
 				
-				// seconds shutdown failed, this can be a error,
+				// second shutdown failed, this can be a error,
 				// or socket was shutdown by other side, lets check it
 				rc = ::recv(::SSL_get_fd(ssl), &ch, 1, MSG_PEEK);
 				if (rc != 0) goto error; // rc == 0 -> socket closed
