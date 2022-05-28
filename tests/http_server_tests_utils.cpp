@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <iostream>
 
 #include <ext/stream_filtering/basexx.hpp>
 
@@ -73,7 +74,7 @@ namespace ext::net::http::test_utils
 	{
 		if (LogLevel != -1)
 		{
-			static ext::library_logger::stream_logger logger(std::cout, LogLevel);
+			static ext::library_logger::ostream_logger logger(std::cout, LogLevel);
 			server.set_logger(&logger);
 		}
 		

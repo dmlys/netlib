@@ -1,6 +1,7 @@
 #include <ext/itoa.hpp>
 #include <ext/reverse_lock.hpp>
 #include <ext/errors.hpp>
+#include <ext/strings/aci_string.hpp>
 #include <ext/functors/ctpred.hpp>
 #include <ext/hexdump.hpp>
 
