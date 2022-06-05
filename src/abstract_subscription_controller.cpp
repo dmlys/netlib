@@ -1,7 +1,7 @@
 #include <ext/net/abstract_subscription_controller.hpp>
 
 #include <fmt/format.h>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 namespace ext {
 namespace net
@@ -70,7 +70,7 @@ namespace net
 
 	ext::shared_future<void> abstract_subscription_controller::do_close(unique_lock lk)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Close request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
+		EXTLOG_DEBUG_FMT(get_logger(), "Close request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
 
 		assert(lk.owns_lock());
 		decltype(m_resume_future) resume_future;
@@ -116,7 +116,7 @@ namespace net
 
 	ext::shared_future<bool> abstract_subscription_controller::do_pause(unique_lock lk)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Pause request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
+		EXTLOG_DEBUG_FMT(get_logger(), "Pause request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
 
 		assert(lk.owns_lock());
 		auto delayed_state = std::exchange(m_delayed_state, normal);
@@ -172,7 +172,7 @@ namespace net
 
 	ext::shared_future<bool> abstract_subscription_controller::do_resume(unique_lock lk)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Resume request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
+		EXTLOG_DEBUG_FMT(get_logger(), "Resume request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
 
 		assert(lk.owns_lock());
 		auto delayed_state = std::exchange(m_delayed_state, normal);
@@ -227,7 +227,7 @@ namespace net
 
 	void abstract_subscription_controller::notify_closed(unique_lock lk, std::exception_ptr eptr)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Got closed notification for {}; curstate = {}, delayed = {}; eptr = {}",
+		EXTLOG_DEBUG_FMT(get_logger(), "Got closed notification for {}; curstate = {}, delayed = {}; eptr = {}",
 		                name(), state_string(m_state), delayed_string(m_delayed_state), eptr ? "not null" : "null");
 
 		assert(lk.owns_lock());
@@ -261,7 +261,7 @@ namespace net
 
 	void abstract_subscription_controller::notify_paused(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Got paused notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
+		EXTLOG_DEBUG_FMT(get_logger(), "Got paused notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
 		                name(), state_string(m_state), delayed_string(m_delayed_state), success, eptr ? "not null" : "null");
 
 		assert(lk.owns_lock());
@@ -310,7 +310,7 @@ namespace net
 
 	void abstract_subscription_controller::notify_resumed(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
-		EXTLL_DEBUG_FMT(get_logger(), "Got resumed notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
+		EXTLOG_DEBUG_FMT(get_logger(), "Got resumed notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
 		                name(), state_string(m_state), delayed_string(m_delayed_state), success, eptr ? "not null" : "null");
 
 		assert(lk.owns_lock());

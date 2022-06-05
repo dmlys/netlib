@@ -1,7 +1,7 @@
 #include <ext/net/abstract_connection_controller.hpp>
 
 #include <fmt/format.h>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 namespace ext {
 namespace net
@@ -52,7 +52,7 @@ namespace net
 
 	ext::shared_future<bool> abstract_connection_controller::do_connect(unique_lock lk)
 	{
-		EXTLL_DEBUG_FMT(m_logger, "Connect request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
+		EXTLOG_DEBUG_FMT(m_logger, "Connect request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
 
 		assert(lk.owns_lock());
 		decltype(m_connect_future) connect_future;
@@ -85,7 +85,7 @@ namespace net
 			}
 			catch (...)
 			{
-				EXTLL_ERROR_FMT(m_logger, "Connect request failed for {}", name());
+				EXTLOG_ERROR_FMT(m_logger, "Connect request failed for {}", name());
 				notify_connected(unique_lock(m_mutex), false, std::current_exception());
 			}
 
@@ -98,7 +98,7 @@ namespace net
 
 	ext::shared_future<void> abstract_connection_controller::do_disconnect(unique_lock lk)
 	{
-		EXTLL_DEBUG_FMT(m_logger, "Disconnect request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
+		EXTLOG_DEBUG_FMT(m_logger, "Disconnect request for {}; curstate = {}, delayed = {}", name(), state_string(m_state), delayed_string(m_delayed_state));
 
 		assert(lk.owns_lock());
 		auto delayed_state = std::exchange(m_delayed_state, normal);
@@ -133,7 +133,7 @@ namespace net
 			}
 			catch (...)
 			{
-				EXTLL_ERROR_FMT(m_logger, "Disconnect request failed for {}", name());
+				EXTLOG_ERROR_FMT(m_logger, "Disconnect request failed for {}", name());
 				notify_disconnected(unique_lock(m_mutex), std::current_exception());
 			}
 
@@ -146,7 +146,7 @@ namespace net
 
 	void abstract_connection_controller::notify_connected(unique_lock lk, bool success, std::exception_ptr eptr)
 	{
-		EXTLL_DEBUG_FMT(m_logger, "Got connected notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
+		EXTLOG_DEBUG_FMT(m_logger, "Got connected notification for {}; curstate = {}, delayed = {}; success = {}, eptr = {}",
 		                name(), state_string(m_state), delayed_string(m_delayed_state), success, eptr ? "not null" : "null");
 
 		assert(lk.owns_lock());
@@ -183,7 +183,7 @@ namespace net
 
 	void abstract_connection_controller::notify_disconnected(unique_lock lk, std::exception_ptr eptr)
 	{
-		EXTLL_DEBUG_FMT(m_logger, "Got disconnected notification for {}; curstate = {}, delayed = {}; eptr = {}",
+		EXTLOG_DEBUG_FMT(m_logger, "Got disconnected notification for {}; curstate = {}, delayed = {}; eptr = {}",
 		                name(), state_string(m_state), delayed_string(m_delayed_state), eptr ? "not null" : "null");
 
 		assert(lk.owns_lock());

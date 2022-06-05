@@ -74,7 +74,7 @@ namespace ext::net::http::test_utils
 	{
 		if (LogLevel != -1)
 		{
-			static ext::library_logger::ostream_logger logger(std::cout, LogLevel);
+			static ext::log::ostream_logger logger(std::cout, LogLevel);
 			server.set_logger(&logger);
 		}
 		

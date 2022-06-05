@@ -4,7 +4,7 @@
 #include <boost/config.hpp>
 #include <boost/signals2.hpp>
 
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/subscription_controller.hpp>
 
 namespace ext {
@@ -42,7 +42,7 @@ namespace net
 
 	protected:
 		/// optional logger support, this method always will be called under m_mutex lock
-		virtual ext::library_logger::logger * get_logger() const { return nullptr; }
+		virtual ext::log::logger * get_logger() const { return nullptr; }
 
 	public:
 		/// name of this object, used mainly for logging purposes

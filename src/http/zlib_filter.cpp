@@ -8,7 +8,7 @@
 #include <charconv>
 #include <fmt/format.h>
 #include <ext/cppzlib.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 namespace ext::net::http
 {
@@ -39,7 +39,7 @@ namespace ext::net::http
 		const auto & encoding = hdr->value;
 		if (encoding == "gzip" or encoding == "deflate")
 		{
-			EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
+			EXTLOG_TRACE_FMT(m_logger, "zlib_filter: Found Content-Encoding = {}", encoding);
 			control.request_filter_append(std::make_unique<ext::stream_filtering::zlib_inflate_filter>());
 		}
 		
@@ -60,7 +60,7 @@ namespace ext::net::http
 		auto encoding = get_property<std::string>(control, "zlib-filter::Accept-Encoding");
 		if (not encoding or encoding->empty()) return;
 
-		EXTLL_TRACE_FMT(m_logger, "zlib_filter: Found Accept-Encoding = {}", *encoding);
+		EXTLOG_TRACE_FMT(m_logger, "zlib_filter: Found Accept-Encoding = {}", *encoding);
 
 		double gzip_weight, deflate_weight;
 		std::tie(gzip_weight, deflate_weight) = parse_accept_encoding(*encoding);

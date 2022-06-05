@@ -7,7 +7,7 @@
 #include <functional>
 
 #include <ext/future.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/http/http_types.hpp>
 
@@ -18,14 +18,14 @@ namespace ext::net::http
 	class http_server_handler
 	{
 	protected:
-		ext::library_logger::logger * m_logger = nullptr;
+		ext::log::logger * m_logger = nullptr;
 
 	public:
 		static constexpr unsigned default_order = std::numeric_limits<unsigned>::max() / 2;
 
 	public:
 		/// will be called by http_server, passing internal logger
-		virtual void set_logger(ext::library_logger::logger * logger) { m_logger = logger; }
+		virtual void set_logger(ext::log::logger * logger) { m_logger = logger; }
 		/// override to change search order of this handler
 		virtual unsigned order() const noexcept { return default_order; }
 

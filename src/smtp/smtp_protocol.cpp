@@ -1,6 +1,6 @@
 #include <ext/functors/ctpred.hpp>
 #include <ext/strings/aci_string.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 #include <ext/base64.hpp>
 
 #include <ext/net/smtp/smtp_protocol.hpp>
@@ -183,7 +183,7 @@ namespace ext::net::smtp
 		}
 		catch (smtp_session_exception & ex) 
 		{
-			EXTLL_ERROR(ses.get_logger(), "SMTP session QUIT error: " << ex.what());
+			EXTLOG_ERROR(ses.get_logger(), "SMTP session QUIT error: " << ex.what());
 			return false;
 		}
 	}

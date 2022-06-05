@@ -9,16 +9,16 @@
 #include <ext/net/socket_queue.hpp>
 #include <ext/net/socket_include.hpp>
 
-#include <ext/library_logger/logger.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logger.hpp>
+#include <ext/log/logging_macros.hpp>
 
 
-#define LOG_FATAL(...) EXTLL_FATAL_FMT(m_logger, __VA_ARGS__)
-#define LOG_ERROR(...) EXTLL_ERROR_FMT(m_logger, __VA_ARGS__)
-#define LOG_WARN(...)  EXTLL_WARN_FMT(m_logger, __VA_ARGS__)
-#define LOG_INFO(...)  EXTLL_INFO_FMT(m_logger, __VA_ARGS__)
-#define LOG_DEBUG(...) EXTLL_DEBUG_FMT(m_logger, __VA_ARGS__)
-#define LOG_TRACE(...) EXTLL_TRACE_FMT(m_logger, __VA_ARGS__)
+#define LOG_FATAL(...) EXTLOG_FATAL_FMT(m_logger, __VA_ARGS__)
+#define LOG_ERROR(...) EXTLOG_ERROR_FMT(m_logger, __VA_ARGS__)
+#define LOG_WARN(...)  EXTLOG_WARN_FMT(m_logger, __VA_ARGS__)
+#define LOG_INFO(...)  EXTLOG_INFO_FMT(m_logger, __VA_ARGS__)
+#define LOG_DEBUG(...) EXTLOG_DEBUG_FMT(m_logger, __VA_ARGS__)
+#define LOG_TRACE(...) EXTLOG_TRACE_FMT(m_logger, __VA_ARGS__)
 
 #if BOOST_OS_WINDOWS
 

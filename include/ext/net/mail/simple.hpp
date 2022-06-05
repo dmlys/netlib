@@ -4,7 +4,7 @@
 #include <string_view>
 #include <vector>
 
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/mime/mail_encoding.hpp>
 #include <ext/net/smtp/smtp_extensions.hpp>
 
@@ -69,6 +69,6 @@ namespace ext::net::mail::simple
 		bool auth_login = false;
 	};
 
-	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log = nullptr);
+	void send_mail(const message & msg, const send_params & sp, ext::log::logger * log = nullptr);
 	void write_message(std::ostream & os, const message & msg, smtp_extensions_bitset extensions = {});
 }

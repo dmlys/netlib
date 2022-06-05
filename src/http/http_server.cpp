@@ -3416,7 +3416,7 @@ namespace ext::net::http
 	{
 		if (not m_logger) return;
 
-		static_assert(ext::library_logger::Trace > ext::library_logger::Debug);
+		static_assert(ext::log::Trace > ext::log::Debug);
 		auto log_level = std::min(m_request_logging_level, m_request_body_logging_level);
 
 		auto record = m_logger->open_record(log_level, __FILE__, __LINE__);
@@ -3433,7 +3433,7 @@ namespace ext::net::http
 	{
 		if (not m_logger) return;
 
-		static_assert(ext::library_logger::Trace > ext::library_logger::Debug);
+		static_assert(ext::log::Trace > ext::log::Debug);
 		auto log_level = std::min(m_request_logging_level, m_request_body_logging_level);
 
 		auto record = m_logger->open_record(log_level, __FILE__, __LINE__);

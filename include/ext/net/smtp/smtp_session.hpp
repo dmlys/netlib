@@ -6,7 +6,7 @@
 
 #include <ext/config.hpp>
 #include <ext/itoa.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/smtp/smtp_extensions.hpp>
 
@@ -33,18 +33,18 @@ namespace ext::net::smtp
 	using extensions_set = smtp_extensions_bitset;
 
 	/// вспомогательный класс для общения с сервером по протоколу smtp
-	/// логирует запросы/ответы клиента/сервера в заданный ext::library_logger::logger
+	/// логирует запросы/ответы клиента/сервера в заданный ext::log::logger
 	/// предоставляет базовые методы для получения/парсинга ответов от севера
 	class smtp_session
 	{
 	private:
-		ext::library_logger::logger * m_log = nullptr;
+		ext::log::logger * m_log = nullptr;
 		socket_stream * m_sock = nullptr;
 		std::string m_respline;
 		extensions_set m_extensions;
 
 	public:
-		void set_logger(ext::library_logger::logger * logger) { m_log = logger; }
+		void set_logger(ext::log::logger * logger) { m_log = logger; }
 		auto get_logger() const { return m_log; }
 
 	public:
@@ -99,7 +99,7 @@ namespace ext::net::smtp
 			m_sock->self_tie(true);
 		}
 
-		smtp_session(socket_stream & sock, ext::library_logger::logger * conversation_log)
+		smtp_session(socket_stream & sock, ext::log::logger * conversation_log)
 			: smtp_session(sock)
 		{
 			set_logger(conversation_log);

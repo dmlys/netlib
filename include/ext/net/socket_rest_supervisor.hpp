@@ -16,7 +16,7 @@
 #include <boost/intrusive/list_hook.hpp>
 
 #include <ext/net/socket_stream.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 
 #include <ext/net/abstract_connection_controller.hpp>
 #include <ext/net/abstract_subscription_controller.hpp>
@@ -82,7 +82,7 @@ namespace ext::net
 		std::string & host() const noexcept;
 		std::mutex & parent_mutex() const noexcept;
 		void notify_parent() const noexcept;
-		auto logger() const noexcept -> ext::library_logger::logger *;
+		auto logger() const noexcept -> ext::log::logger *;
 
 	public:
 		/// refcount parts for intrusive_ptr
@@ -217,7 +217,7 @@ namespace ext::net
 		using base_type::m_state;
 
 	protected:
-		ext::library_logger::logger * get_logger() const override { return socket_rest_supervisor_item::logger(); }
+		ext::log::logger * get_logger() const override { return socket_rest_supervisor_item::logger(); }
 
 	protected:
 		using socket_rest_supervisor_item::m_flags;
@@ -428,8 +428,8 @@ namespace ext::net
 		auto get_request_slots() const -> unsigned;
 		/// sets optional logger, should be called prior first call to connect.
 		/// (internal thread starts on first connect request, m_logger is accessed only from internal thread, except this setter/getter)
-		void set_logger(ext::library_logger::logger * logger)    { m_logger = logger; }
-		auto get_logger() const -> ext::library_logger::logger * { return m_logger; }
+		void set_logger(ext::log::logger * logger)    { m_logger = logger; }
+		auto get_logger() const -> ext::log::logger * { return m_logger; }
 
 		/// last error description
 		std::string last_errormsg() const;
@@ -500,7 +500,7 @@ namespace ext::net
 	}
 
 	inline auto socket_rest_supervisor_item::logger() const noexcept
-		-> ext::library_logger::logger *
+		-> ext::log::logger *
 	{
 		return m_owner ? m_owner->m_logger : nullptr;
 	}

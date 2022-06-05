@@ -1,25 +1,25 @@
 #include <ext/net/smtp/smtp_session.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 namespace ext::net::smtp
 {
 	BOOST_NORETURN void smtp_session::throw_smtp_exception(const std::string & errmsg)
 	{
-		EXTLL_ERROR(m_log, errmsg);
+		EXTLOG_ERROR(m_log, errmsg);
 		throw smtp_session_exception(errmsg);
 	}
 
 	BOOST_NORETURN void smtp_session::throw_bad_response(const std::string & badresp)
 	{
 		auto err_msg = "failed to parse response: " + badresp;
-		EXTLL_ERROR(m_log, err_msg);
+		EXTLOG_ERROR(m_log, err_msg);
 		throw smtp_session_exception(err_msg);
 	}
 
 	BOOST_NORETURN void smtp_session::throw_bad_response(int code, char delim, std::string_view rest, int wanted_code)
 	{
 		auto err_msg = create_errmsg(code, delim, rest, wanted_code);
-		EXTLL_ERROR(m_log, err_msg);
+		EXTLOG_ERROR(m_log, err_msg);
 		throw smtp_session_exception(err_msg);
 	}
 
@@ -43,12 +43,12 @@ namespace ext::net::smtp
 
 	void smtp_session::log_send(std::string_view send_line)
 	{
-		EXTLL_INFO(m_log, "C: " << send_line);
+		EXTLOG_INFO(m_log, "C: " << send_line);
 	}
 
 	void smtp_session::log_recv(std::string_view recv_line)
 	{
-		EXTLL_INFO(m_log, "S: " << recv_line);
+		EXTLOG_INFO(m_log, "S: " << recv_line);
 	}
 
 	bool parse_response(std::string_view line, int & code, char & delim, std::string_view & rest)

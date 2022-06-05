@@ -8,7 +8,7 @@
 #include <ext/net/mail/wellknown_headers.hpp>
 
 #include <ext/errors.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 #include <boost/uuid/uuid.hpp> // for mime boundaries
 #include <boost/uuid/random_generator.hpp>
@@ -17,7 +17,7 @@
 
 namespace ext::net::mail::simple
 {
-	void send_mail(const message & msg, const send_params & sp, ext::library_logger::logger * log)
+	void send_mail(const message & msg, const send_params & sp, ext::log::logger * log)
 	{
 		ext::net::socket_stream sock;
 		smtp_session ses {sock, log};

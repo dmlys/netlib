@@ -4,7 +4,7 @@
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
 
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/socket_base.hpp>
 #include <ext/future.hpp>
 
@@ -44,7 +44,7 @@ static void parse_command_opts(int argc, char *argv[])
 	}
 	
 	if (not log_level.empty())
-		LogLevel = ext::library_logger::parse_log_level(log_level);
+		LogLevel = ext::log::parse_log_level(log_level);
 }
 
 struct GlobalFixture

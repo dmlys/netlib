@@ -3,7 +3,7 @@
 
 #include <boost/config.hpp>
 #include <boost/signals2.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/connection_controller.hpp>
 
 namespace ext {
@@ -33,7 +33,7 @@ namespace net
 	protected:
 		/// mutex guarding state-machine, can also be used by derived class
 		mutable mutex_type m_mutex;
-		mutable ext::library_logger::logger * m_logger = nullptr;
+		mutable ext::log::logger * m_logger = nullptr;
 		state_type m_state = offline;
 		delayed_state_type m_delayed_state = normal;
 		event_sig m_event_signal;

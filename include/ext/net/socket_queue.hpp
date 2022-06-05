@@ -7,7 +7,7 @@
 #include <tuple>
 #include <list>
 
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/net/socket_stream.hpp>
 #include <ext/net/listener.hpp>
 
@@ -84,7 +84,7 @@ namespace ext::net
 		/// default timeout for newly accepted sockets
 		duration_type m_timeout = duration_type::max();
 		/// optional logger for some diagnostic, debug stuff
-		ext::library_logger::logger * m_logger = nullptr;
+		ext::log::logger * m_logger = nullptr;
 
 	private:
 		/// does initial socket configuration after accept from listener
@@ -162,7 +162,7 @@ namespace ext::net
 		auto get_default_timeout() const noexcept       { return m_timeout;    }
 
 	public:
-		void set_logger(ext::library_logger::logger * logger) { m_logger = logger; }
+		void set_logger(ext::log::logger * logger) { m_logger = logger; }
 		auto get_logger() const noexcept                      { return m_logger;   }
 
 	public:

@@ -16,7 +16,7 @@
 #include <ext/future.hpp>
 #include <ext/thread_pool.hpp>
 #include <ext/intrusive_ptr.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 #include <ext/stream_filtering/filter_types.hpp>
 
 #include <ext/openssl.hpp>
@@ -260,7 +260,7 @@ namespace ext::net::http
 		// sharable cow config context, see config_context description
 		std::shared_ptr<config_context> m_config_context = std::make_shared<config_context>();
 
-		ext::library_logger::logger * m_logger = nullptr;
+		ext::log::logger * m_logger = nullptr;
 		// log level on which http request and reply headers are logged
 		unsigned m_request_logging_level = -1;
 		// log level on which http request and reply body are logger, overrides m_request_logging_level if bigger
@@ -617,7 +617,7 @@ namespace ext::net::http
 		auto get_maximum_discarded_http_body_size() -> std::size_t;
 		
 	public:
-		void set_logger(ext::library_logger::logger * logger) { m_logger = logger; m_sock_queue.set_logger(logger); }
+		void set_logger(ext::log::logger * logger) { m_logger = logger; m_sock_queue.set_logger(logger); }
 		auto get_logger() const noexcept { return m_logger;   }
 
 		void set_request_logging_level(unsigned log_level) noexcept { m_request_logging_level = log_level; }

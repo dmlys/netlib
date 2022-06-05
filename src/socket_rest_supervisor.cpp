@@ -4,7 +4,7 @@
 //          http://www.boost.org/LICENSE_1_0.txt
 
 #include <ext/net/socket_rest_supervisor.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 #include <ext/errors.hpp>
 
 #include <boost/scope_exit.hpp>
@@ -99,12 +99,12 @@ namespace ext::net
 	bool socket_rest_supervisor::exec_connect(const std::string & host, const std::string & service, std::chrono::steady_clock::duration timeout)
 	{
 		assert(m_sock_streambuf.throw_errors());
-		EXTLL_INFO(m_logger, "Connecting to " << host << ":" << service);
+		EXTLOG_INFO(m_logger, "Connecting to " << host << ":" << service);
 
 		if (timeout.count() > 0) m_sock_streambuf.timeout(timeout);
 		m_sock_streambuf.connect(host, service);
 
-		EXTLL_INFO(m_logger, "Successfully connected to " << host << ":" << service);
+		EXTLOG_INFO(m_logger, "Successfully connected to " << host << ":" << service);
 
 		unique_lock lk(m_mutex);
 		notify_connected(std::move(lk));
@@ -114,7 +114,7 @@ namespace ext::net
 	void socket_rest_supervisor::exec_disconnect()
 	{
 		m_sock_streambuf.close();
-		EXTLL_INFO(m_logger, "Disconnected");
+		EXTLOG_INFO(m_logger, "Disconnected");
 
 		unique_lock lk(m_mutex);
 		m_disconnect_request = false;
@@ -147,7 +147,7 @@ namespace ext::net
 		errmsg += "; socket_state - ";
 		errmsg += ext::format_error(ec);
 
-		EXTLL_ERROR(m_logger, errmsg);
+		EXTLOG_ERROR(m_logger, errmsg);
 
 		/// set error info
 		unique_lock lk(m_mutex);
@@ -165,7 +165,7 @@ namespace ext::net
 
 		std::string errmsg = "socket_rest_supervisor connection error. " + ext::format_error(ex);
 
-		EXTLL_ERROR(m_logger, errmsg);
+		EXTLOG_ERROR(m_logger, errmsg);
 
 		/// set error info
 		unique_lock lk(m_mutex);

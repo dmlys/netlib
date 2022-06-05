@@ -7,7 +7,7 @@
 #include <any>
 
 #include <ext/intrusive_ptr.hpp>
-#include <ext/library_logger/logger.hpp>
+#include <ext/log/logger.hpp>
 
 
 namespace ext::net::http
@@ -20,7 +20,7 @@ namespace ext::net::http
 	class http_filter_base : public ext::intrusive_atomic_counter<http_filter_base>
 	{
 	protected:
-		ext::library_logger::logger * m_logger = nullptr;
+		ext::log::logger * m_logger = nullptr;
 
 	public:
 		static constexpr unsigned default_order = std::numeric_limits<unsigned>::max() / 2;
@@ -28,7 +28,7 @@ namespace ext::net::http
 	public:
 		virtual ~http_filter_base() = default;
 		/// will be called by http_server, passing internal logger
-		virtual void set_logger(ext::library_logger::logger * logger) { m_logger = logger; }
+		virtual void set_logger(ext::log::logger * logger) { m_logger = logger; }
 	};
 
 	class http_prefilter : virtual public http_filter_base

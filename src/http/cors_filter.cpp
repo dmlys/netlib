@@ -1,5 +1,5 @@
 #include <ext/net/http/cors_filter.hpp>
-#include <ext/library_logger/logging_macros.hpp>
+#include <ext/log/logging_macros.hpp>
 
 namespace ext::net::http
 {
@@ -22,7 +22,7 @@ namespace ext::net::http
 		auto origin_header = get_header(req.headers, "Origin");
 		if (not origin_header) return;
 
-		EXTLL_TRACE_STR(m_logger, "cors_handler: answering to OPTIONS http request");
+		EXTLOG_TRACE_STR(m_logger, "cors_handler: answering to OPTIONS http request");
 		ext::net::http::http_response opts_resp;
 		opts_resp.http_code = 200;
 		opts_resp.status = "OK";
