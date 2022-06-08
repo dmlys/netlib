@@ -24,14 +24,18 @@ namespace ext::net::http
 
 		EXTLOG_TRACE_STR(m_logger, "cors_handler: answering to OPTIONS http request");
 		ext::net::http::http_response opts_resp;
-		opts_resp.http_code = 200;
-		opts_resp.status = "OK";
+		opts_resp.http_code = 204;
+		opts_resp.status = "No Content";
 
-		set_header(opts_resp.headers, "Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+		auto ac_request_method  = get_header_value(req.headers, "Access-Control-Request-Method");
+		auto ac_request_headers = get_header_value(req.headers, "Access-Control-Request-Headers");
+		
 		set_header(opts_resp.headers, "Access-Control-Allow-Origin", origin_header.value);
-		copy_headers(opts_resp.headers, req.headers, "Access-Control-Allow-Methods");
-		copy_headers(opts_resp.headers, req.headers, "Access-Control-Allow-Headers");
+		set_header(opts_resp.headers, "Access-Control-Allow-Methods", ac_request_method);
+		set_header(opts_resp.headers, "Access-Control-Allow-Headers", ac_request_headers);
+		
 		set_header(opts_resp.headers, "Access-Control-Max-Age", "1800");
+		set_header(opts_resp.headers, "Vary", "Origin");
 
 		control.override_response(std::move(opts_resp));
 	}
