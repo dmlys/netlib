@@ -10,7 +10,7 @@ namespace ext::net::http
 		auto origin_header = get_header(req.headers, "Origin");
 		if (not origin_header) return;
 
-		set_header(resp.headers, "Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+		//set_header(resp.headers, "Vary", "Origin");
 		set_header(resp.headers,"Access-Control-Allow-Origin", origin_header.value);
 	}
 
