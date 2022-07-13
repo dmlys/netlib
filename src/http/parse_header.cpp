@@ -4,6 +4,7 @@
 #include <sstream>
 #include <locale>
 #include <algorithm>
+#include <charconv>
 
 #include <ext/net/http/parse_header.hpp>
 #include <boost/predef.h>
