@@ -73,6 +73,8 @@ namespace ext::net::smtp
 	{
 		std::string_view rest_view;
 		bool result = parse_response(line, code, delim, rest_view);
+		if (not result) return result;
+		
 		rest.assign(rest_view.data(), rest_view.size());
 		return result;
 	}
