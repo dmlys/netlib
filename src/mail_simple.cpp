@@ -21,43 +21,54 @@ namespace ext::net::mail::simple
 	{
 		ext::net::socket_stream sock;
 		smtp_session ses {sock, log};
-		sock.connect(sp.smtp_addr, sp.smtp_service);
-
-		if (not sock)
+		
+		try
 		{
-			auto err_msg = "SMTP connection(" + sp.smtp_addr + ":" + sp.smtp_service + ") failure: ";
+			sock.exceptions(std::ios_base::badbit | std::ios_base::failbit);
+			
+			sock.connect(sp.smtp_addr, sp.smtp_service);
+			std::string client_name = "[" + sock.sock_address() + "]";
+			
+		#ifdef EXT_ENABLE_OPENSSL
+			if (sp.smtp_startssl)
+				establish_connection_starttls(ses, client_name);
+			else
+				establish_connection(ses, client_name);
+		#else
+			establish_connection(ses, client_name);
+		#endif
+	
+			if (sp.auth_login)
+				authenticate_simple(ses, sp.auth_user, sp.auth_password);
+	
+			mail_from(ses, msg.from);
+			for (auto & addr : msg.recipients)
+				rcpt_to(ses, addr);
+			
+			for (auto & addr : msg.cc_recipients)
+				rcpt_to(ses, addr);
+			
+			for (auto & addr : msg.bcc_recipients)
+				rcpt_to(ses, addr);
+	
+			start_data(ses);
+			write_message(sock, msg, ses.extensions());
+			
+			end_data(ses);
+			quit_connection(ses);
+			
+			sock.exceptions(std::ios_base::iostate(0));
+			sock.close();
+		}
+		catch (std::ios_base::failure & ex)
+		{
+			sock.exceptions(std::ios_base::iostate(0));
+			
+			auto addr_str = sp.smtp_addr + ":" + sp.smtp_service;
+			auto err_msg = "SMTP connection(" + addr_str + ") failure: ";
 			err_msg += ext::format_error(sock.last_error());
 			ses.throw_smtp_exception(err_msg);
 		}
-
-		std::string client_name = "[" + sock.sock_address() + "]";
-		
-#ifdef EXT_ENABLE_OPENSSL
-		if (sp.smtp_startssl)
-			establish_connection_starttls(ses, client_name);
-		else
-			establish_connection(ses, client_name);
-#else
-		establish_connection(ses, client_name);
-#endif
-
-		if (sp.auth_login)
-			authenticate_simple(ses, sp.auth_user, sp.auth_password);
-
-		mail_from(ses, msg.from);
-		for (auto & addr : msg.recipients)
-			rcpt_to(ses, addr);
-		
-		for (auto & addr : msg.cc_recipients)
-			rcpt_to(ses, addr);
-		
-		for (auto & addr : msg.bcc_recipients)
-			rcpt_to(ses, addr);
-
-		start_data(ses);
-		write_message(ses.sock(), msg, ses.extensions());
-		end_data(ses);
-		quit_connection(ses);
 	}
 
 	static void write_attachment(std::ostream & os, const mail_attachment & attachment, smtp_extensions_bitset extensions)
