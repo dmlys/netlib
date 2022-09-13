@@ -1,6 +1,10 @@
 #pragma once
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+#if FMT_VERSION > 90000
+// starting from v9 fmt provides formatter for std::filesystem in fmt/std.h
+#include <fmt/std.h>
+#endif
 
 #include <ext/log/logger.hpp>
 #include <ext/log/logging_macros.hpp>
