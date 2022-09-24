@@ -21,7 +21,7 @@
 
 #include <ext/openssl.hpp>
 #include <ext/net/socket_stream.hpp>
-#include <ext/net/socket_queue.hpp>
+#include <ext/net/socket_streambuf_queue.hpp>
 
 #include <ext/net/http/http_parser.hpp>
 #include <ext/net/http/http_types.hpp>
@@ -53,6 +53,7 @@ namespace ext::net::http
 		using self_type = http_server;
 
 	public:
+		using socket_queue  = socket_streambuf_queue;
 		using handle_type   = socket_queue::handle_type;
 		using duration_type = socket_queue::duration_type;
 		using time_point    = socket_queue::time_point;

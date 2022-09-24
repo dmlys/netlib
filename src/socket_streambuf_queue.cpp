@@ -6,7 +6,7 @@
 #include <ext/config.hpp>
 #include <ext/utility.hpp>
 #include <ext/errors.hpp>
-#include <ext/net/socket_queue.hpp>
+#include <ext/net/socket_streambuf_queue.hpp>
 #include <ext/net/socket_include.hpp>
 
 #include <ext/log/logger.hpp>
@@ -78,19 +78,19 @@ namespace ext::net
 		if (res != 0)
 		{
 			auto errc = std::error_code(errno, std::generic_category());
-			throw std::system_error(errc, "ext::net::socket_queue: failed to create interrupt pipe pair");
+			throw std::system_error(errc, "ext::net::socket_streambuf_queue: failed to create interrupt pipe pair");
 		}
 
 		return std::make_tuple(pipefd[0], pipefd[1]);
 #endif
 	}
 
-	void socket_queue::configure(socket_streambuf & sock)
+	void socket_streambuf_queue::configure(socket_streambuf & sock)
 	{
 		sock.timeout(m_timeout);
 	}
 
-	void socket_queue::interrupt()
+	void socket_streambuf_queue::interrupt()
 	{
 		if (not m_interrupted.exchange(true, std::memory_order_release))
 		{
@@ -101,16 +101,16 @@ namespace ext::net
 		}
 	}
 
-	auto socket_queue::process_interrupted()
+	auto socket_streambuf_queue::process_interrupted()
 	{
-		LOG_DEBUG("ext::net::socket_queue interrupted");
+		LOG_DEBUG("ext::net::socket_streambuf_queue interrupted");
 		consume_all_input(m_interrupt_listen);
 
 		m_interrupted.store(false, std::memory_order_relaxed);
 		return interrupted;
 	}
 
-	void socket_queue::consume_all_input(handle_type sock)
+	void socket_streambuf_queue::consume_all_input(handle_type sock)
 	{
 		constexpr ioctl_type buffer_size = 256;
 		char buffer[buffer_size];
@@ -122,13 +122,13 @@ namespace ext::net
 		while (avail)
 		{
 			int res = ::interrupt_read(sock, buffer, std::min(buffer_size, avail));
-			if (res == -1) throw_last_socket_error("ext::net::socket_queue::consume_all_input: ::read failed");
+			if (res == -1) throw_last_socket_error("ext::net::socket_streambuf_queue::consume_all_input: ::read failed");
 
 			avail -= res;
 		}
 	}
 
-	auto socket_queue::find_ready_socket(sock_list::iterator first, sock_list::iterator last) -> sock_list::iterator
+	auto socket_streambuf_queue::find_ready_socket(sock_list::iterator first, sock_list::iterator last) -> sock_list::iterator
 	{
 		for (; first != last; ++first)
 			if (first->ready) return first;
@@ -136,9 +136,9 @@ namespace ext::net
 		return first;
 	}
 
-	struct socket_queue::helper
+	struct socket_streambuf_queue::helper
 	{
-		static auto fill_fdset(socket_queue & queue, time_point until, fd_set * readset, fd_set * writeset) -> std::tuple<handle_type, time_point>
+		static auto fill_fdset(socket_streambuf_queue & queue, time_point until, fd_set * readset, fd_set * writeset) -> std::tuple<handle_type, time_point>
 		{
 			duration_type min_timeout = duration_type::max();
 			handle_type max_handle = queue.m_interrupt_listen;
@@ -174,7 +174,7 @@ namespace ext::net
 			return std::make_tuple(max_handle, until);
 		}
 
-		static void calculate_socket_state(socket_queue & queue, time_point now, fd_set * readset, fd_set * writeset)
+		static void calculate_socket_state(socket_streambuf_queue & queue, time_point now, fd_set * readset, fd_set * writeset)
 		{
 			auto * m_logger = queue.m_logger;
 			for (auto & item : queue.m_socks)
@@ -192,7 +192,7 @@ namespace ext::net
 					if (now - item.submit_time >= item.sock.timeout())
 					{
 						LOG_INFO("socket {} timed out", sock_handle);
-						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_queue");
+						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_streambuf_queue");
 						item.ready = 1, item.ready_status = timeout;
 					}
 				}
@@ -206,7 +206,7 @@ namespace ext::net
 					if (err != 0) goto sock_error;
 
 					const char * ready_str;
-					switch (static_cast<socket_queue::wait_type>(wait_type))
+					switch (static_cast<socket_streambuf_queue::wait_type>(wait_type))
 					{
 						case readable: ready_str = "readable"; break;
 						case writable: ready_str = "writable"; break;
@@ -228,7 +228,7 @@ namespace ext::net
 					item.ready = 1;
 					
 					auto errc = std::error_code(err, socket_error_category());
-					item.sock.set_last_error(errc, "socket_queue");
+					item.sock.set_last_error(errc, "socket_streambuf_queue");
 
 					LOG_INFO("socket {} has error", sock_handle, ext::format_error(errc));
 					continue;
@@ -237,7 +237,7 @@ namespace ext::net
 		}
 
 #if EXT_NET_USE_POLL
-		static auto fill_pollfds(socket_queue & queue, time_point until, std::vector<pollfd> & poll_array) -> std::tuple<time_point, pollfd *, pollfd *, pollfd *, pollfd *>
+		static auto fill_pollfds(socket_streambuf_queue & queue, time_point until, std::vector<pollfd> & poll_array) -> std::tuple<time_point, pollfd *, pollfd *, pollfd *, pollfd *>
 		{
 			duration_type min_timeout = duration_type::max();
 			poll_array.resize(1 + queue.m_listeners.size() + queue.m_socks.size());
@@ -277,7 +277,7 @@ namespace ext::net
 			return std::make_tuple(until, first + 1, socks_first, socks_first, last);
 		}
 
-		static void calculate_socket_state(socket_queue & queue, time_point now, const pollfd * pfirst, const pollfd * plast)
+		static void calculate_socket_state(socket_streambuf_queue & queue, time_point now, const pollfd * pfirst, const pollfd * plast)
 		{
 			auto * m_logger = queue.m_logger;
 			auto first = queue.m_socks.begin();
@@ -305,12 +305,12 @@ namespace ext::net
 
 					if (pfd.events & POLLHUP)
 					{
-						item.sock.set_last_error(make_error_code(sock_errc::eof), "socket_queue");
+						item.sock.set_last_error(make_error_code(sock_errc::eof), "socket_streambuf_queue");
 						LOG_INFO("socket {} was diconnected or aborted(POLHUP + POLLERR without err)", sock_handle);
 					}
 					else
 					{
-						item.sock.set_last_error(make_error_code(sock_errc::error), "socket_queue");
+						item.sock.set_last_error(make_error_code(sock_errc::error), "socket_streambuf_queue");
 						LOG_INFO("socket {} has unknown error(POLLERR with getsockopt SO_ERROR == 0, without POLLHUP)", sock_handle);
 					}
 					
@@ -327,7 +327,7 @@ namespace ext::net
 					item.ready = 1;
 
 					auto errc = std::error_code(err, socket_error_category());
-					item.sock.set_last_error(errc, "socket_queue");
+					item.sock.set_last_error(errc, "socket_streambuf_queue");
 
 					LOG_INFO("socket {} has error", sock_handle);
 					continue;
@@ -346,14 +346,14 @@ namespace ext::net
 					if (now - item.submit_time >= item.sock.timeout())
 					{
 						LOG_INFO("socket {} timed out", sock_handle);
-						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_queue");
+						item.sock.set_last_error(make_error_code(sock_errc::timeout), "socket_streambuf_queue");
 						item.ready = 1, item.ready_status = timeout;
 					}
 				}
 				else
 				{
 					const char * ready_str;
-					//switch (static_cast<socket_queue::wait_type>(wait_type))
+					//switch (static_cast<socket_streambuf_queue::wait_type>(wait_type))
 					switch (wait_type)
 					{
 						case 0       : ready_str = "disconnected(POLLHUP)";  break;
@@ -372,7 +372,7 @@ namespace ext::net
 #endif // EXT_NET_USE_POLL
 	};
 
-	auto socket_queue::wait_ready(time_point until) -> wait_status
+	auto socket_streambuf_queue::wait_ready(time_point until) -> wait_status
 	{
 		unsigned ncall = 0;
 		int res, err;
@@ -435,7 +435,7 @@ namespace ext::net
 			auto errc = std::error_code(err, socket_error_category());
 			LOG_ERROR("got error while executing poll: {}", ext::format_error(errc));
 
-			throw std::system_error(errc, "ext::net::socket_queue::wait_ready: ::poll failed");
+			throw std::system_error(errc, "ext::net::socket_streambuf_queue::wait_ready: ::poll failed");
 		}
 
 		if (m_interrupted.load(std::memory_order_relaxed) or pollfds[0].revents & POLLIN)
@@ -465,7 +465,7 @@ namespace ext::net
 			auto errc = std::error_code(err, socket_error_category());
 			LOG_ERROR("got error while executing select: {}", ext::format_error(errc));
 
-			throw std::system_error(errc, "ext::net::socket_queue::wait_ready: ::select failed");
+			throw std::system_error(errc, "ext::net::socket_streambuf_queue::wait_ready: ::select failed");
 		}
 
 		if (m_interrupted.load(std::memory_order_relaxed) or FD_ISSET(m_interrupt_listen, &readset))
@@ -501,22 +501,22 @@ namespace ext::net
 		return process_interrupted();
 	}
 	
-	auto socket_queue::wait() const -> wait_status
+	auto socket_streambuf_queue::wait() const -> wait_status
 	{
 		return wait_until(time_point::max());
 	}
 
-	auto socket_queue::wait_for(duration_type timeout) const -> wait_status
+	auto socket_streambuf_queue::wait_for(duration_type timeout) const -> wait_status
 	{
 		return wait_until(add_timeout(time_point::clock::now(), timeout));
 	}
 
-	auto socket_queue::wait_until(time_point until) const -> wait_status
+	auto socket_streambuf_queue::wait_until(time_point until) const -> wait_status
 	{
 		return ext::unconst(this)->wait_ready(until);
 	}
 
-	auto socket_queue::take() -> std::tuple<wait_status, socket_streambuf>
+	auto socket_streambuf_queue::take() -> std::tuple<wait_status, socket_streambuf>
 	{
 		auto result_status = wait();
 		socket_streambuf result;
@@ -547,7 +547,7 @@ namespace ext::net
 		return pending;
 	}
 
-	void socket_queue::submit(socket_streambuf sock, handle_type listener, wait_type wtype)
+	void socket_streambuf_queue::submit(socket_streambuf sock, handle_type listener, wait_type wtype)
 	{
 		LOG_TRACE("socket {} submitted", sock.handle());
 		assert(wtype & readable or wtype & writable);
@@ -567,36 +567,36 @@ namespace ext::net
 		});		
 	}	
 	
-	void socket_queue::submit(socket_streambuf sock, wait_type wtype)
+	void socket_streambuf_queue::submit(socket_streambuf sock, wait_type wtype)
 	{
 		return submit(std::move(sock), invalid_socket, wtype);
 	}
 
-	void socket_queue::submit(socket_stream sock, wait_type wtype)
+	void socket_streambuf_queue::submit(socket_stream sock, wait_type wtype)
 	{
 		return submit(std::move(*sock.rdbuf()), wtype);
 	}
 
-	void socket_queue::clear() noexcept
+	void socket_streambuf_queue::clear() noexcept
 	{
 		m_listeners.clear();
 		m_socks.clear();
 	}
 
-	void socket_queue::add_listener(ext::net::listener listener)
+	void socket_streambuf_queue::add_listener(ext::net::listener listener)
 	{
 		assert(listener.is_listening());
 		m_listeners.push_back(std::move(listener));
 	}
 
 	
-	void socket_queue::erase_listener_tracking()
+	void socket_streambuf_queue::erase_listener_tracking()
 	{
 		for (auto & sock_item : m_socks)
 			sock_item.listener = invalid_socket;
 	}
 	
-	auto socket_queue::remove_listener(unsigned short port) -> ext::net::listener
+	auto socket_streambuf_queue::remove_listener(unsigned short port) -> ext::net::listener
 	{
 		auto first = m_listeners.begin();
 		auto last  = m_listeners.end();
@@ -621,7 +621,7 @@ namespace ext::net
 		return {};
 	}
 
-	auto socket_queue::take_sockets() -> std::vector<socket_streambuf>
+	auto socket_streambuf_queue::take_sockets() -> std::vector<socket_streambuf>
 	{
 		std::vector<socket_streambuf> result;
 		for (auto & item : m_socks)
@@ -632,18 +632,18 @@ namespace ext::net
 	}
 
 
-	socket_queue::socket_queue()
+	socket_streambuf_queue::socket_streambuf_queue()
 	{
 		std::tie(m_interrupt_listen, m_interrupt_write) = create_interrupt_pair();
 	}
 
-	socket_queue::~socket_queue()
+	socket_streambuf_queue::~socket_streambuf_queue()
 	{
 		if (m_interrupt_listen != invalid_socket) close(m_interrupt_listen);
 		if (m_interrupt_write  != invalid_socket) close(m_interrupt_write);
 	}
 
-	socket_queue::socket_queue(socket_queue && other) noexcept
+	socket_streambuf_queue::socket_streambuf_queue(socket_streambuf_queue && other) noexcept
 	    : m_socks(std::move(other.m_socks)),
 	      m_listeners(std::move(other.m_listeners)),
 	      m_cur(std::exchange(other.m_cur, {})),
@@ -656,12 +656,12 @@ namespace ext::net
 
 	}
 
-	socket_queue & socket_queue::operator=(socket_queue && other) noexcept
+	socket_streambuf_queue & socket_streambuf_queue::operator=(socket_streambuf_queue && other) noexcept
 	{
 		if (this != &other)
 		{
-			this->~socket_queue();
-			new (this) socket_queue(std::move(other));
+			this->~socket_streambuf_queue();
+			new (this) socket_streambuf_queue(std::move(other));
 		}
 
 		return *this;

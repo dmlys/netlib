@@ -16,7 +16,7 @@
 namespace ext::net
 {
 	/// NOTE: this is very simple class, it can be used is some trivial/simple applications, in other cases you should use more adequate solution.
-	/// socket_queue class manages and allows waiting on set of sockets and listeners in a queue fashion.
+	/// socket_streambuf_queue class manages and allows waiting on set of sockets and listeners in a queue fashion.
 	/// It have 2 sets: sockets and listeners. Both are waited to be readable/writable with select/poll system call.
 	/// When select/poll finishes waiting:
 	/// * check listeners and if there are pending connections - accept then, submit to queue end
@@ -24,7 +24,7 @@ namespace ext::net
 	///   remember next position, next search starts from it, that way socket are treated in fair way
 	///
 	/// This class is not thread safe, except interrupt method, which can be called from any thread or signal handler.
-	class socket_queue
+	class socket_streambuf_queue
 	{
 		struct helper; friend helper;
 
@@ -145,7 +145,7 @@ namespace ext::net
 		void clear() noexcept;
 
 	public:
-		/// adds listener to socket_queue, new incoming connections will be automatically submitted with readable while wait*/take calls takes place
+		/// adds listener to socket_streambuf_queue, new incoming connections will be automatically submitted with readable while wait*/take calls takes place
 		void add_listener(ext::net::listener listener);
 		/// removes and returns listener with specified port
 		auto remove_listener(unsigned short port) -> ext::net::listener;
@@ -166,13 +166,13 @@ namespace ext::net
 		auto get_logger() const noexcept                      { return m_logger;   }
 
 	public:
-		socket_queue();
-		~socket_queue();
+		socket_streambuf_queue();
+		~socket_streambuf_queue();
 
-		socket_queue(socket_queue &&) noexcept;
-		socket_queue & operator =(socket_queue &&) noexcept;
+		socket_streambuf_queue(socket_streambuf_queue &&) noexcept;
+		socket_streambuf_queue & operator =(socket_streambuf_queue &&) noexcept;
 
-		socket_queue(const socket_queue &) = delete;
-		socket_queue & operator =(const socket_queue &) = delete;
+		socket_streambuf_queue(const socket_streambuf_queue &) = delete;
+		socket_streambuf_queue & operator =(const socket_streambuf_queue &) = delete;
 	};
 }
