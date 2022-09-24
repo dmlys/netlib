@@ -1265,7 +1265,7 @@ namespace ext::net
 		auto res = ::getpeername(m_sockhandle, addr, addrlen);
 		if (res != 0)
 		{
-			throw_last_socket_error("winsock2_streambuf::peer_name getpeername failed");
+			throw_last_socket_error("winsock2_streambuf::getpeername: failure");
 		}
 	}
 
@@ -1277,7 +1277,7 @@ namespace ext::net
 		auto res = ::getsockname(m_sockhandle, addr, addrlen);
 		if (res != 0)
 		{
-			throw_last_socket_error("winsock2_streambuf::sock_name getsockname failed");
+			throw_last_socket_error("winsock2_streambuf::getsockname: failure");
 		}
 	}
 
@@ -1416,7 +1416,7 @@ namespace ext::net
 		if (sock_handle == INVALID_SOCKET)
 			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "winsock_streambuf::<ctor> failure");
 		
-		socket_uptr sock_ptr(sock_handle);
+		socket_uhandle sock_ptr(sock_handle);
 		
 		if (not do_setnonblocking(sock_handle))
 		{

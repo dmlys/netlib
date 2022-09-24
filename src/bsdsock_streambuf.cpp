@@ -1212,7 +1212,7 @@ namespace ext::net
 		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
 		if (res != 0)
 		{
-			throw_last_socket_error("bsdsock_streambuf::peer_name getpeername failure");
+			throw_last_socket_error("bsdsock_streambuf::getpeername failure");
 		}
 	}
 
@@ -1360,7 +1360,7 @@ namespace ext::net
 		if (sock_handle == invalid_socket)
 			throw std::system_error(std::make_error_code(std::errc::not_a_socket), "bsdsock_streambuf::<ctor> failure");
 		
-		socket_uptr sock_ptr(sock_handle);
+		socket_uhandle sock_ptr(sock_handle);
 		
 		if (not do_setnonblocking(sock_handle))
 		{

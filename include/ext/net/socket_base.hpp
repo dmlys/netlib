@@ -112,7 +112,7 @@ namespace ext::net
 	};
 	
 	using addrinfo_uptr = std::unique_ptr<addrinfo_type, addrinfo_deleter>;
-	using socket_uptr = ext::unique_handle<socket_handle_type, socket_closer>;
+	using socket_uhandle = ext::unique_handle<socket_handle_type, socket_closer>;
 
 	// special tag type, to disambiguate some overloaded constructors accepting socket handles(int type) and port(unsigned short type)
 	// ext::net::listener listener(handle_arg, handle);
@@ -188,6 +188,11 @@ namespace ext::net
 	bool inet_pton(int family, const std::wstring & waddr, sockaddr * out);
 #endif
 
+	/// ::fcntl(sock, F_SETFL, ::fcntl(sock, F_GETFL, 0) | O_NONBLOCK) wrapper
+	/// @Throws std::system_error in case of errors
+	void setsock_nonblocking(socket_handle_type sock, bool nonblocking = true);
+	
+	
 	/// создает строку вида <ERR:code>, например <ENOTCONN:107>,
 	/// поддерживает только ряд кодов, связанных с функциями получения/конвертация адресов: getpeername, getsockname, inet_pton, etc
 	std::string make_addr_error_description(int err);
@@ -244,7 +249,7 @@ namespace ext::net
 
 	/// Returns loopback addr with port = 0 for given address family, socket type and protocol.
 	/// Resolution will be done with AI_ADDRCONFIG, so addr family in case of AF_UNSPEC, will depend on system configuration
-	addrinfo_uptr loopback_addr(int address_family = af_unspec, int sock_type = 0, int sock_proto = 0);
+	addrinfo_uptr loopback_addr(int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
 	addrinfo_uptr loopback_addr(std::error_code & err, int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
 	
 	/// manual implementation of socket pair function.

@@ -445,6 +445,13 @@ namespace ext::net
 		return inet_pton(family, waddr.c_str(), out);
 	}
 
+	void setsock_nonblocking(socket_handle_type sock, bool nonblocking)
+	{
+		unsigned long enabled = 1;
+		int res = ::ioctlsocket(sock, FIONBIO, &enabled);
+		if (res != 0) throw_last_socket_error("ext::net::setsock_nonblocking failed");
+	}
+	
 	std::string make_addr_error_description(int err)
 	{
 		ext::itoa_buffer<int> buffer;
@@ -943,6 +950,13 @@ namespace ext::net
 		return inet_pton(family, addr.c_str(), out);
 	}
 
+	void setsock_nonblocking(socket_handle_type sock, bool nonblocking)
+	{
+		int res = ::fcntl(sock, F_SETFL, ::fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
+		if (res != 0) throw_last_socket_error("ext::net::setsock_nonblocking failed");
+	}
+	
+	
 	std::string make_addr_error_description(int err)
 	{
 		ext::itoa_buffer<int> buffer;
