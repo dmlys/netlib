@@ -209,6 +209,50 @@ namespace ext::net
 	/// если address family не поддерживает порт как таковой - возвращает 0
 	unsigned short sock_port_noexcept(sockaddr * addr);
 	
+	
+	/// вызов ::getpeername(sock, addr, addrlen), + проверка результат
+	/// в случае ошибок кидает исключение system_error_type
+	void getpeername(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen);
+	/// вызов ::getsockname(sock, addr, namelen), + проверка результат
+	/// в случае ошибок кидает исключение system_error_type
+	void getsockname(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen);
+		
+	/// возвращает строку адреса подключения вида <addr:port>(функция getpeername)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	std::string peer_endpoint(socket_handle_type sock);
+	/// safe версия peer_endpoint - не кидает ошибок(за исключением std::bad_alloc),
+	/// в случае ошибки возвращает <ERR:code>. Например - <ENOTCONN:107>
+	std::string peer_endpoint_noexcept(socket_handle_type sock);
+	/// возвращает строку адреса и порт подключения (функция getpeername).
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	void peer_name(socket_handle_type sock, std::string & name, unsigned short & port);
+	auto peer_name(socket_handle_type sock) -> std::pair<std::string, unsigned short>;
+	/// возвращает строку адреса подключения (функция getpeername)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	std::string peer_address(socket_handle_type sock);
+	/// возвращает порт подключения (функция getpeername)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	unsigned short peer_port(socket_handle_type sock);
+
+	/// возвращает строку адреса подключения вида <addr:port>(функция getsockname)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	std::string sock_endpoint(socket_handle_type sock);
+	/// safe версия sock_endpoint - не кидает ошибок(за исключением std::bad_alloc),
+	/// в случае ошибки возвращает <ERR:code>. Например - <ENOTCONN:107>
+	std::string sock_endpoint_noexcept(socket_handle_type sock);
+	/// возвращает строку адреса и порт подключения (функция getsockname).
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	void sock_name(socket_handle_type sock, std::string & name, unsigned short & port);
+	auto sock_name(socket_handle_type sock) -> std::pair<std::string, unsigned short>;
+	/// возвращает строку адреса подключения (функция getsockname)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	std::string sock_address(socket_handle_type sock);
+	/// возвращает порт подключения (функция getsockname)
+	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
+	unsigned short sock_port(socket_handle_type sock);
+	
+	
+	
 	/// \{
 	///
 	/// ::getaddrinfo wrapper, все строки в utf8

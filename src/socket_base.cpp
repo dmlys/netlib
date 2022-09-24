@@ -1164,6 +1164,136 @@ namespace ext::net
 	/************************************************************************/
 	/*                platform independent stuff                            */
 	/************************************************************************/
+	void getpeername(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen)
+	{
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
+		auto res = ::getpeername(sock, addr, so_addrlen);
+		if (res != 0)
+			throw_last_socket_error("ext::net::getpeername failure");
+	}
+
+	void getsockname(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen)
+	{
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
+		auto res = ::getsockname(sock, addr, so_addrlen);
+		if (res != 0)
+			throw_last_socket_error("ext::net::getsockname failure");
+	}
+	
+	std::string peer_endpoint(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getpeername(sock, addr, &addrlen);
+
+		return ext::net::sock_addr(addr);
+	}
+
+	std::string sock_endpoint(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getsockname(sock, addr, &addrlen);
+
+		return ext::net::sock_addr(addr);
+	}
+
+	std::string peer_endpoint_noexcept(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getpeername(sock, addr, so_addrlen);
+		if (res != 0) return ext::net::make_addr_error_description(errno);
+
+		return ext::net::sock_addr_noexcept(addr);
+	}
+
+	std::string sock_endpoint_noexcept(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
+		auto res = ::getsockname(sock, addr, so_addrlen);
+		if (res != 0) return ext::net::make_addr_error_description(errno);
+
+		return ext::net::sock_addr_noexcept(addr);
+	}
+
+	unsigned short peer_port(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getpeername(sock, addr, &addrlen);
+
+		return ext::net::sock_port(addr);
+	}
+
+	unsigned short sock_port(socket_handle_type sock)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getsockname(sock, addr, &addrlen);
+
+		return ext::net::sock_port(addr);
+	}
+
+	void peer_name(socket_handle_type sock, std::string & name, unsigned short & port)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getpeername(sock, addr, &addrlen);
+
+		ext::net::inet_ntop(addr, name, port);
+	}
+
+	void sock_name(socket_handle_type sock, std::string & name, unsigned short & port)
+	{
+		sockaddr_storage addrstore;
+		socklen_t addrlen = sizeof(addrstore);
+		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
+		ext::net::getsockname(sock, addr, &addrlen);
+
+		ext::net::inet_ntop(addr, name, port);
+	}
+
+	auto peer_name(socket_handle_type sock) -> std::pair<std::string, unsigned short>
+	{
+		std::pair<std::string, unsigned short> res;
+		ext::net::peer_name(sock, res.first, res.second);
+		return res;
+	}
+
+	auto sock_name(socket_handle_type sock) -> std::pair<std::string, unsigned short>
+	{
+		std::pair<std::string, unsigned short> res;
+		ext::net::sock_name(sock, res.first, res.second);
+		return res;
+	}
+
+	std::string peer_address(socket_handle_type sock)
+	{
+		std::string addr; unsigned short port;
+		ext::net::peer_name(sock, addr, port);
+		return addr;
+	}
+
+	std::string sock_address(socket_handle_type sock)
+	{
+		std::string addr; unsigned short port;
+		ext::net::sock_name(sock, addr, port);
+		return addr;
+	}
+	
+	
+	
 	addrinfo_uptr loopback_addr(int address_family, int sock_type, int sock_proto)
 	{
 		std::error_code err;
