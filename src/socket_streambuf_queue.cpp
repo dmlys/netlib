@@ -138,7 +138,7 @@ namespace ext::net
 
 	struct socket_streambuf_queue::helper
 	{
-		static auto fill_fdset(socket_streambuf_queue & queue, time_point until, fd_set * readset, fd_set * writeset) -> std::tuple<handle_type, time_point>
+		static auto fill_fdset(socket_streambuf_queue & queue, time_point now, fd_set * readset, fd_set * writeset) -> std::tuple<handle_type, time_point>
 		{
 			duration_type min_timeout = duration_type::max();
 			handle_type max_handle = queue.m_interrupt_listen;
@@ -164,13 +164,13 @@ namespace ext::net
 				if (item.wtype & writable)
 					FD_SET(handle, writeset);
 
-				auto passed = until - item.submit_time;
+				auto passed = now - item.submit_time;
 				auto timeout = sock.timeout() - passed;
 				min_timeout = std::min(timeout, min_timeout);
 				max_handle = std::max(max_handle, handle);
 			}
 
-			until = add_timeout(until, min_timeout);
+			auto until = add_timeout(now, min_timeout);
 			return std::make_tuple(max_handle, until);
 		}
 
@@ -237,7 +237,7 @@ namespace ext::net
 		}
 
 #if EXT_NET_USE_POLL
-		static auto fill_pollfds(socket_streambuf_queue & queue, time_point until, std::vector<pollfd> & poll_array) -> std::tuple<time_point, pollfd *, pollfd *, pollfd *, pollfd *>
+		static auto fill_pollfds(socket_streambuf_queue & queue, time_point now, std::vector<pollfd> & poll_array) -> std::tuple<time_point, pollfd *, pollfd *, pollfd *, pollfd *>
 		{
 			duration_type min_timeout = duration_type::max();
 			poll_array.resize(1 + queue.m_listeners.size() + queue.m_socks.size());
@@ -264,12 +264,12 @@ namespace ext::net
 				if (item.wtype & writable)
 					cur_fd->events |= POLLOUT;
 
-				auto passed = until - item.submit_time;
+				auto passed = now - item.submit_time;
 				auto timeout = sock.timeout() - passed;
 				min_timeout = std::min(timeout, min_timeout);
 			}
 
-			until = add_timeout(until, min_timeout);
+			auto until = add_timeout(now, min_timeout);
 
 			auto first = poll_array.data();
 			auto socks_first = first + 1 + queue.m_listeners.size();
@@ -482,8 +482,8 @@ namespace ext::net
 			listener_handle = listener.handle();
 			if (not FD_ISSET(listener_handle, &readset)) continue;
 #endif
-			auto new_sock = listener.accept();
-			LOG_DEBUG("got new socket {} connection from {}", new_sock.handle(), new_sock.peer_endpoint());
+			socket_streambuf new_sock(listener.accept());
+			LOG_DEBUG("got new socket {} connection from {}", new_sock.handle(), new_sock.peer_endpoint_noexcept());
 
 			configure(new_sock);
 			submit(std::move(new_sock), listener.handle(), wait_type::readable);

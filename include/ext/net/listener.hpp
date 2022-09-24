@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include <ext/net/socket_base.hpp>
-#include <ext/net/socket_stream.hpp>
 
 namespace ext::net
 {
@@ -48,6 +47,9 @@ namespace ext::net
 		/// returns socket endpoint address port as $addr:$port string(calls getsockname)
 		/// throws std::system_error in case or errors
 		std::string sock_endpoint() const;
+		/// safe version of sock_endpoint - does not throws exception(except for std::bad_alloc),
+		/// in case of error returns <ERR:code>. For example - <ENOTCONN:107>
+		std::string sock_endpoint_noexcept() const;
 		/// returns socket endpoint address and port(calls getsockname).
 		/// throws std::system_error in case or errors
 		void sock_name(std::string & name, unsigned short & port) const;
@@ -79,10 +81,7 @@ namespace ext::net
 		void listen(int backlog);
 		/// calls ::accept and checks result,
 		/// throws std::system_error in case or errors
-		socket_streambuf accept();
-		/// calls ::accept and checks result,
-		/// throws std::system_error in case or errors
-		socket_handle_type accept_handle();
+		socket_handle_type accept();
 		/// calls ::shutdown and checks result,
 		/// throws std::system_error in case or errors
 		void shutdown();

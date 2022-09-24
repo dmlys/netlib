@@ -32,7 +32,7 @@ namespace ext::net
 		/// result of wait operation
 		enum wait_status : unsigned
 		{
-			ready,         /// there is ready socket, it can be ready, have error or timeout(ext::net::sock_errc::timeout
+			ready,         /// there is ready socket, it can be ready, have error or timeout(ext::net::sock_errc::timeout)
 			timeout,       /// no ready sockets for given timeout/until given time point(wait_for/wait_until)
 			               /// NOTE: this does not mean that some socket timed out.
 			empty_queue,   /// queue is empty - there are no sockets and listeners
@@ -103,7 +103,7 @@ namespace ext::net
 	private:
 		/// submits socket_streambuf for waiting: readable, writable or both
 		void submit(socket_streambuf sock, handle_type listener, wait_type wtype);
-		/// erases all bindings of socket items to listeners(nullifiers item.from_listener)
+		/// erases all bindings of socket items to listeners(nullifiers item.listener)
 		void erase_listener_tracking();
 		
 	public:
@@ -163,7 +163,7 @@ namespace ext::net
 
 	public:
 		void set_logger(ext::log::logger * logger) { m_logger = logger; }
-		auto get_logger() const noexcept                      { return m_logger;   }
+		auto get_logger() const noexcept           { return m_logger;   }
 
 	public:
 		socket_streambuf_queue();
