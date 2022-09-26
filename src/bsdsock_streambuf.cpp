@@ -206,6 +206,9 @@ namespace ext::net
 		pubres = publish_opened(sock, prevstate);
 		if (!pubres) goto intrreq;
 
+		::close(pipefd[1]);
+		::close(pipefd[0]);
+		
 		m_lasterror.clear();
 		return true;
 
