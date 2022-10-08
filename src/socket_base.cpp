@@ -595,7 +595,7 @@ namespace ext::net
 		FreeAddrInfoW(ptr);
 	}
 
-	int close(socket_handle_type sock)
+	int close(socket_handle_type sock) noexcept
 	{
 		return sock != invalid_socket ? ::closesocket(sock) : 0;
 	}
@@ -1107,7 +1107,7 @@ namespace ext::net
 		::freeaddrinfo(ptr);
 	}
 
-	int close(socket_handle_type sock)
+	int close(socket_handle_type sock) noexcept
 	{
 		return sock != invalid_socket ? ::close(sock) : 0;
 	}
@@ -1291,8 +1291,15 @@ namespace ext::net
 		ext::net::sock_name(sock, addr, port);
 		return addr;
 	}
+
 	
-	
+	void shutdown(socket_handle_type handle, int how)
+	{
+		if (handle == invalid_socket) return;
+
+		int res = ::shutdown(handle, how);
+		if (res != 0) throw_last_socket_error("shutdown failed");
+	}
 	
 	addrinfo_uptr loopback_addr(int address_family, int sock_type, int sock_proto)
 	{

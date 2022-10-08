@@ -98,7 +98,7 @@ namespace ext::net
 	
 	/// on POSIX systems - return ::close(sock)
 	/// on WINDOWS       - return ::closesocket(sock);
-	int close(socket_handle_type sock);
+	int close(socket_handle_type sock) noexcept;
 	
 	struct addrinfo_deleter
 	{
@@ -291,6 +291,11 @@ namespace ext::net
 
 	/// \}
 
+
+	/// calls ::shutdown and checks result,
+	/// throws std::system_error in case or errors
+	void shutdown(socket_handle_type handle, int how);
+	
 	/// Returns loopback addr with port = 0 for given address family, socket type and protocol.
 	/// Resolution will be done with AI_ADDRCONFIG, so addr family in case of AF_UNSPEC, will depend on system configuration
 	addrinfo_uptr loopback_addr(int address_family = af_unspec, int sock_type = sock_stream, int sock_proto = 0);
