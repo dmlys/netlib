@@ -161,6 +161,12 @@ namespace ext::net
 
 	/// ::inet_ntop wrapper, все строки в utf8
 	/// @Throws std::system_error в случае системной ошибки
+	void inet_ntop(const  in_addr * addr, std::string & str);
+	auto inet_ntop(const  in_addr * addr) -> std::string;
+	void inet_ntop(const in6_addr * addr, std::string & str);
+	auto inet_ntop(const in6_addr * addr) -> std::string;
+	/// ::inet_ntop wrapper, все строки в utf8
+	/// @Throws std::system_error в случае системной ошибки
 	void inet_ntop(const sockaddr * addr, std::string & str, unsigned short & port);
 	auto inet_ntop(const sockaddr * addr) -> std::pair<std::string, unsigned short>;
 
@@ -169,9 +175,18 @@ namespace ext::net
 	/// @Throws std::system_error в случае системной ошибки
 	///         ext::codecvt_convert::conversion_failure(std::runtime_error derived)
 	///              при ошибках конвертации utf-8 <-> utf-16
+	void inet_ntop(const  in_addr * addr, std::wstring & str);
+	void inet_ntop(const in6_addr * addr, std::wstring & str);
 	void inet_ntop(const sockaddr * addr, std::wstring & wstr, unsigned short & port);
 #endif
 
+	/// ::inet_pton wrapper, все строки в utf8
+	/// @Return false если входная строка содержит не валидный адрес
+	/// @Throws std::system_error в случае системной ошибки
+	bool inet_pton(const char * addr, in_addr * out);
+	bool inet_pton(const std::string & addr, in_addr * out);
+	bool inet_pton(const char * addr, in6_addr * out);
+	bool inet_pton(const std::string & addr, in6_addr * out);
 	/// ::inet_pton wrapper, все строки в utf8
 	/// @Return false если входная строка содержит не валидный адрес
 	/// @Throws std::system_error в случае системной ошибки
@@ -184,6 +199,10 @@ namespace ext::net
 	/// @Throws std::system_error в случае системной ошибки
 	///         ext::codecvt_convert::conversion_failure(std::runtime_error derived)
 	///              при ошибках конвертации utf-8 <-> utf-16
+	bool inet_pton(const wchar_t * addr, in_addr * out);
+	bool inet_pton(const std::wstring & addr, in_addr * out);
+	bool inet_pton(const wchar_t * addr, in6_addr * out);
+	bool inet_pton(const std::wstring & addr, in6_addr * out);
 	bool inet_pton(int family, const wchar_t * waddr, sockaddr * out);
 	bool inet_pton(int family, const std::wstring & waddr, sockaddr * out);
 #endif

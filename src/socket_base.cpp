@@ -330,6 +330,72 @@ namespace ext::net
 		return std::min<std::common_type_t<rep_type, int>>(milli, int_limits::max());
 	}
 
+	void inet_ntop(const  in_addr * addr, std::string & str)
+	{
+		const wchar_t * res;
+		DWORD buflen = INET_ADDRSTRLEN;
+		wchar_t buffer[INET_ADDRSTRLEN];
+		res = InetNtopW(AF_INET, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("InetNtopW failed");
+		
+		wchar_cvt::to_utf8(buffer, std::wcslen(buffer), str);
+	}
+	
+	auto inet_ntop(const  in_addr * addr) -> std::string
+	{
+		std::string str;
+		inet_ntop(addr, str);
+		return str;
+	}
+	
+	void inet_ntop(const in6_addr * addr, std::string & str)
+	{
+		const wchar_t * res;
+		DWORD buflen = INET6_ADDRSTRLEN;
+		wchar_t buffer[INET6_ADDRSTRLEN];
+		res = InetNtopW(AF_INET6, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("InetNtopW failed");
+		
+		wchar_cvt::to_utf8(buffer, std::wcslen(buffer), str);
+	}
+	
+	auto inet_ntop(const in6_addr * addr) -> std::string
+	{
+		std::string str;
+		inet_ntop(addr, str);
+		return str;
+	}
+	
+	void inet_ntop(const in_addr * addr, std::wstring & wstr)
+	{
+		const wchar_t * res;
+		DWORD buflen = INET_ADDRSTRLEN;
+		wchar_t buffer[INET_ADDRSTRLEN];
+		res = InetNtopW(AF_INET, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("InetNtopW failed");
+		
+		wstr.assign(res);
+	}
+	
+	void inet_ntop(const in6_addr * addr, std::wstring & wstr)
+	{
+		const wchar_t * res;
+		DWORD buflen = INET6_ADDRSTRLEN;
+		wchar_t buffer[INET6_ADDRSTRLEN];
+		res = InetNtopW(AF_INET6, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("InetNtopW failed");
+		
+		wstr.assign(res);
+	}
+	
 	void inet_ntop(const sockaddr * addr, std::wstring & wstr, unsigned short & port)
 	{
 		const wchar_t * res;
@@ -401,19 +467,78 @@ namespace ext::net
 		return res;
 	}
 
-
+	bool inet_pton(const char * addr, in_addr * out)
+	{
+		auto in = boost::make_iterator_range_n(addr, std::strlen(addr));
+		auto waddr = wchar_cvt::to_wchar(in);
+		
+		return inet_pton(waddr.c_str(), out);
+	}
+	
+	bool inet_pton(const std::string & addr, in_addr * out)
+	{
+		auto waddr = wchar_cvt::to_wchar(addr);
+		return inet_pton(waddr, out);
+	}
+	
+	bool inet_pton(const char * addr, in6_addr * out)
+	{
+		auto in = boost::make_iterator_range_n(addr, std::strlen(addr));
+		auto waddr = wchar_cvt::to_wchar(in);
+		
+		return inet_pton(waddr.c_str(), out);
+	}
+	
+	bool inet_pton(const std::string & addr, in6_addr * out)
+	{
+		auto waddr = wchar_cvt::to_wchar(addr);
+		return inet_pton(waddr, out);
+	}
+	
+	bool inet_pton(const wchar_t * addr, in_addr * out)
+	{
+		INT res = InetPtonW(AF_INET, addr, out);
+		if (res == -1)
+			throw_last_socket_error("InetPtonW failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const std::wstring & addr, in_addr * out)
+	{
+		INT res = InetPtonW(AF_INET, addr.c_str(), out);
+		if (res == -1)
+			throw_last_socket_error("InetPtonW failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const wchar_t * addr, in6_addr * out)
+	{
+		INT res = InetPtonW(AF_INET6, addr, out);
+		if (res == -1)
+			throw_last_socket_error("InetPtonW failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const std::wstring & addr, in6_addr * out)
+	{
+		INT res = InetPtonW(AF_INET6, addr.c_str(), out);
+		if (res == -1)
+			throw_last_socket_error("InetPtonW failed");
+		return res > 0;
+	}
+	
 	bool inet_pton(int family, const wchar_t * waddr, sockaddr * out)
 	{
 		INT res;
 		if (family == AF_INET)
 		{
 			auto * addr4 = reinterpret_cast<sockaddr_in *>(out);
-			res = InetPton(family, waddr, &addr4->sin_addr);
+			res = InetPtonW(family, waddr, &addr4->sin_addr);
 		}
 		else if (family == AF_INET6)
 		{
 			auto * addr6 = reinterpret_cast<sockaddr_in6 *>(out);
-			res = InetPton(family, waddr, &addr6->sin6_addr);
+			res = InetPtonW(family, waddr, &addr6->sin6_addr);
 		}
 		else
 		{
@@ -426,7 +551,7 @@ namespace ext::net
 
 	bool inet_pton(int family, const std::wstring & waddr, sockaddr * out)
 	{
-		INT res = InetPton(family, waddr.c_str(), out);
+		INT res = InetPtonW(family, waddr.c_str(), out);
 		if (res == -1) throw_last_socket_error("InetPtonW failed");
 		return res > 0;
 	}
@@ -878,6 +1003,46 @@ namespace ext::net
 		return std::min<std::common_type_t<rep_type, int>>(milli, int_limits::max());
 	}
 
+	void inet_ntop(const  in_addr * addr, std::string & str)
+	{
+		const char * res;
+		socklen_t buflen = INET_ADDRSTRLEN;
+		char buffer[INET_ADDRSTRLEN];
+		res = ::inet_ntop(AF_INET, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("inet_ntop failed");
+		
+		str.assign(res);
+	}
+	
+	auto inet_ntop(const  in_addr * addr) -> std::string
+	{
+		std::string str;
+		inet_ntop(addr, str);
+		return str;
+	}
+	
+	void inet_ntop(const in6_addr * addr, std::string & str)
+	{
+		const char * res;
+		socklen_t buflen = INET6_ADDRSTRLEN;
+		char buffer[INET6_ADDRSTRLEN];
+		res = ::inet_ntop(AF_INET6, addr, buffer, buflen);
+		
+		if (res == nullptr)
+			throw_last_socket_error("inet_ntop failed");
+		
+		str.assign(res);
+	}
+	
+	auto inet_ntop(const in6_addr * addr) -> std::string
+	{
+		std::string str;
+		inet_ntop(addr, str);
+		return str;
+	}
+	
 	void inet_ntop(const sockaddr * addr, std::string & str, unsigned short & port)
 	{
 		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
@@ -920,6 +1085,38 @@ namespace ext::net
 		return res;
 	}
 
+	bool inet_pton(const char * addr, in_addr * out)
+	{
+		int res = ::inet_pton(AF_INET, addr, out);
+		if (res == -1)
+			throw_last_socket_error("inet_pton failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const std::string & addr, in_addr * out)
+	{
+		int res = ::inet_pton(AF_INET, addr.c_str(), out);
+		if (res == -1)
+			throw_last_socket_error("inet_pton failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const char * addr, in6_addr * out)
+	{
+		int res = ::inet_pton(AF_INET6, addr, out);
+		if (res == -1)
+			throw_last_socket_error("inet_pton failed");
+		return res > 0;
+	}
+	
+	bool inet_pton(const std::string & addr, in6_addr * out)
+	{
+		int res = ::inet_pton(AF_INET6, addr.c_str(), out);
+		if (res == -1)
+			throw_last_socket_error("inet_pton failed");
+		return res > 0;
+	}
+	
 	bool inet_pton(int family, const char * addr, sockaddr * out)
 	{
 		int res;

@@ -13,8 +13,10 @@
 /// Including system files can be somewhat bloating(especially windows) - instead forward them here
 ///
 /// this file should forward declare:
+/// * in_addr, in6_addr, sockaddr, sockaddr_in, sockaddr_in6, sockaddr_storage
 /// * addrinfo
-/// * sockaddr
+/// * timeval
+/// * socket_handle_type
 /// * socklen_t
 /// * sockoptlen_t - type that setsockopt accepts as len parameter,
 ///                  normally it should same as socklen_t but on some platforms can be different
@@ -22,14 +24,21 @@
 
 #if   BOOST_OS_WINDOWS
 
-    struct addrinfo;
-    struct addrinfoW;
-    struct sockaddr;
+	struct in_addr;
+	struct in6_addr;
+	struct sockaddr;
+	struct sockaddr_in;
+	struct sockaddr_in6;
+	struct sockaddr_storage;
+	
+	struct addrinfo;
+	struct addrinfoW;
+
 	struct timeval;
 
-    typedef std::uintptr_t   socket_handle_type;
-    typedef int              socklen_t;
-    typedef socklen_t        sockoptlen_t;
+	typedef std::uintptr_t   socket_handle_type;
+	typedef int              socklen_t;
+	typedef socklen_t        sockoptlen_t;
 
 	#if _WIN32_WINNT >= 0x0600 // Starting from Windows Vista WSAPoll is availiable
 	#define EXT_NET_POLL_AVAILIABLE 1
@@ -39,8 +48,16 @@
 
 #elif BOOST_OS_CYGWIN
 
-	struct addrinfo;
+	struct in_addr;
+	struct in6_addr;
 	struct sockaddr;
+	struct sockaddr_in;
+	struct sockaddr_in6;
+	struct sockaddr_storage;
+	
+	struct addrinfo;
+	struct addrinfoW;
+	
 	struct timeval;
 
 	typedef int              socket_handle_type;
@@ -52,8 +69,16 @@
 #elif BOOST_OS_HPUX
 
 	// hp-ux have 2 net libraries, standard libc and libxnet
-	struct addrinfo;
+	struct in_addr;
+	struct in6_addr;
 	struct sockaddr;
+	struct sockaddr_in;
+	struct sockaddr_in6;
+	struct sockaddr_storage;
+	
+	struct addrinfo;
+	struct addrinfoW;
+	
 	struct timeval;
 
 	typedef int              socket_handle_type;
@@ -71,8 +96,16 @@
 
 #elif BOOST_OS_UNIX
 
-    struct addrinfo;
+	struct in_addr;
+	struct in6_addr;
 	struct sockaddr;
+	struct sockaddr_in;
+	struct sockaddr_in6;
+	struct sockaddr_storage;
+	
+	struct addrinfo;
+	struct addrinfoW;
+	
 	struct timeval;
 
 	typedef int              socket_handle_type;
