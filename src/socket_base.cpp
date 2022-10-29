@@ -123,6 +123,22 @@ namespace ext::net
 		
 		return tp + timeout;
 	}
+	
+	auto add_timeout(std::chrono::steady_clock::duration dur, std::chrono::steady_clock::duration timeout) -> std::chrono::steady_clock::duration
+	{
+		assert(dur.count() >= 0);
+		assert(timeout >= std::chrono::steady_clock::duration::zero());
+		
+		// auto result = dur + timeout;
+		// if (result >= dur) return result;
+		// // overflow happened
+		// return std::chrono::steady_clock::duration::max();
+		
+		if (dur > std::chrono::steady_clock::duration::max() - timeout) // overflow
+			return std::chrono::steady_clock::duration::max();
+		
+		return dur + timeout;
+	}
 
 	/************************************************************************/
 	/*                platform dependent stuff                              */
