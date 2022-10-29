@@ -1385,16 +1385,14 @@ namespace ext::net
 	/************************************************************************/
 	void getpeername(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen)
 	{
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
-		auto res = ::getpeername(sock, addr, so_addrlen);
+		auto res = ::getpeername(sock, addr, addrlen);
 		if (res != 0)
 			throw_last_socket_error("ext::net::getpeername failure");
 	}
 
 	void getsockname(socket_handle_type sock, sockaddr_type * addr, socklen_t * addrlen)
 	{
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
-		auto res = ::getsockname(sock, addr, so_addrlen);
+		auto res = ::getsockname(sock, addr, addrlen);
 		if (res != 0)
 			throw_last_socket_error("ext::net::getsockname failure");
 	}
@@ -1424,8 +1422,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getpeername(sock, addr, so_addrlen);
+		auto res = ::getpeername(sock, addr, &addrlen);
 		if (res != 0) return ext::net::make_addr_error_description(errno);
 
 		return ext::net::sock_addr_noexcept(addr);
@@ -1436,8 +1433,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getsockname(sock, addr, so_addrlen);
+		auto res = ::getsockname(sock, addr, &addrlen);
 		if (res != 0) return ext::net::make_addr_error_description(errno);
 
 		return ext::net::sock_addr_noexcept(addr);

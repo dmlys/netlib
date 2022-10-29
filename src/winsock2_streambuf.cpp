@@ -1310,8 +1310,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
+		auto res = ::getpeername(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(::WSAGetLastError());
 
 		return endpoint_noexcept(addr, addrlen);
@@ -1322,8 +1321,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
+		auto res = ::getsockname(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(::WSAGetLastError());
 
 		return endpoint_noexcept(addr, addrlen);

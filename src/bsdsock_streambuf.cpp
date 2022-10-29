@@ -1208,8 +1208,7 @@ namespace ext::net
 		if (!is_open())
 			throw std::runtime_error("bsdsock_streambuf::getpeername: bad socket");
 
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
-		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
+		auto res = ::getpeername(m_sockhandle, addr, addrlen);
 		if (res != 0)
 		{
 			throw_last_socket_error("bsdsock_streambuf::getpeername failure");
@@ -1221,8 +1220,7 @@ namespace ext::net
 		if (!is_open())
 			throw std::runtime_error("bsdsock_streambuf::getsockname: bad socket");
 
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(addrlen);
-		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
+		auto res = ::getsockname(m_sockhandle, addr, addrlen);
 		if (res != 0)
 		{
 			throw_last_socket_error("bsdsock_streambuf::getsockname failure");
@@ -1254,8 +1252,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getpeername(m_sockhandle, addr, so_addrlen);
+		auto res = ::getpeername(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(errno);
 
 		return sock_addr_noexcept(addr);
@@ -1266,8 +1263,7 @@ namespace ext::net
 		sockaddr_storage addrstore;
 		socklen_t addrlen = sizeof(addrstore);
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
-		sockoptlen_t * so_addrlen = reinterpret_cast<sockoptlen_t *>(&addrlen);
-		auto res = ::getsockname(m_sockhandle, addr, so_addrlen);
+		auto res = ::getsockname(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(errno);
 
 		return sock_addr_noexcept(addr);
