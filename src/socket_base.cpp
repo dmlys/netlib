@@ -985,14 +985,20 @@ namespace ext::net
 	{
 		static_assert(offsetof(sockaddr_in, sin_port) == offsetof(sockaddr_in6, sin6_port), "sin_port/sin6_port offset differs");
 		for (; addr; addr = addr->ai_next)
-			reinterpret_cast<sockaddr_in *>(addr->ai_addr)->sin_port = htons(port);
+			if (addr->ai_family == AF_INET or addr->ai_family == AF_INET6)
+				reinterpret_cast<sockaddr_in *>(addr->ai_addr)->sin_port = htons(port);
 	}
 
 	auto get_port(addrinfo_type * addr) -> unsigned short
 	{
 		// both sockaddr_in6 and sockaddr_in have port member on same offset
-		unsigned short port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
-		return ntohs(port);
+		if (addr->ai_family == AF_INET or addr->ai_family == AF_INET6)
+		{
+			unsigned short port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			return ntohs(port);
+		}
+		
+		return 0;
 	}
 	
 	void make_timeval(std::chrono::steady_clock::duration val, timeval & tv)
