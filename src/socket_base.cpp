@@ -621,7 +621,7 @@ namespace ext::net
 		return errstr;
 	}
 
-	std::string sock_addr(sockaddr * addr)
+	std::string sockaddr_endpoint(sockaddr * addr)
 	{
 		unsigned short port;
 		const char * host_ptr;
@@ -664,7 +664,7 @@ namespace ext::net
 		return host;
 	}
 
-	std::string sock_addr_noexcept(sockaddr * addr)
+	std::string sockaddr_endpoint_noexcept(sockaddr * addr)
 	{
 		unsigned short port;
 		const char * host_ptr;
@@ -704,7 +704,7 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short sock_port(sockaddr * addr)
+	unsigned short sockaddr_port(sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
@@ -719,7 +719,7 @@ namespace ext::net
 		);
 	}
 	
-	unsigned short sock_port_noexcept(sockaddr * addr)
+	unsigned short sockaddr_port_noexcept(sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
@@ -1205,7 +1205,7 @@ namespace ext::net
 		return errstr;
 	}
 
-	std::string sock_addr(sockaddr * addr)
+	std::string sockaddr_endpoint(sockaddr * addr)
 	{
 		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
 		const int force_afinet = BOOST_OS_HPUX;
@@ -1251,7 +1251,7 @@ namespace ext::net
 		return host;
 	}
 
-	std::string sock_addr_noexcept(sockaddr * addr)
+	std::string sockaddr_endpoint_noexcept(sockaddr * addr)
 	{
 		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
 		const int force_afinet = BOOST_OS_HPUX;
@@ -1294,7 +1294,7 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short sock_port(sockaddr * addr)
+	unsigned short sockaddr_port(sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
@@ -1309,7 +1309,7 @@ namespace ext::net
 		);
 	}
 	
-	unsigned short sock_port_noexcept(sockaddr * addr)
+	unsigned short sockaddr_port_noexcept(sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
@@ -1404,7 +1404,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		ext::net::getpeername(sock, addr, &addrlen);
 
-		return ext::net::sock_addr(addr);
+		return ext::net::sockaddr_endpoint(addr);
 	}
 
 	std::string sock_endpoint(socket_handle_type sock)
@@ -1414,7 +1414,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		ext::net::getsockname(sock, addr, &addrlen);
 
-		return ext::net::sock_addr(addr);
+		return ext::net::sockaddr_endpoint(addr);
 	}
 
 	std::string peer_endpoint_noexcept(socket_handle_type sock)
@@ -1425,7 +1425,7 @@ namespace ext::net
 		auto res = ::getpeername(sock, addr, &addrlen);
 		if (res != 0) return ext::net::make_addr_error_description(errno);
 
-		return ext::net::sock_addr_noexcept(addr);
+		return ext::net::sockaddr_endpoint_noexcept(addr);
 	}
 
 	std::string sock_endpoint_noexcept(socket_handle_type sock)
@@ -1436,7 +1436,7 @@ namespace ext::net
 		auto res = ::getsockname(sock, addr, &addrlen);
 		if (res != 0) return ext::net::make_addr_error_description(errno);
 
-		return ext::net::sock_addr_noexcept(addr);
+		return ext::net::sockaddr_endpoint_noexcept(addr);
 	}
 
 	unsigned short peer_port(socket_handle_type sock)
@@ -1446,7 +1446,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		ext::net::getpeername(sock, addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	unsigned short sock_port(socket_handle_type sock)
@@ -1456,7 +1456,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		ext::net::getsockname(sock, addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	void peer_name(socket_handle_type sock, std::string & name, unsigned short & port)
@@ -1569,7 +1569,7 @@ namespace ext::net
 		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
 		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock1 ::fcntl nonblocking failed");
 		
-		assert(sock_port(addr_info->ai_addr) == 0);
+		assert(sockaddr_port(addr_info->ai_addr) == 0);
 		res = ::bind(listen_sock, addr_info->ai_addr, addr_info->ai_addrlen);
 		if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: ::bind failed");
 
@@ -1620,7 +1620,7 @@ namespace ext::net
 		//res = ::fcntl(sock1, F_SETFL, ::fcntl(sock1, F_GETFL, 0) | O_NONBLOCK);
 		//if (res != 0) throw_last_socket_error("ext::net::manual_socketpair: sock1 ::fcntl nonblocking failed");
 		
-		assert(sock_port(addr_info->ai_addr) == 0);
+		assert(sockaddr_port(addr_info->ai_addr) == 0);
 		res = ::bind(listen_sock, addr_info->ai_addr, addr_info->ai_addrlen);
 		if (res != 0) goto error;
 		

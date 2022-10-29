@@ -1334,7 +1334,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getpeername(addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	unsigned short winsock2_streambuf::sock_port() const
@@ -1344,7 +1344,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	void winsock2_streambuf::peer_name(std::string & name, unsigned short & port) const

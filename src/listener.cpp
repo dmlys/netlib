@@ -83,7 +83,7 @@ namespace ext::net
 		res = ::setsockopt(shandle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&enabled), sizeof(enabled));
 		if (res != 0) throw_last_socket_error("ext::net::listener::bind: ::setsockopt SO_REUSEADDR failed");
 
-		std::string sock_endpoint = sock_addr_noexcept(sockaddr);
+		std::string sock_endpoint = sockaddr_endpoint_noexcept(sockaddr);
 		res = ::bind(shandle, sockaddr, addrlen);
 		if (res != 0) throw_last_listener_error(sock_endpoint, "ext::net::listener::bind: ::bind failed");
 		

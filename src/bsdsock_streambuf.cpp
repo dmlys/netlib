@@ -1234,7 +1234,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getpeername(addr, &addrlen);
 
-		return sock_addr(addr);
+		return sockaddr_endpoint(addr);
 	}
 
 	std::string bsdsock_streambuf::sock_endpoint() const
@@ -1244,7 +1244,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		return sock_addr(addr);
+		return sockaddr_endpoint(addr);
 	}
 
 	std::string bsdsock_streambuf::peer_endpoint_noexcept() const
@@ -1255,7 +1255,7 @@ namespace ext::net
 		auto res = ::getpeername(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(errno);
 
-		return sock_addr_noexcept(addr);
+		return sockaddr_endpoint_noexcept(addr);
 	}
 
 	std::string bsdsock_streambuf::sock_endpoint_noexcept() const
@@ -1266,7 +1266,7 @@ namespace ext::net
 		auto res = ::getsockname(m_sockhandle, addr, &addrlen);
 		if (res != 0) return make_addr_error_description(errno);
 
-		return sock_addr_noexcept(addr);
+		return sockaddr_endpoint_noexcept(addr);
 	}
 
 	unsigned short bsdsock_streambuf::peer_port() const
@@ -1276,7 +1276,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getpeername(addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	unsigned short bsdsock_streambuf::sock_port() const
@@ -1286,7 +1286,7 @@ namespace ext::net
 		auto * addr = reinterpret_cast<sockaddr *>(&addrstore);
 		getsockname(addr, &addrlen);
 
-		return ext::net::sock_port(addr);
+		return ext::net::sockaddr_port(addr);
 	}
 
 	void bsdsock_streambuf::peer_name(std::string & name, unsigned short & port) const
