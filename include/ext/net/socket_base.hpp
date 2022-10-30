@@ -219,16 +219,16 @@ namespace ext::net
 	std::string make_addr_error_description(int err);
 	/// возвращает строку адреса подключения вида $addr:$port, например 127.0.0.1:22, для ipv6 - [::1]:22
 	/// в случае ошибок кидает исключение std::runtime_error / std::system_error
-	std::string sockaddr_endpoint(sockaddr * addr);
+	std::string sockaddr_endpoint(const sockaddr * addr);
 	/// safe версия sockaddr_endpoint - не кидает ошибок(за исключением std::bad_alloc),
 	/// в случае ошибки возвращает <ERR:code>. Например - <ENOTCONN:107>
-	std::string sockaddr_endpoint_noexcept(sockaddr * addr);
+	std::string sockaddr_endpoint_noexcept(const sockaddr * addr);
 	/// возвращает порт подключения,
 	/// если address family не поддерживает порт как таковой - кидает std::runtime_error / std::system_error
-	unsigned short sockaddr_port(sockaddr * addr);
+	unsigned short sockaddr_port(const sockaddr * addr);
 	/// safe версия sockaddr_port - не кидает исключений,
 	/// если address family не поддерживает порт как таковой - возвращает 0
-	unsigned short sockaddr_port_noexcept(sockaddr * addr);
+	unsigned short sockaddr_port_noexcept(const sockaddr * addr);
 	
 	
 	/// вызов ::getpeername(sock, addr, addrlen), + проверка результат

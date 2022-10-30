@@ -621,7 +621,7 @@ namespace ext::net
 		return errstr;
 	}
 
-	std::string sockaddr_endpoint(sockaddr * addr)
+	std::string sockaddr_endpoint(const sockaddr * addr)
 	{
 		unsigned short port;
 		const char * host_ptr;
@@ -664,7 +664,7 @@ namespace ext::net
 		return host;
 	}
 
-	std::string sockaddr_endpoint_noexcept(sockaddr * addr)
+	std::string sockaddr_endpoint_noexcept(const sockaddr * addr)
 	{
 		unsigned short port;
 		const char * host_ptr;
@@ -704,12 +704,12 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short sockaddr_port(sockaddr * addr)
+	unsigned short sockaddr_port(const sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
-			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			auto port = reinterpret_cast<const sockaddr_in6 *>(addr)->sin6_port;
 			return ntohs(port);
 		}
 		
@@ -719,12 +719,12 @@ namespace ext::net
 		);
 	}
 	
-	unsigned short sockaddr_port_noexcept(sockaddr * addr)
+	unsigned short sockaddr_port_noexcept(const sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
-			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			auto port = reinterpret_cast<const sockaddr_in6 *>(addr)->sin6_port;
 			return ntohs(port);
 		}
 		
@@ -1205,7 +1205,7 @@ namespace ext::net
 		return errstr;
 	}
 
-	std::string sockaddr_endpoint(sockaddr * addr)
+	std::string sockaddr_endpoint(const sockaddr * addr)
 	{
 		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
 		const int force_afinet = BOOST_OS_HPUX;
@@ -1251,7 +1251,7 @@ namespace ext::net
 		return host;
 	}
 
-	std::string sockaddr_endpoint_noexcept(sockaddr * addr)
+	std::string sockaddr_endpoint_noexcept(const sockaddr * addr)
 	{
 		// on HPUX libc(not libxnet) somehow sa_family is not set in ::getpeername/::getsockname
 		const int force_afinet = BOOST_OS_HPUX;
@@ -1294,12 +1294,12 @@ namespace ext::net
 		return host;
 	}
 
-	unsigned short sockaddr_port(sockaddr * addr)
+	unsigned short sockaddr_port(const sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
-			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			auto port = reinterpret_cast<const sockaddr_in6 *>(addr)->sin6_port;
 			return ntohs(port);
 		}
 		
@@ -1309,12 +1309,12 @@ namespace ext::net
 		);
 	}
 	
-	unsigned short sockaddr_port_noexcept(sockaddr * addr)
+	unsigned short sockaddr_port_noexcept(const sockaddr * addr)
 	{
 		if (addr->sa_family == AF_INET or addr->sa_family == AF_INET6)
 		{
 			// both sockaddr_in6 and sockaddr_in have port member on same offset
-			auto port = reinterpret_cast<sockaddr_in6 *>(addr)->sin6_port;
+			auto port = reinterpret_cast<const sockaddr_in6 *>(addr)->sin6_port;
 			return ntohs(port);
 		}
 		
