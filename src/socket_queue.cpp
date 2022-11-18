@@ -473,7 +473,7 @@ namespace ext::net
 			if (not FD_ISSET(listener_handle, &readset)) continue;
 #endif
 			handle_type new_sock = listener::accept(listener);
-			LOG_DEBUG("got new socket {} connection from {}", new_sock, peer_endpoint_noexcept(new_sock));
+			LOG_DEBUG("got new socket {} connection, peer = {}", new_sock, peer_endpoint_noexcept(new_sock));
 
 			//configure(new_sock);
 			submit_impl(new_sock, add_timeout(now, m_timeout), false, true, listener, wait_type::readable);
@@ -555,6 +555,10 @@ namespace ext::net
 	
 	void socket_queue::clear() noexcept
 	{
+		for (auto & item : m_socks)
+			if (item.owning)
+				ext::net::close(item.sock);
+		
 		m_listeners.clear();
 		m_socks.clear();
 	}
@@ -609,6 +613,7 @@ namespace ext::net
 	auto socket_queue::take_listeners() -> std::vector<handle_type>
 	{
 		std::vector<handle_type> result;
+		result.reserve(m_listeners.size());
 		
 		for (auto item : m_listeners)
 			result.push_back(item);
@@ -622,6 +627,8 @@ namespace ext::net
 	auto socket_queue::take_sockets() -> std::vector<handle_type>
 	{
 		std::vector<handle_type> result;
+		result.reserve(m_socks.size());
+		
 		for (auto & item : m_socks)
 			result.push_back(std::move(item.sock));
 		
@@ -640,9 +647,7 @@ namespace ext::net
 		if (m_interrupt_listen != invalid_socket) ext::net::close(m_interrupt_listen);
 		if (m_interrupt_write  != invalid_socket) ext::net::close(m_interrupt_write);
 		
-		for (auto & item : m_socks)
-			if (item.owning)
-				ext::net::close(item.sock);
+		clear();
 	}
 
 	socket_queue::socket_queue(socket_queue && other) noexcept
