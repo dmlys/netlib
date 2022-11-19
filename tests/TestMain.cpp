@@ -52,7 +52,7 @@ struct GlobalFixture
 	GlobalFixture()
 	{
 		ext::init_future_library();
-		ext::net::socket_stream_init();
+		ext::net::init_socket_library();
 		
 		auto argc = boost::unit_test::framework::master_test_suite().argc;
 		auto argv = boost::unit_test::framework::master_test_suite().argv;
@@ -62,7 +62,7 @@ struct GlobalFixture
 	
 	~GlobalFixture()
 	{
-		ext::net::socket_stream_cleanup();
+		ext::net::free_socket_library();
 		ext::free_future_library();
 	}
 };

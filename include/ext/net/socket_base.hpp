@@ -44,11 +44,11 @@ namespace ext::net
 	/// Initializes libraries needed for working with sockets.
 	/// This are winsock2 and, if enabled, OpenSSL.
 	/// In fact calls ext::net::wsastratup(); ext::openssl_init()
-	void socket_stream_init();
+	void init_socket_library();
 	/// Deinitializes libraries needed for working with sockets.
 	/// This are winsock2 and, if enabled, OpenSSL.
 	/// In fact calls ext::net::wsacleanup(); ext::openssl_cleanup()
-	void socket_stream_cleanup();
+	void free_socket_library();
 	
 #else
 
@@ -57,10 +57,10 @@ namespace ext::net
 
 	/// Initializes libraries needed for working with sockets.
 	/// This is, if enabled, OpenSSL. In fact calls ext::openssl_init()
-	void socket_stream_init();
+	void init_socket_library();
 	/// Deinitializes libraries needed for working with sockets.
 	/// This is, if enabled, OpenSSL. In fact calls ext::openssl_cleanup()
-	void socket_stream_cleanup();
+	void free_socket_library();
 	
 #endif
 
