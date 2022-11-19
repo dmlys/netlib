@@ -41,6 +41,16 @@ namespace ext::net
 	const int msg_nosignal = 0;
 #endif
 	
+#if BOOST_OS_WINDOWS
+	const int shut_rd   = SD_RECEIVE;
+	const int shut_wr   = SD_SEND;
+	const int shut_rdwr = SD_BOTH;
+#else
+	const int shut_rd   = SHUT_RD;
+	const int shut_wr   = SHUT_WR;
+	const int shut_rdwr = SHUT_RDWR;
+#endif
+	
 	/************************************************************************/
 	/*                platform independent stuff                            */
 	/************************************************************************/

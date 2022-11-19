@@ -22,6 +22,9 @@ namespace ext::net
 
 	extern const int msg_nosignal;   // MSG_NOSIGNAL or 0 if not defined
 	
+	extern const int shut_rd;   // SHUT_RD or analog
+	extern const int shut_wr;   // SHUT_WR or analog
+	extern const int shut_rdwr; // SHUT_RDWR or analog
 
 #if BOOST_OS_WINDOWS
 

@@ -109,14 +109,8 @@ namespace ext::net
 	{
 		if (handle == invalid_socket) return;
 
-#if BOOST_OS_WINDOWS
-		constexpr int how = SD_BOTH;
-#else
-		constexpr int how = SHUT_RDWR;
-#endif
-
-		int res = ::shutdown(handle, how);
-		if (res != 0) throw_last_socket_error("shutdown failed");
+		int res = ::shutdown(handle, shut_rdwr);
+		if (res != 0) throw_last_socket_error("ext::net::listener::shutdown: ::shutdown failed");
 	}
 
 	void listener::close() noexcept
