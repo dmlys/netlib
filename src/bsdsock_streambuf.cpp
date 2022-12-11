@@ -1349,8 +1349,9 @@ namespace ext::net
 
 	bsdsock_streambuf::~bsdsock_streambuf() noexcept
 	{
-		m_throw_errors = false;
-		close();
+		::SSL_free(m_sslhandle);
+		auto res = ::close(m_sockhandle);
+		assert(res >= 0);
 	}
 
 	bsdsock_streambuf::bsdsock_streambuf(socket_handle_type sock_handle, std::size_t buffer_size)

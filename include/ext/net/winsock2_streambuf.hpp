@@ -399,9 +399,13 @@ namespace ext::net
 		void interrupt() noexcept;
 
 	public:
-		winsock2_streambuf() noexcept;
+		/// Destructor just closes socket handle, it does not flushes buffers,
+		/// calls send or invokes shutdown. Just plain close(handle) call.
+		/// You should explicitly call close instead if you wan to properly close socket,
+		/// including buffers flushing, ssl shutdown, socket shutdown.
 		~winsock2_streambuf() noexcept;
-
+		
+		explicit winsock2_streambuf() noexcept;
 		explicit winsock2_streambuf(socket_handle_type sock_handle, std::size_t buffer_size = default_buffer_size);
 
 		winsock2_streambuf(const winsock2_streambuf &) = delete;

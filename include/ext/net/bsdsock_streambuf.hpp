@@ -381,9 +381,13 @@ namespace ext::net
 		void interrupt() noexcept;
 
 	public:
-		bsdsock_streambuf() noexcept;
+		/// Destructor just closes socket handle, it does not flushes buffers,
+		/// calls send or invokes shutdown. Just plain close(handle) call.
+		/// You should explicitly call close instead if you wan to properly close socket,
+		/// including buffers flushing, ssl shutdown, socket shutdown.
 		~bsdsock_streambuf() noexcept;
-
+		
+		explicit bsdsock_streambuf() noexcept;
 		explicit bsdsock_streambuf(socket_handle_type sock_handle, std::size_t buffer_size = default_buffer_size);
 
 		bsdsock_streambuf(const bsdsock_streambuf &) = delete;

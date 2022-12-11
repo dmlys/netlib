@@ -1407,8 +1407,9 @@ namespace ext::net
 
 	winsock2_streambuf::~winsock2_streambuf() noexcept
 	{
-		m_throw_errors = false;
-		close();
+		::SSL_free(m_sslhandle);
+		auto res = ::closesocket(m_sockhandle);
+		assert(res >= 0);
 	}
 
 	winsock2_streambuf::winsock2_streambuf(socket_handle_type sock_handle, std::size_t buffer_size)
