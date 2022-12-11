@@ -204,8 +204,8 @@ namespace ext::net
 		}
 
 		assert(fds[0].revents & (POLLOUT | POLLIN | POLLHUP));
-		// can POLLHUP occur while connect? if it occured - socket was disconnected, while connected
-		// process as opened, next read/write will report FD_CLOSE condition
+		// Can POLLHUP occur while connect? if it occured - socket was disconnected, while connected.
+		// Process as opened, next read/write will report FD_CLOSE condition
 		//goto connected;
 #else // EXT_NET_USE_POLL
 		timeval timeout;
@@ -470,7 +470,7 @@ namespace ext::net
 				// В идеале хотелось бы сделать shutdown,
 				// но по факту в winsock2 обмен пакетами подключения начинается не мгновенно,
 				// а с некоторой задержкой, при этом вызов shutdown вернет ошибку.
-				// Как в дальнейшем будет вести себя select - не понятно, поэтому просто делаем closesocket
+				// Как в дальнейшем будет вести себя select/poll - не понятно, поэтому просто делаем closesocket
 				assert(sock != INVALID_SOCKET);
 				res = ::closesocket(sock);
 				assert(res == 0 || (res = ::WSAGetLastError()) == 0);
@@ -556,7 +556,7 @@ namespace ext::net
 	bool winsock2_streambuf::wait_state(time_point until, int fstate) noexcept
 	{
 		int wsaerr;
-		int solen;
+		sockoptlen_t solen;
 
 #if EXT_NET_USE_POLL
 	again:
@@ -580,7 +580,7 @@ namespace ext::net
 		if (res < 0) goto sockerror;
 		assert(res >= 1);
 
-		if (fd.revents & POLLERR)
+		if (fd.revents & POLLERR and not (fd.revents & (POLLIN | POLLOUT)))
 		{
 			solen = sizeof(wsaerr);
 			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
@@ -588,7 +588,6 @@ namespace ext::net
 			if (wsaerr != 0) goto wsaerror;
 		}
 
-		assert(fd.revents & (fd.events | POLLHUP));
 		return true;
 
 	sockerror:
@@ -633,10 +632,13 @@ namespace ext::net
 		if (res == -1) goto sockerror;
 		assert(res >= 1);
 
-		solen = sizeof(wsaerr);
-		res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
-		if (res != 0)    goto sockerror;
-		if (wsaerr != 0) goto wsaerror;
+		if (not FD_ISSET(m_sockhandle, pread_set) and not FD_ISSET(m_sockhandle, pwrite_set))
+		{
+			solen = sizeof(wsaerr);
+			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&wsaerr), &solen);
+			if (res != 0)    goto sockerror;
+			if (wsaerr != 0) goto wsaerror;
+		}
 
 		return true;
 

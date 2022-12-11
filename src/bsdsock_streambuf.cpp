@@ -170,9 +170,9 @@ namespace ext::net
 			if (err != 0) goto error;
 		}
 
-		assert(fds[0].revents & POLLOUT or fds[0].revents & POLLHUP);
-		// can POLLHUP occur while connect? if it occured - socket was disconnected, while connected
-		// process as opened, next read/write will report FD_CLOSE condition
+		assert(fds[0].revents & (POLLOUT | POLLHUP));
+		// Can POLLHUP occur while connect? if it occured - socket was disconnected while connected.
+		// Process as opened, next read/write will report FD_CLOSE condition.
 		//goto connected;
 
 #else // EXT_NET_USE_POLL
@@ -435,7 +435,7 @@ namespace ext::net
 			
 			case Connecting:
 				// состояние подключения, это значит что есть поток внутри класса и он на некоей стадии подключения.
-				// вместе с сокетом внутри do_connect был создан pipe. Он вместе с socket слушается в select.
+				// вместе с сокетом внутри do_connect был создан pipe. Он вместе с socket слушается в select/poll.
 				// что бы прервать нужно записать что-нибудь в pipe.
 				assert(sock != -1);
 				res = ::write(sock, &prev, sizeof(prev));
@@ -535,7 +535,7 @@ namespace ext::net
 			fd.events |= POLLOUT;
 
 		int timeout = poll_mktimeout(until - time_point::clock::now());;
-		int res = poll(&fd, 1, timeout);
+		int res = ::poll(&fd, 1, timeout);
 		if (res == 0) // timeout
 		{
 			m_lasterror = make_error_code(sock_errc::timeout);
@@ -545,7 +545,7 @@ namespace ext::net
 
 		if (res < 0) goto sockerror;
 
-		if (fd.revents & POLLERR)
+		if (fd.revents & POLLERR and not (fd.revents & (POLLIN | POLLOUT)))
 		{
 			solen = sizeof(err);
 			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, &err, &solen);
@@ -553,7 +553,6 @@ namespace ext::net
 			if (err != 0) goto error;
 		}
 
-		assert(fd.revents & (fd.events | POLLHUP));
 		return true;
 
 	sockerror:
@@ -594,10 +593,13 @@ namespace ext::net
 
 		if (res == -1) goto sockerror;
 		
-		solen = sizeof(err);
-		res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, &err, &solen);
-		if (res != 0) goto sockerror;
-		if (err != 0) goto error;
+		if (not FD_ISSET(m_sockhandle, pread_set) and not FD_ISSET(m_sockhandle, pwrite_set))
+		{
+			solen = sizeof(err);
+			res = ::getsockopt(m_sockhandle, SOL_SOCKET, SO_ERROR, &err, &solen);
+			if (res != 0) goto sockerror;
+			if (err != 0) goto error;
+		}
 
 		return true;
 
@@ -713,7 +715,7 @@ namespace ext::net
 		}
 		
 		// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
-		// also select allowed return EAGAIN instead of ENOMEM -> repeat either
+		// also select/poll allowed return EAGAIN instead of ENOMEM -> repeat either
 		if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR) return false;
 		
 		err_code.assign(err, std::generic_category());
@@ -828,7 +830,7 @@ namespace ext::net
 					if (err == EINTR) return false;
 
 					// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
-					// also select allowed return EAGAIN instead of ENOMEM -> repeat either
+					// also select/poll allowed return EAGAIN instead of ENOMEM -> repeat either
 					if (err == EAGAIN || err == EWOULDBLOCK) return false;
 
 					err_code.assign(err, std::generic_category());

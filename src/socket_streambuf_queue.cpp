@@ -198,13 +198,7 @@ namespace ext::net
 				}
 				else
 				{
-					int res, err;
-					sockoptlen_t solen;
-					solen = sizeof(err);
-					res = ::getsockopt(sock_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
-					if (res != 0) goto sockopt_error;
-					if (err != 0) goto sock_error;
-
+					
 					const char * ready_str;
 					switch (static_cast<socket_streambuf_queue::wait_type>(wait_type))
 					{
@@ -216,6 +210,15 @@ namespace ext::net
 
 					LOG_TRACE("socket {} is {}", sock_handle, ready_str);
 					continue;
+					
+					/*
+					int res, err;
+					sockoptlen_t solen;
+					solen = sizeof(err);
+					res = ::getsockopt(sock_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
+					if (res != 0) goto sockopt_error;
+					if (err != 0) goto sock_error;
+
 
 				sockopt_error:
 					err = last_socket_error();
@@ -232,6 +235,7 @@ namespace ext::net
 
 					LOG_INFO("socket {} has error", sock_handle, ext::format_error(errc));
 					continue;
+					*/
 				}
 			}
 		}
@@ -291,8 +295,24 @@ namespace ext::net
 
 				unsigned wait_type = 0;
 
-				if (pfd.revents & POLLERR)
+				// NOTE: When analyzing poll result revents can have all flags turn on, from events and POLLHUP, POLLERR, etc.
+				//  POLLIN, POLLHUP, POLLERR can be returned simultaneously - socket ready for reading, it's disconnected and has some error.
+				//
+				//  Also from man 7 socket: SO_ERROR - Get and clear the pending socket error. This socket option is read-only. Expects an integer.
+				//  So getsockopt with SO_ERROR will/can clear error.
+				// 
+				// In practice I encountered situation when socket become ready after poll, revents - POLLIN | POLLERR | POLLHUP, getosckopt SO_ERROR returned EPIPE.
+				// In case of such error next call to ::send would return EPIPE, but next call to ::recv would return eof(res == 0).
+				// If we report error here - recv may miss it's eof(depending on how clients code is written).
+				// I am not sure how getsockopt will interfere here, EPIPE would probably remain, but some exotic errors may not theoretically.
+				// Instead it is better to leave error in socket as is and return it to client, next client call to recv/send will report proper error.
+				// 
+				// So in normal flow we never report errors in case of POLLERR, unless POLLIN and POLLOUT are not set
+				if (pfd.revents & POLLERR and not (pfd.revents & (POLLIN | POLLOUT)))
 				{
+					// This is very unexpected and strange, socket become ready, but not POLLIN or POLLOUT
+					// Probaby some error occured unrelated to send/recv operations.
+					// In this case check and report error via getsockopt, but I am not sure this is correct reaction.
 					int res, err;
 					sockoptlen_t solen;
 					solen = sizeof(err);
@@ -306,7 +326,7 @@ namespace ext::net
 					if (pfd.events & POLLHUP)
 					{
 						item.sock.set_last_error(make_error_code(sock_errc::eof), "socket_streambuf_queue");
-						LOG_INFO("socket {} was diconnected or aborted(POLHUP + POLLERR without err)", sock_handle);
+						LOG_INFO("socket {} was disconnected or aborted(POLHUP + POLLERR without err)", sock_handle);
 					}
 					else
 					{

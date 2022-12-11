@@ -94,8 +94,6 @@ namespace ext::net
 		ext::log::logger * m_logger = nullptr;
 		
 	private:
-		/// does initial socket configuration after accept from listener
-		void configure(handle_type sock);
 		/// consumes all input from given socket handle
 		void consume_all_input(handle_type sock);
 		/// manages object state after interrupt event, does some clean up and stuff
@@ -132,7 +130,7 @@ namespace ext::net
 
 	public:
 		/// waits until some socket becomes ready for read or write(depends on submission flag) or have error, timed out; returns wait_status::ready with ready socket.
-		/// with any other wait_status returned socket == invalid_handle
+		/// with any other wait_status returned socket == invalid_handle and std::error_code is unused
 		auto take() -> std::tuple<wait_status, handle_type, std::error_code>;
 		
 		/// submits socket for waiting: readable, writable or both.

@@ -82,11 +82,6 @@ namespace ext::net
 		return std::make_tuple(pipefd[0], pipefd[1]);
 #endif
 	}
-	
-	//void socket_queue::configure(socket_streambuf & sock)
-	//{
-	//	sock.timeout(m_timeout);
-	//}
 
 	void socket_queue::interrupt()
 	{
@@ -192,13 +187,6 @@ namespace ext::net
 				}
 				else
 				{
-					int res, err;
-					sockoptlen_t solen;
-					solen = sizeof(err);
-					res = ::getsockopt(sock_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
-					if (res != 0) goto sockopt_error;
-					if (err != 0) goto sock_error;
-
 					const char * ready_str;
 					switch (static_cast<socket_queue::wait_type>(wait_type))
 					{
@@ -210,14 +198,26 @@ namespace ext::net
 
 					LOG_TRACE("socket {} is {}", sock_handle, ready_str);
 					continue;
-
+					
+					// We should check error via getsockopt if socket is present in error_set.
+					// But currently we do not use it at all, anyway error should be reported by next recv/send operation.
+					// Also poll is preferable
+					
+					/*
+					int res, err;
+					sockoptlen_t solen;
+					solen = sizeof(err);
+					res = ::getsockopt(sock_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
+					if (res != 0) goto sockopt_error;
+					if (err != 0) goto sock_error;
+				
 				sockopt_error:
 					err = last_socket_error();
 				sock_error:
 					// when using nonblocking socket, EAGAIN/EWOULDBLOCK mean repeat operation later,
 					// that probably should never happen for getsockopt(..., SO_ERROR, ...)
 					if (err == EAGAIN or err == EWOULDBLOCK or err == EINTR) continue;
-
+				
 					item.ready_status = ready;
 					item.ready = 1;
 					
@@ -225,6 +225,7 @@ namespace ext::net
 					
 					LOG_INFO("socket {} has error", sock_handle, ext::format_error(item.sock_err));
 					continue;
+					*/
 				}
 			}
 		}
@@ -279,9 +280,25 @@ namespace ext::net
 				assert(sock_handle == pfd.fd);
 
 				unsigned wait_type = 0;
-
-				if (pfd.revents & POLLERR)
+				
+				// NOTE: When analyzing poll result revents can have all flags turn on, from events and POLLHUP, POLLERR, etc.
+				//  POLLIN, POLLHUP, POLLERR can be returned simultaneously - socket ready for reading, it's disconnected and has some error.
+				//
+				//  Also from man 7 socket: SO_ERROR - Get and clear the pending socket error. This socket option is read-only. Expects an integer.
+				//  So getsockopt with SO_ERROR will/can clear error.
+				// 
+				// In practice I encountered situation when socket become ready after poll, revents - POLLIN | POLLERR | POLLHUP, getosckopt SO_ERROR returned EPIPE.
+				// In case of such error next call to ::send would return EPIPE, but next call to ::recv would return eof(res == 0).
+				// If we report error here - recv may miss it's eof(depending on how clients code is written).
+				// I am not sure how getsockopt will interfere here, EPIPE would probably remain, but some exotic errors may not theoretically.
+				// Instead it is better to leave error in socket as is and return it to client, next client call to recv/send will report proper error.
+				// 
+				// So in normal flow we never report errors in case of POLLERR, unless POLLIN and POLLOUT are not set
+				if (pfd.revents & POLLERR and not (pfd.revents & (POLLIN | POLLOUT)))
 				{
+					// This is very unexpected and strange, socket become ready, but not POLLIN or POLLOUT
+					// Probaby some error occured unrelated to send/recv operations.
+					// In this case check and report error via getsockopt, but I am not sure this is correct reaction.
 					int res, err;
 					sockoptlen_t solen;
 					solen = sizeof(err);
@@ -295,7 +312,7 @@ namespace ext::net
 					if (pfd.events & POLLHUP)
 					{
 						item.sock_err = make_error_code(sock_errc::eof);
-						LOG_INFO("socket {} was diconnected or aborted(POLHUP + POLLERR without err)", sock_handle);
+						LOG_INFO("socket {} was disconnected or aborted(POLHUP + POLLERR without err)", sock_handle);
 					}
 					else
 					{
@@ -372,7 +389,7 @@ namespace ext::net
 		pollfd * plfirst, * pllast, * psfirst, * pslast;
 		int poll_timeout;
 #else
-		handle_type max_handle, listener_handle;
+		handle_type max_handle;
 		fd_set readset, writeset;
 		timeval select_timeout;
 #endif
@@ -469,13 +486,12 @@ namespace ext::net
 			bool pending = plfirst->revents & POLLIN; ++plfirst;
 			if (not pending) continue;
 #else
-			listener_handle = listener.handle();
-			if (not FD_ISSET(listener_handle, &readset)) continue;
+			if (not FD_ISSET(listener, &readset)) 
+				continue;
 #endif
 			handle_type new_sock = listener::accept(listener);
 			LOG_DEBUG("got new socket {} connection, peer = {}", new_sock, peer_endpoint_noexcept(new_sock));
 
-			//configure(new_sock);
 			submit_impl(new_sock, add_timeout(now, m_timeout), false, true, listener, wait_type::readable);
 		}
 
