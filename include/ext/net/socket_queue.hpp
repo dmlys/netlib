@@ -51,14 +51,16 @@ namespace ext::net
 			both = readable | writable   /// wait socket become readable or writable
 		};
 
-		using handle_type   = socket_handle_type;
-		using duration_type = std::chrono::steady_clock::duration;
-		using time_point    = std::chrono::steady_clock::time_point;
+		using handle_type    = socket_handle_type;
+		using user_data_type = std::uintptr_t;
+		using duration_type  = std::chrono::steady_clock::duration;
+		using time_point     = std::chrono::steady_clock::time_point;
 		
 	private:
 		struct socket_item
 		{
 			handle_type      sock;         /// pending socket
+			user_data_type   user_data;    /// some user data associated with socket
 			std::error_code  sock_err;     /// socket error
 			time_point       until;        /// maximum waiting time, after until - socket considered timed out
 			handle_type      listener;     /// if new socket, holds handle to a listener from which this socket was accepted
@@ -69,7 +71,12 @@ namespace ext::net
 			unsigned ready_status : 2; /// ready status wait_status::ready or wait_status::timeout
 		};
 		
-		using listener_item = handle_type;
+		struct listener_item
+		{
+			handle_type listener;
+			user_data_type user_data;
+		};
+		
 		using sock_list = std::list<socket_item>;
 		using listener_list = std::list<listener_item>;
 		
@@ -77,20 +84,25 @@ namespace ext::net
 		sock_list m_socks;
 		listener_list m_listeners;
 
-		/// current position in socket queue list, where search should be started
-		sock_list::iterator m_cur = m_socks.begin();
-		/// Holds socket_item.listener for last socket retrieved with take method.
-		/// This handle is valid for sockets accepted from listeners in this queue
+		// current position in socket queue list, where search should be started
+		sock_list::iterator m_search_cur = m_socks.begin();
+		// position to last inserted item, valid only after insertion operation
+		sock_list::iterator m_insert_last = m_socks.begin();
+		// Holds socket_item.listener for last socket retrieved with take method.
+		// This handle is valid for sockets accepted from listeners in this queue
 		handle_type m_last_accepted_socket_listener;
+		// Holds socket_item.user_data for last socket retrieved with take method.
+		// For new sockets accepted from listeners holds user_data from source listener
+		user_data_type m_last_taken_socket_user_data;
 
-		/// interruption flag
-		std::atomic_bool m_interrupted = ATOMIC_VAR_INIT(false);
-		/// pipe pair used to interrupt blocking select/poll syscall
+		// interruption flag
+		std::atomic_bool m_interrupted = false;
+		// pipe pair used to interrupt blocking select/poll syscall
 		handle_type m_interrupt_listen = -1;
 		handle_type m_interrupt_write  = -1;
-		/// default timeout for newly accepted sockets
+		// default timeout for newly accepted sockets
 		duration_type m_timeout = duration_type::max();
-		/// optional logger for some diagnostic, debug stuff
+		// optional logger for some diagnostic, debug stuff
 		ext::log::logger * m_logger = nullptr;
 		
 	private:
@@ -107,8 +119,8 @@ namespace ext::net
 		auto wait_ready(time_point until) -> wait_status;
 		
 	private:
-		/// submits socket for waiting: readable, writable or both
-		void submit_impl(socket_handle_type sock, time_point until, bool ready, bool owning, handle_type listener, wait_type wtype);
+		/// submits socket item for waiting
+		void submit_impl(socket_item & sock_item);
 		/// erases all bindings of socket socket_items to listeners(nullifiers socket_item.listener)
 		void erase_listener_tracking();
 		
@@ -116,11 +128,11 @@ namespace ext::net
 		/// waits until some socket becomes ready for read or write(depends on submission flag).
 		wait_status wait() const;
 		/// waits until some socket becomes ready for read or write(depends on submission flag),
-		/// it block until specified timeout duration has elapsed or result became available(or interrupt happened),
+		/// it blocks until specified timeout duration has elapsed or result became available(or interrupt happened),
 		/// whichever comes first.
 		wait_status wait_for(duration_type timeout) const;
 		/// waits until some socket becomes ready for read or write(depends on submission flag),
-		/// it block until specified time point reached or result became available(or interrupt happened),
+		/// it blocks until specified time point reached or result became available(or interrupt happened),
 		/// whichever comes first.
 		wait_status wait_until(time_point point) const;
 
@@ -134,15 +146,22 @@ namespace ext::net
 		auto take() -> std::tuple<wait_status, handle_type, std::error_code>;
 		
 		/// submits socket for waiting: readable, writable or both.
-		inline void submit(handle_type sock, duration_type timeout, wait_type wtype = readable, bool ready = false) { return submit_impl(sock, add_timeout(time_point::clock::now(), timeout), ready, false, invalid_socket, wtype); }
+		void submit(handle_type sock, duration_type timeout, wait_type wtype = readable, bool ready = false);
 		/// submits socket for waiting: readable, writable or both.
-		inline void submit(handle_type sock, time_point until, wait_type wtype = readable, bool ready = false) { return submit_impl(sock, until, ready, false, invalid_socket, wtype); }
+		void submit(handle_type sock, time_point until, wait_type wtype = readable, bool ready = false);
+		/// sets user data for last submited socket. Invoking this method unless after calling submit is undefined behaviour
+		void submit_user_data(user_data_type user_data);
 		
 	public:
 		/// lasl - last accepted socket listener.
 		/// If last taken socket was accepted from one of listeners in this queue, this method will return that listener, otherwise invalid_handle.
 		/// Calling this method only allowed after successful take call(wait_status == ready), otherwise calling this method is undefined behaviour.
 		handle_type lasl() const { return m_last_accepted_socket_listener; }
+		/// ltsud - last taken socket user data.
+		/// Returns last taken socket associated user data. This data is set with submit_user_data method.
+		/// For new sockets accepted from listeners user data is copied from source listener.
+		/// Calling this method only allowed after successful take call(wait_status == ready), otherwise calling this method is undefined behaviour.
+		user_data_type ltsud() const { return m_last_taken_socket_user_data; }
 		
 	public:
 		/// queue is empty if it does not have any listeners or sockets
@@ -152,7 +171,7 @@ namespace ext::net
 
 	public:
 		/// adds listener to socket_queue, new incoming connections will be automatically submitted with readable while wait*/take calls takes place
-		void add_listener(handle_type sock);
+		void add_listener(handle_type sock, user_data_type user_data = 0);
 		
 		/// removes and returns listener with specified port
 		auto remove_listener(unsigned short port) -> handle_type;

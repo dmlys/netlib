@@ -140,10 +140,10 @@ namespace ext::net
 			FD_ZERO(writeset);
 			FD_SET(queue.m_interrupt_listen, readset);
 
-			for (auto listener : queue.m_listeners)
+			for (auto listener_item : queue.m_listeners)
 			{
-				max_handle = std::max(listener, max_handle);
-				FD_SET(listener, readset);
+				max_handle = std::max(listener_item.listener, max_handle);
+				FD_SET(listener_item.listener, readset);
 			}
 
 			for (auto & item : queue.m_socks)
@@ -240,10 +240,10 @@ namespace ext::net
 			cur_fd->fd = queue.m_interrupt_listen;
 			cur_fd->events = POLLIN;
 
-			for (auto listener : queue.m_listeners)
+			for (auto listener_item : queue.m_listeners)
 			{
 				++cur_fd;
-				cur_fd->fd = listener;
+				cur_fd->fd = listener_item.listener;
 				cur_fd->events = POLLIN;
 			}
 
@@ -404,10 +404,10 @@ namespace ext::net
 		socks_first = m_socks.begin();
 		socks_last  = m_socks.end();
 
-		m_cur = find_ready_socket(socks_it = m_cur, socks_last);
-		if (m_cur != socks_last) return ready;
-		m_cur = find_ready_socket(socks_first, socks_it);
-		if (m_cur != socks_it)   return ready;
+		m_search_cur = find_ready_socket(socks_it = m_search_cur, socks_last);
+		if (m_search_cur != socks_last) return ready;
+		m_search_cur = find_ready_socket(socks_first, socks_it);
+		if (m_search_cur != socks_it)   return ready;
 
 	again:
 		if (m_interrupted.load(std::memory_order_relaxed))
@@ -480,19 +480,30 @@ namespace ext::net
 		
 		// check listeners
 		now = time_point::clock::now();
-		for (auto listener : m_listeners)
+		for (const auto & listener_item : m_listeners)
 		{
 #if EXT_NET_USE_POLL
 			bool pending = plfirst->revents & POLLIN; ++plfirst;
 			if (not pending) continue;
 #else
-			if (not FD_ISSET(listener, &readset)) 
+			if (not FD_ISSET(listener_item.listener, &readset))
 				continue;
 #endif
-			handle_type new_sock = listener::accept(listener);
+			handle_type new_sock = listener::accept(listener_item.listener);
 			LOG_DEBUG("got new socket {} connection, peer = {}", new_sock, peer_endpoint_noexcept(new_sock));
 
-			submit_impl(new_sock, add_timeout(now, m_timeout), false, true, listener, wait_type::readable);
+			socket_item sock_item = {
+				.sock = new_sock,
+				.user_data = listener_item.user_data,
+				.sock_err = std::error_code{},
+				.until = add_timeout(now, m_timeout),
+				.listener = listener_item.listener,
+				.wtype = wait_type::readable,
+				.owning = true,
+				.ready = false, .ready_status = 0
+			};
+			
+			submit_impl(sock_item);
 		}
 
 		// calculate state of sockets, ready, timeout, errors... transfer into internal queue
@@ -530,11 +541,12 @@ namespace ext::net
 
 		if (result_status == ready)
 		{
-			sock = std::move(m_cur->sock);
-			errc = std::move(m_cur->sock_err);
+			sock = std::move(m_search_cur->sock);
+			errc = std::move(m_search_cur->sock_err);
 			
-			m_last_accepted_socket_listener = m_cur->listener;
-			m_cur = m_socks.erase(m_cur);
+			m_last_accepted_socket_listener = m_search_cur->listener;
+			m_last_taken_socket_user_data = m_search_cur->user_data;
+			m_search_cur = m_socks.erase(m_search_cur);
 
 			LOG_TRACE("socket {} taken", sock);
 		}
@@ -549,24 +561,55 @@ namespace ext::net
 		return res == 0 ? avail : 0;
 	}
 	
-	void socket_queue::submit_impl(handle_type sock, time_point until, bool ready, bool owning, handle_type listener, wait_type wtype)
+	void socket_queue::submit_impl(socket_item & sock_item)
 	{
-		LOG_TRACE("socket {} submitted", sock);
-		assert(wtype & readable or wtype & writable);
+		LOG_TRACE("socket {} submitted", sock_item.sock);
+		assert(sock_item.wtype & readable or sock_item.wtype & writable);
 
-		unsigned ready_status = 0;
-
-		if (wtype & readable)
-			ready = ready or socket_have_pending_data(sock);
-
-		m_socks.push_back({
-			.sock = std::move(sock), .sock_err = std::error_code{},
-			.until = until,
-			.listener = listener,
+		if (sock_item.wtype & readable)
+			sock_item.ready = sock_item.ready or socket_have_pending_data(sock_item.sock);
+		
+		sock_item.ready_status = 0;
+		
+		// insert new item before current search position -> effectively at end of queue
+		m_insert_last = m_socks.insert(m_search_cur, std::move(sock_item));
+	}
+		
+	void socket_queue::submit(handle_type sock, duration_type timeout, wait_type wtype, bool ready)
+	{
+		socket_item sock_item = {
+			.sock = sock,
+			.user_data = 0,
+			.sock_err = std::error_code{},
+			.until = add_timeout(time_point::clock::now(), timeout),
+			.listener = invalid_socket,
 			.wtype = wtype,
-			.owning = owning,
-			.ready = ready, .ready_status = ready_status
-		});
+			.owning = false,
+			.ready = ready, .ready_status = 0
+		};
+		
+		return submit_impl(sock_item);
+	}
+	
+	void socket_queue::submit(handle_type sock, time_point until, wait_type wtype, bool ready)
+	{
+		socket_item sock_item = {
+			.sock = sock,
+			.user_data = 0,
+			.sock_err = std::error_code{},
+			.until = until,
+			.listener = invalid_socket,
+			.wtype = wtype,
+			.owning = false,
+			.ready = ready, .ready_status = 0
+		};
+		
+		return submit_impl(sock_item);
+	}
+	
+	void socket_queue::submit_user_data(user_data_type user_data)
+	{
+		m_insert_last->user_data = user_data;
 	}
 	
 	void socket_queue::clear() noexcept
@@ -579,10 +622,10 @@ namespace ext::net
 		m_socks.clear();
 	}
 	
-	void socket_queue::add_listener(handle_type handle)
+	void socket_queue::add_listener(handle_type handle, user_data_type user_data)
 	{
 		assert(listener::is_listening(handle));
-		m_listeners.push_back(handle);
+		m_listeners.push_back({handle, user_data});
 	}
 
 	
@@ -599,17 +642,17 @@ namespace ext::net
 
 		for (; first != last; ++first)
 		{
-			auto listener = *first;
-			auto sock_port = ext::net::sock_port(listener);
+			auto litem = *first;
+			auto sock_port = ext::net::sock_port(litem.listener);
 			if (sock_port == port)
 			{
 				for (auto & sock_item : m_socks)
-					if (sock_item.listener == listener)
+					if (sock_item.listener == litem.listener)
 						sock_item.listener = invalid_socket;
 				
 				m_listeners.erase(first);
 				
-				return listener;
+				return litem.listener;
 			}
 		}
 
@@ -621,7 +664,7 @@ namespace ext::net
 		std::vector<handle_type> result;
 		
 		for (auto item : m_listeners)
-			result.push_back(item);
+			result.push_back(item.listener);
 		
 		return result;
 	}
@@ -632,7 +675,7 @@ namespace ext::net
 		result.reserve(m_listeners.size());
 		
 		for (auto item : m_listeners)
-			result.push_back(item);
+			result.push_back(item.listener);
 		
 		erase_listener_tracking();
 		m_listeners.clear();
@@ -669,7 +712,7 @@ namespace ext::net
 	socket_queue::socket_queue(socket_queue && other) noexcept
 	    : m_socks(std::move(other.m_socks)),
 	      m_listeners(std::move(other.m_listeners)),
-	      m_cur(std::exchange(other.m_cur, {})),
+	      m_search_cur(std::exchange(other.m_search_cur, {})),
 	      m_interrupted(other.m_interrupted.exchange(false, std::memory_order_relaxed)),
 	      m_interrupt_listen(std::exchange(other.m_interrupt_listen, invalid_socket)),
 	      m_interrupt_write(std::exchange(other.m_interrupt_write, invalid_socket)),
