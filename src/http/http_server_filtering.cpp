@@ -61,9 +61,6 @@ namespace ext::net::http
 		auto & source_dctx = ctx.data_contexts.front();
 		auto & dest_dctx   = ctx.data_contexts.back();
 		
-		SOCK_LOG_DEBUG("filtering request http body with source_dctx = {}/{}/{}, dest_dctx.capacity = {}",
-		               source_dctx.written, source_dctx.consumed, source_dctx.finished ? 'f' : 'm', dest_dctx.capacity);
-		
 		// do filtering
 		for (;;)
 		{
@@ -77,6 +74,12 @@ namespace ext::net::http
 			if (source_unconsumed <  source_threshold) break;
 			if (dest_dctx.written >= dest_threshold)   break;
 		}
+		
+		
+		SOCK_LOG_DEBUG("filtering request http body with source_dctx = {}/{}/{}, dest_dctx = {}/{}/{}",
+		               source_dctx.written, source_dctx.consumed, source_dctx.finished ? 'f' : 'm',
+		               dest_dctx.capacity, dest_dctx.written, source_dctx.finished ? 'f' : 'm' );
+		
 		
 		// post filtering processing, check if we finished, have trailing data, etc				
 		if (dest_dctx.finished)

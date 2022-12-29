@@ -212,6 +212,7 @@ BOOST_DATA_TEST_CASE(base64_filter_async_request_test, make(configurations), con
 		return reqbody;
 	});
 	
+	// TODO: insert delay here for would block
 	auto & input_body = std::get<std::string>(httpreq.body);
 	sock.write(input_body.data(), input_body.size());
 	

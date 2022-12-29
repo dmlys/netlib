@@ -21,6 +21,7 @@ namespace ext::net
 	extern const int sock_seqpacket; // SOCK_SEQPACKET
 
 	extern const int msg_nosignal;   // MSG_NOSIGNAL or 0 if not defined
+	extern const int msg_dontwait;   // MSG_DONTWAIT or 0 if not defined
 	
 	extern const int shut_rd;   // SHUT_RD or analog
 	extern const int shut_wr;   // SHUT_WR or analog

@@ -99,7 +99,7 @@ namespace ext::net::http
 		//3 - std::unique_ptr<async_http_body_source>
 		//4 - null_body_type
 		//5 - ()
-		switch (auto index = function.index())
+		switch (function.index())
 		{
 			case 0: return http_body_type::string;
 			case 1: return http_body_type::vector;

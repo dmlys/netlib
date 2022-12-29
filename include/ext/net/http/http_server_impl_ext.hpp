@@ -259,7 +259,7 @@ namespace ext::net::http
 		// GOAL - see ext::closable_http_body description: we must implement interruption of blocking reading from socket via close method,
 		// also if there is no reading operation at all at this moment - it will be good if we complete close promise immediately.
 		// so we have 2 scenarios:
-		//  * there is no reading operation at the moment when close was called    -> from close method mark state to interrupted, complete close promise.
+		//  * there is no reading operation at the moment when close was called     -> from close method mark state to interrupted, complete close promise.
 		//  * there is active reading operation at the moment when close was called -> somehow interrupt it,
 		//    that reading operation/thread will complete interruption, change state of this object to interrupted and complete close promise
 		//
@@ -309,6 +309,7 @@ namespace ext::net::http
 			void mark_working();
 			void unmark_working();
 			void check_interrupted();
+			void unwinding_unmark_working();
 			EXT_NORETURN void throw_interrupted();
 			
 		public:
@@ -323,7 +324,11 @@ namespace ext::net::http
 		ext::intrusive_ptr<closable_http_body_impl> m_interrupt_state;
 		
 	protected:
+		// 0x1 - readable, 0x2 - writable
+		virtual bool wait_state(socket_handle_type sock, std::error_code & errc, time_point until, unsigned state);
+		virtual bool read_some(char * data, int len, int & read, std::error_code & errc);
 		virtual void read_parse_some();
+		
 		virtual int_type underflow_normal();
 		virtual int_type underflow_filtered();
 		virtual int_type underflow() override;
@@ -434,7 +439,7 @@ namespace ext::net::http
 		virtual bool is_response_final() const noexcept override;
 		
 	public:
-		virtual auto socket() const -> const ext::net::socket_streambuf & override;
+		virtual auto socket() const -> socket_handle_type override;
 		virtual auto request() -> http_request & override;
 		virtual auto response() -> http_response & override;
 		

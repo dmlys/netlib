@@ -5,14 +5,12 @@
 #include <ext/net/http/http_server_impl_ext.hpp>
 #include <ext/net/http/http_server_logging_helpers.hpp>
 
+#if BOOST_OS_WINDOWS
+#define poll  WSAPoll
+#endif // BOOST_OS_WINDOWS
+
 namespace ext::net::http
 {
-	inline static bool peek(std::streambuf & sb)
-	{
-		typedef std::streambuf::traits_type traits_type;
-		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
-	}
-	
 	/************************************************************************/
 	/*            http_body_streambuf_impl::closable_http_body_impl         */
 	/************************************************************************/
@@ -91,6 +89,19 @@ namespace ext::net::http
 		}
 	}
 	
+	void http_server::http_body_streambuf_impl::closable_http_body_impl::unwinding_unmark_working()
+	{
+		// NOTE: This method only called when unwinding from exception happening in method underflow.
+		//       And currently exception can possibly happen only in code between calls to mark/unmark_working
+		unsigned expected = 0x01;
+		if (m_interrupt_work_flag.compare_exchange_strong(expected, 0x00, std::memory_order_release))
+			return;
+		
+		m_closed_promise.set_value();
+		m_closed = true;
+		throw_interrupted();
+	}
+	
 	EXT_NORETURN void http_server::http_body_streambuf_impl::closable_http_body_impl::throw_interrupted()
 	{
 		throw closed_exception("ext::net::http::http_server::http_body_stream: interrupt, server is stopping");
@@ -109,7 +120,8 @@ namespace ext::net::http
 		else
 		{
 			assert(prev_value == 0x01);
-			m_context->sock.interrupt();
+			 // shutdowning socket should interrupt any pending socket operations
+			::shutdown(m_context->sock.get(), shut_rd);
 			// m_closed_promise should be fulfilled by other side
 		}
 		
@@ -123,33 +135,225 @@ namespace ext::net::http
 	
 	}
 	
+	bool http_server::http_body_streambuf_impl::wait_state(socket_handle_type sock, std::error_code & errc, time_point until, unsigned int fstate)
+	{
+		constexpr unsigned readable = 0x1;
+		constexpr unsigned writable = 0x2;
+		
+		int err;
+		sockoptlen_t solen;
+
+#if EXT_NET_USE_POLL
+	again:
+		pollfd fd;
+		fd.events = 0;
+		fd.fd = sock;
+		if (fstate & readable)
+			fd.events |= POLLIN;
+		if (fstate & writable)
+			fd.events |= POLLOUT;
+
+		int timeout = poll_mktimeout(until - time_point::clock::now());;
+		int res = ::poll(&fd, 1, timeout);
+		if (res == 0) // timeout
+		{
+			errc = make_error_code(sock_errc::timeout);
+			return false;
+		}
+
+		if (res < 0) goto sockerror;
+
+		if (fd.revents & POLLERR and not (fd.revents & (POLLIN | POLLOUT)))
+		{
+			solen = sizeof(err);
+			res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
+			if (res != 0) goto sockerror;
+			if (err != 0) goto error;
+		}
+
+		errc.clear();
+		return true;
+
+	sockerror:
+		err = errno;
+	error:
+		errc.assign(err, socket_error_category());
+		
+		if (errc == std::errc::interrupted) 
+			goto again;
+		
+		return false;
+#else // EXT_NET_USE_POLL
+	again:
+		struct timeval timeout;
+		make_timeval(until - time_point::clock::now(), timeout);
+
+		fd_set read_set, write_set;
+		fd_set * pread_set = nullptr;
+		fd_set * pwrite_set = nullptr;
+
+		if (fstate & readable)
+		{
+			pread_set = &read_set;
+			FD_ZERO(pread_set);
+			FD_SET(sock, pread_set);
+		}
+
+		if (fstate & writable)
+		{
+			pwrite_set = &write_set;
+			FD_ZERO(pwrite_set);
+			FD_SET(sock, pwrite_set);
+		}
+		
+		int res = ::select(sock + 1, pread_set, pwrite_set, nullptr, &timeout);
+		if (res == 0) // timeout
+		{
+			errc = make_error_code(sock_errc::timeout);
+			return false;
+		}
+
+		if (res == -1) goto sockerror;
+		
+		if (not FD_ISSET(sock, pread_set) and not FD_ISSET(sock, pwrite_set))
+		{
+			solen = sizeof(err);
+			res = ::getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &solen);
+			if (res != 0) goto sockerror;
+			if (err != 0) goto error;
+		}
+
+		errc.clear();
+		return true;
+
+	sockerror:
+		err = errno;
+	error:
+		if (errc == std::errc::interrupted) 
+			goto again;
+		
+		return false;
+#endif // EXT_NET_USE_POLL
+	}
+	
+	bool http_server::http_body_streambuf_impl::read_some(char * data, int len, int & read, std::error_code & errc)
+	{
+		auto * context = m_interrupt_state->m_context;
+		auto * server  = m_interrupt_state->m_server;
+		auto * m_logger = server->m_logger;
+		
+		auto sock = context->sock.handle();
+	#ifdef EXT_ENABLE_OPENSSL
+		auto * ssl = context->ssl_ptr.get();
+	#endif
+		
+		auto until = time_point::clock::now() + server->m_socket_timeout;
+		SOCK_LOG_TRACE("http_body_streambuf_impl::underflow: reading from socket");
+		
+	read_again:
+	#ifdef EXT_ENABLE_OPENSSL
+		if (ssl)
+		{
+			SOCK_LOG_TRACE("calling SSL_read");
+			read = ::SSL_read(ssl, data, len);
+			if (read > 0) return true;
+			errc = socket_ssl_rw_error(read, ssl);
+		}
+		else
+	#endif
+		{
+			SOCK_LOG_TRACE("calling recv");
+			read = ::recv(sock, data, len, msg_nosignal);
+			if (read > 0) return true;
+			errc = socket_rw_error(read, last_socket_error());
+		}
+	
+		if (errc == std::errc::interrupted)
+			goto read_again;
+		
+	#ifdef EXT_ENABLE_OPENSSL
+		if (errc == openssl::ssl_errc::want_read)
+		{
+			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, waiting");
+			if (wait_state(sock, errc, until, 0x1))
+				goto read_again;
+			
+			goto wait_error;
+		}
+		if (errc == openssl::ssl_errc::want_write)
+		{
+			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, waiting");
+			if (wait_state(sock, errc, until, 0x2))
+				goto read_again;
+			
+			goto wait_error;
+		}
+	#endif
+		if (errc == sock_errc::would_block)
+		{
+			SOCK_LOG_DEBUG("recv: got would_block, waiting");
+			if (wait_state(sock, errc, until, 0x1))
+				goto read_again;
+			
+			goto wait_error;
+		}
+	
+		if (errc == sock_errc::eof)
+		{
+			assert(read == 0);
+			return true;
+		}
+		
+	//error:
+		SOCK_LOG_WARN("got system error while processing request(read from socket): {}", server->format_error(errc));
+	#ifdef EXT_ENABLE_OPENSSL
+		openssl::openssl_clear_errors();
+	#endif
+		return false;
+		
+	wait_error:
+		SOCK_LOG_WARN("got system error while waiting socket: {}", server->format_error(errc));
+		return false;
+	}
+	
 	void http_server::http_body_streambuf_impl::read_parse_some()
 	{		
 		auto * context = m_interrupt_state->m_context;
 		auto * server  = m_interrupt_state->m_server;
 		
-		auto * m_logger = server->m_logger;
-		auto & sock = context->sock;
+		auto sock = context->sock.handle();
+		auto & buffer = context->input_buffer;
 		auto & parser = context->parser;
+		std::error_code errc;
 		
-		SOCK_LOG_TRACE("http_body_streambuf_impl::underflow: reading from socket");
-		assert(not sock.throw_errors());
-		auto peeked = ext::net::http::peek(sock);
-		EXT_UNUSED(peeked);
+		char * first = buffer.data() + context->input_first;
+		char * last  = buffer.data() + context->input_last;
+		//int len = static_cast<int>(last - first);
+		int len = last - first;
+
+		if (first != last) goto parse;
+		
+		assert(context->input_first == context->input_last);
+				
+		first = buffer.data();
+		last  = first + buffer.size();
+		read_some(first, last - first, len, errc);
 		
 		// will throw if interrupted
 		m_interrupt_state->check_interrupted();
 		
-		if (sock.last_error() == ext::net::sock_errc::error)
-			sock.throw_last_error();
+		if (errc == ext::net::sock_errc::error)
+			throw std::system_error(errc, "http_body_streambuf read failure");
 		
-		auto * ptr = sock.gptr();
-		std::size_t data_len = sock.egptr() - ptr;
+		context->input_first = 0;
+		context->input_last = len;
+		context->read_count += len;
 		
-		server->log_read_buffer(sock.handle(), ptr, data_len);
+		server->log_read_buffer(sock, first, len);
 		
-		auto parsed = parser.parse_message(ptr, data_len);
-		sock.gbump(static_cast<int>(parsed));
+	parse:
+		auto parsed = parser.parse_message(first, len);
+		context->input_first += parsed;
 	}
 	
 	auto http_server::http_body_streambuf_impl::underflow_normal() -> int_type
@@ -248,9 +452,22 @@ namespace ext::net::http
 	
 	auto http_server::http_body_streambuf_impl::underflow() -> int_type
 	{
-		return (this->*m_interrupt_state->m_underflow_method)();
-	}
-	
+		try
+		{
+			return (this->*m_interrupt_state->m_underflow_method)();
+		}
+		catch (closed_exception &)
+		{
+			throw;
+		}
+		catch (...)
+		{
+			// unwinding_unmark_working can "eat" current exception, by throwing new one, if interruption happening
+			// this is by design: interruption overrides any other regular causes
+			m_interrupt_state->unwinding_unmark_working();
+			throw;
+		}
+	}	
 	
 	
 	/************************************************************************/
@@ -513,9 +730,9 @@ namespace ext::net::http
 		return m_context->response_is_final;
 	}
 	
-	auto http_server::http_server_control::socket() const -> const ext::net::socket_streambuf & 
+	auto http_server::http_server_control::socket() const -> socket_handle_type
 	{
-		return m_context->sock;
+		return m_context->sock.handle();
 	}
 	
 	auto http_server::http_server_control::request() -> http_request &

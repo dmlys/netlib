@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(http_limits_test)
 	auto addr = configure(server);
 	
 	std::string huge_body;
-	huge_body.assign(4096, 'a');
+	huge_body.assign(20 * 1024, 'a');
 	
 	server.set_maximum_http_body_size(10);
 	

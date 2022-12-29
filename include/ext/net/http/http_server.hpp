@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include <iterator>
+#include <variant>
 
 #include <thread>
 #include <mutex>
@@ -20,8 +20,8 @@
 #include <ext/stream_filtering/filter_types.hpp>
 
 #include <ext/openssl.hpp>
-#include <ext/net/socket_stream.hpp>
-#include <ext/net/socket_streambuf_queue.hpp>
+#include <ext/net/socket_base.hpp>
+#include <ext/net/socket_queue.hpp>
 
 #include <ext/net/http/http_parser.hpp>
 #include <ext/net/http/http_types.hpp>
@@ -53,7 +53,7 @@ namespace ext::net::http
 		using self_type = http_server;
 
 	public:
-		using socket_queue  = socket_streambuf_queue;
+		using socket_queue  = ext::net::socket_queue;
 		using handle_type   = socket_queue::handle_type;
 		using duration_type = socket_queue::duration_type;
 		using time_point    = socket_queue::time_point;
@@ -64,11 +64,11 @@ namespace ext::net::http
 		using simple_handler_request_function_type = simple_http_server_handler::request_function_type;
 
 #ifdef EXT_ENABLE_OPENSSL
-		using SSL          = ::SSL;
+		//using SSL          = ::SSL;
 		using ssl_ctx_iptr = ext::openssl::ssl_ctx_iptr;
 		using ssl_iptr     = ext::openssl::ssl_iptr;
 #else
-		using SSL          = std::nullptr_t;
+		//using SSL          = std::nullptr_t;
 		using ssl_ctx_iptr = std::nullptr_t;
 		using ssl_iptr     = std::nullptr_t;
 #endif
@@ -86,11 +86,7 @@ namespace ext::net::http
 		//  This whole http processing can be done on executor or, if unset, in background thread.
 		//  http action handlers can be async - return ext::future<http_response>, sync - return ready http_response
 		//
-		//  Currently http request and response are synchronously processed in executor or background thread -
-		//  while whole http request will not be read, action handler invoked, http response written back - socket will not be placed back into queue,
-		//  and background thread will be busy working with current request/socket, unless processing executor is set.
-		//
-		//  In case of async special continuation is attached to returned future, it submits special task when http_result future become ready.
+		//  In case of async - special continuation is attached to returned future, it submits special task when http_result future become ready.
 		//  This task continues processing of this http request, writes back response, etc(see m_delayed)
 		//
 		//  There also pre/post http filters, currently those can't be async, but maybe changed in future.
@@ -103,15 +99,11 @@ namespace ext::net::http
 		//
 		// handle_* group:
 		//  http request is handled by handle_* method group. All methods can be overridden, also to allow more customization, each method returns what must be done next:
-		//   handle_request -> handle_prefilters -> .... -> handle_finish
+		//   ... -> handle_request -> handle_prefilters -> .... -> handle_finish
 		
 	protected:
 		using process_result = http_server_handler::result_type;
 		using async_process_result = std::variant<ext::future<http_response>, ext::future<null_response_type>>;
-
-		using hook_type = boost::intrusive::list_base_hook<
-			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
-		>;
 
 		class task_base; // inherits hook_type
 		template <class Functor, class ResultType>
@@ -122,16 +114,20 @@ namespace ext::net::http
 		template <class ExecutorPtr>
 		class processing_executor_impl;
 
+		class closable_http_body;
 		class async_http_body_source_impl;
 		class http_body_streambuf_impl;
 
 	protected:
+		using hook_type = boost::intrusive::list_base_hook<
+			boost::intrusive::link_mode<boost::intrusive::link_mode_type::normal_link>
+		>;
+		
 		using list_option = boost::intrusive::base_hook<hook_type>;
 		using task_list = boost::intrusive::list<task_base, list_option, boost::intrusive::constant_time_size<false>>;
 		using delayed_async_executor_task_continuation_list = boost::intrusive::list<delayed_async_executor_task_continuation, list_option, boost::intrusive::constant_time_size<false>>;
 
 	protected:
-		class  closable_http_body;
 		struct processing_context;
 		class  http_server_control;
 
@@ -155,7 +151,7 @@ namespace ext::net::http
 		{
 			unsigned backlog;
 			ssl_ctx_iptr ssl_ctx;
-			ext::net::listener listener; // valid until it placed into sock_queue
+			ext::net::listener listener;
 		};
 		
 		struct config_context;
@@ -167,11 +163,23 @@ namespace ext::net::http
 			ext::stream_filtering::processing_parameters filter_params;
 		};
 		
-		/// groups some context parameters for processing http request
+		struct processing_context_deleter
+		{
+			http_server * server;
+			void operator()(processing_context * context) const noexcept { return server->destroy_context(context); }
+		};
+		
+		using processing_context_uptr = std::unique_ptr<processing_context, processing_context_deleter>;
+		
+		/// Groups some context parameters for processing http request.
+		/// Note that this context is bound to a socket whole lifetime,
+		/// because of SSL session object and read buffer.
+		/// 1st one holds current SSL session and can't be rebound to other socket
+		/// 2nd can hold data from next HTTP request read on last recv operation(like http pipelining extension)
 		struct processing_context
 		{
-			socket_streambuf sock; // socket where http request came from
-			ssl_iptr ssl_ptr = nullptr; // ssl session, created from listener ssl context
+			ext::net::socket_uhandle sock; // socket where http request came from
+			ssl_iptr ssl_ptr = nullptr;    // ssl session, created from listener ssl context
 			
 			// socket waiting
 			socket_queue::wait_type wait_type;
@@ -180,19 +188,23 @@ namespace ext::net::http
 			// current method that is executed
 			regular_handle_methed cur_method;
 			
-			// state used by some handle_methods, value for switch
+			// function state used by some handle_methods, value for switch
 			unsigned async_state = 0;         
 			// should this connection be closed after request processed, determined by Connection header,
-			// but also - were there errors while processing request.
+			// but if there were errors while processing request - connection will be closed.
 			connection_action_type conn_action = connection_action_type::close;
 			
 			// byte counters, used in various scenarios
-			std::size_t read_count;    // number of bytes read from socket
-			std::size_t written_count; // number of bytes written socket
+			std::size_t read_count;    // number of total bytes read from socket, used to track maximum_http_body_size and others limits
+			std::size_t written_count; // number of bytes written to socket from buffer
+			// counters for input_buffer, how much was read from socket, how much was already parsed/consumed
+			unsigned input_first, input_last;
 			
 			http_server_utils::nonblocking_http_parser parser; // http parser with state
 			http_server_utils::nonblocking_http_writer writer; // http writer with state
 			
+			// buffer holding data read from socket, request will be parsed from here
+			std::vector<char> input_buffer;
 			// buffers for filtered and non filtered parsing and writting
 			std::vector<char> request_raw_buffer, request_filtered_buffer;
 			std::vector<char> response_raw_buffer, response_filtered_buffer;
@@ -205,13 +217,15 @@ namespace ext::net::http
 			http_request request;                    // current http request,  valid after is was parsed
 			process_result response = null_response; // current http response, valid after handler was called
 			
-			std::shared_ptr<const config_context> config; // config snapshot
+			std::shared_ptr<const config_context> config; // http server config snapshot
 			const http_server_handler * handler;          // found handler for request
 			
+			bool expect_tls;               // this connection expects tls session(socket came from listener configured with SSL)
 			bool expect_extension;         // request with Expect: 100-continue header, see RFC7231 section 5.1.1.
 			bool continue_answer;          // context holds answer 100 Continue
 			bool first_response_written;   // wrote first 100-continue
 			bool final_response_written;   // wrote final(possibly second) response
+			bool shutdown_socket;          // socket should be shutdowned before closing(this is regular flow, counter to network exceptional/error flow)
 			
 			bool response_is_final;        // response was marked as final, see http_server_filter_control
 			bool response_is_null;         // response was set to null, no response should be sent, connection should be closed
@@ -230,41 +244,41 @@ namespace ext::net::http
 		/// holds some configuration parameters sharable by processing contexts
 		struct config_context
 		{
-			/// http filters, handlers can added when http server already started. What if we already processing some request and handler is added?
-			/// When processing starts - context holds snapshot of currently registered handlers, filters and only they are used; it also handles multithreaded issues.
-			/// whenever filters, handlers or anything config related changes -> new context is config_context as copy of current is created with dirty set to true.
-			/// sort of copy on write
+			/// Http filters, handlers can added when http server already started. What if we already processing some request and handler is added?
+			/// When processing starts context holds snapshot of currently registered handlers and filters - only they are used; it also handles multithreaded issues.
+			/// Whenever filters, handlers or anything config related changes -> new context as copy of current is created with dirty set to true.
+			/// Sort of copy on write
 			unsigned dirty = true;
 			
 			std::vector<const http_server_handler *> handlers;       // http handlers registered in server
 			std::vector<const http_prefilter *>      prefilters;     // http prefilters  registered in server, sorted by order
 			std::vector<const http_postfilter *>     postfilters;    // http postfilters registered in server, sorted by order
 			
-			/// Maximum bytes read from socket while parsing HTTP request headers, -1 - unlimited.
+			/// Maximum total(per request) bytes read from socket while parsing HTTP request headers, -1 - unlimited.
 			/// If request headers are not parsed yet, and server read from socket more than maximum_http_headers_size, BAD request is returned
-			std::size_t maximum_http_headers_size = -1;
-			/// Maximum bytes read from socket while parsing HTTP body, -1 - unlimited.
+			unsigned maximum_http_headers_size = -1;
+			/// Maximum bytes(per request) read from socket while parsing HTTP body, -1 - unlimited.
 			/// This affects only simple std::vector<char>/std::string bodies, and never affects stream/async bodies.
 			/// If server read from socket more than maximum_http_body_size, BAD request is returned
-			std::size_t maximum_http_body_size = -1;
+			unsigned maximum_http_body_size = -1;
 			/// Maximum bytes read from socket while parsing discarded HTTP request, -1 - unlimited.
 			/// If there is no handler for this request, or some other error code is answered(e.g. unauthorized),
 			/// this request is considered to be discarded - in this case we still might read it's body,
 			/// but no more than maximum_discarded_http_body_size, otherwise connection is forcibly closed.
-			std::size_t maximum_discarded_http_body_size = -1;
+			unsigned maximum_discarded_http_body_size = -1;
 		};
 		
 	protected:
 		socket_queue m_sock_queue; // intenal socket and listener queue
-		boost::container::flat_map<socket_handle_type, listener_context> m_listener_contexts; // listener contexts map by listener handle
+		boost::container::flat_map<handle_type, listener_context> m_listener_contexts; // listener contexts map by listener handle
 		
-		// sharable cow config context, see config_context description
+		// sharable COW config context, see config_context description
 		std::shared_ptr<config_context> m_config_context = std::make_shared<config_context>();
 
 		ext::log::logger * m_logger = nullptr;
 		// log level on which http request and reply headers are logged
 		unsigned m_request_logging_level = -1;
-		// log level on which http request and reply body are logger, overrides m_request_logging_level if bigger
+		// log level on which http request and reply body are logger, overrides m_request_logging_level if higher
 		unsigned m_request_body_logging_level = -1;
 		// log level on which every read from socket operation buffer is logged
 		unsigned m_read_buffer_logging_level = -1;
@@ -274,8 +288,6 @@ namespace ext::net::http
 		// processing_contexts
 		std::size_t m_minimum_contexts = 10;
 		std::size_t m_maximum_contexts = 128;
-		// set of existing contexts for which sockets are waiting for read/write state
-		boost::container::flat_map<socket_streambuf::handle_type, processing_context *> m_pending_contexts;
 		// set of existing contexts
 		boost::container::flat_set<processing_context *> m_processing_contexts;
 		// free contexts that can be reused
@@ -286,7 +298,7 @@ namespace ext::net::http
 		mutable std::thread m_thread;
 		std::thread::id m_threadid; // id of thread running tasks and socket queue
 
-		// linked list of task
+		// linked list of tasks
 		task_list m_tasks;
 		// delayed tasks are little tricky, for every one - we create a service continuation,
 		// which when fired, adds task to task_list.
@@ -319,15 +331,17 @@ namespace ext::net::http
 
 		// listeners default backlog
 		int m_default_backlog = 10;
-		/// socket HTTP request processing operations(read/write) timeout
+		/// socket processing operations(read/write) timeout
 		duration_type m_socket_timeout = std::chrono::seconds(10);
 		/// how long socket can be kept open awaiting new incoming HTTP requests
-		duration_type m_keep_alive_timeout = m_sock_queue.get_default_timeout();
+		duration_type m_keep_alive_timeout = duration_type::max();
 		/// timeout for socket operations when closing, basicly affects SSL shutdown
 		static constexpr duration_type m_close_socket_timeout = std::chrono::milliseconds(100);
 
+		/// constant helpers
 		static constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
 		static constexpr std::string_view crlf = "\r\n";
+		static const     std::error_code success_errc; // = {} success error constant
 		
 	protected:
 		/// Performs actual startup of http server, blocking
@@ -358,6 +372,10 @@ namespace ext::net::http
 		virtual void run_proc(ext::promise<void> & started_promise);
 		/// Runs socket_queue until it interrupted.
 		virtual void run_sockqueue();
+		/// Process ready socket, called for each socket taken from socket_queue in run_sockqueue method.
+		/// Context is associated with socket, if socket is new - context we be null.
+		/// socket_errc - socket error reported by socket queue, if any
+		virtual void process_socket(ext::net::socket_uhandle usock, processing_context * socket_context, std::error_code socket_errc);
 		/// Reads, parses, process http request and writes http_response back, full cycle for single http request on socket.
 		virtual void run_socket(processing_context * context);
 		
@@ -372,40 +390,43 @@ namespace ext::net::http
 		/// Checks if there is a pending ssl handshake on socket:
 		///   peeks one byte available from socket via MSG_PEEK,
 		///   and checks it start on ssl handshake packet( == 0x16)
-		virtual bool pending_ssl_hanshake(socket_streambuf & sock);
+		virtual bool pending_ssl_hanshake(handle_type sock);
 		
 		/// non blocking recv with MSG_PEEK:
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
-		///  * if some error occurs sets it into sock, logs it and returns handle_finish
+		///  * if some error occurs - logs it and returns handle_finish
 		virtual auto peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
 		/// non blocking recv method:
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
-		///  * if some error occurs sets it into sock, logs it and returns handle_finish
+		///  * if some error occurs - logs it and returns handle_finish
 		virtual auto recv(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
 		/// non blocking send method:
 		///  * if successfully sends something - returns nullptr
 		///  * if send would block - returns wait_connection operation,
-		///  * if some error occurs sets it into sock, logs it and returns handle_finish
+		///  * if some error occurs - logs it and returns handle_finish
 		virtual auto send(processing_context * context, const char * data, int len, int & written) const -> handle_method_type;
-
-		/// returns socket send buffer size getsockopt(..., SOL_SOCKET, SO_SNDBUF, ...), but no more that 10 * 1024
-		virtual std::size_t sendbuf_size(processing_context * context) const;
+		
 		/// non blocking recv method, read data is parsed with http parser,
 		/// result is stored in whatever parser body destination is set
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
-		///  * if some error occurs sets it into sock, logs it and returns handle_finish.
+		///  * if some error occurs - logs it and returns handle_finish.
 		virtual auto recv_and_parse(processing_context * context) const -> handle_method_type;
 		/// same as recv_and_parse, but no more than limit is ever read from socket in total,
 		/// otherwise bad response is created and http_server::handle_response is returned, connection is closed.
 		virtual auto recv_and_parse(processing_context * context, std::size_t limit) const -> handle_method_type;
+		
+		/// returns socket recv buffer size getsockopt(..., SOL_SOCKET, SO_RCVBUF, ...), but no more that 10 * 1024
+		virtual std::size_t recvbuf_size(const handle_type sock) const;
+		/// returns socket send buffer size getsockopt(..., SOL_SOCKET, SO_SNDBUF, ...), but no more that 10 * 1024
+		virtual std::size_t sendbuf_size(const handle_type sock) const;
 
 	protected:
 		// http_request processing parts
 		virtual auto handle_start(processing_context * context) -> handle_method_type;
-		virtual auto handle_close(processing_context * context) -> handle_method_type;
+		virtual auto handle_end_processing(processing_context * context) -> handle_method_type;
 		virtual void handle_finish(processing_context * context);
 		
 		virtual auto handle_ssl_configuration(processing_context * context) -> handle_method_type;
@@ -445,6 +466,7 @@ namespace ext::net::http
 		virtual auto handle_response_filtered_async_body_writting(processing_context * context) -> handle_method_type;
 		
 		virtual auto handle_response_written(processing_context * context) -> handle_method_type;
+		virtual auto handle_cleanup_and_finish(processing_context * context) -> handle_method_type;
 
 	protected: // filtering
 		virtual void prepare_request_http_body_filtering(processing_context * context);
@@ -454,39 +476,40 @@ namespace ext::net::http
 		virtual void filter_response_http_body(processing_context * context);
 		
 	protected:
+		/// Called when processing context is allocated, default implementation just allocates it
+		virtual auto allocate_context() -> processing_context *;
+		/// Called when processing context is deallocated, default implementation just allocates deallocates
+		virtual void destroy_context(processing_context * context) noexcept;
+		
 		/// Acquires processing context, one of cached ones, or creates one if allowed. If exhausted - returns null
 		virtual auto acquire_context() -> processing_context *;
 		/// Release processing context after http request processed, this method should place this context to cache or delete it, if cache is full
 		virtual void release_context(processing_context * context);
+		
 		/// Prepares processing context, called each time new http request should be processed.
 		/// Makes http handlers and filters snapshots if needed.
-		virtual void prepare_context(processing_context * context, const socket_streambuf & sock, bool newconn);
+		virtual void prepare_context(processing_context * context);
 		/// Cleans proccessing context, called each time after http request is processed
 		/// clears some members, resets collections, etc
 		virtual void cleanup_context(processing_context * context);
-		/// Called when processing context is created, default implementation does nothing
-		virtual void construct_context(processing_context * context);
-		/// Called when processing context is deleted, default implementation does nothing
-		virtual void destruct_context(processing_context * context);
-
-		/// Checks if there is pending context for this socket and returns it, otherwise returns new context via acquire_context()
-		/// Can return null if maximum number of contexts are created.
-		virtual auto acquire_context(socket_streambuf & sock) -> processing_context *;
-		/// Checks if there is pending context for this socket and release it, otherwise does nothing
-		virtual void release_context(socket_streambuf & sock);
 		
 		/// Submits socket into internal socket_queue for waiting socket event(readable/writable).
 		/// When socket will become ready, processing will continue from where it stopped.
 		/// Should be called from server background thread
 		virtual void wait_connection(processing_context * context);
-
 		/// Submits connection into socket_queue, also sets m_keep_alive_timeout on socket. Should be called from server background thread
-		virtual void submit_connection(socket_streambuf sock);
+		virtual void submit_connection(processing_context * context);
+		/// Shutdowns socket(::shutdown) depending on processing_context
+		virtual void shutdown_connection(processing_context * context);
+		/// Closes socket connection and release context into processing context pool.
+		/// Socket closing is done via close_connection
+		virtual void release_connection(processing_context * context, const std::error_code & sock_err = success_errc);
 		/// Closes connection, logs, does some internal cleanup. Should be called from server background thread
-		virtual void close_connection(socket_streambuf sock);
+		virtual void close_connection(ext::net::socket_uhandle sock, const std::error_code & sock_err = success_errc);
 
 		/// Writes http response to socket, if errors occurs, logs it and returns false
-		virtual bool write_response(socket_streambuf & sock, const http_response & resp) const;
+		//virtual bool write_response(handle_type sock, const http_response & resp) const;
+		
 		/// Postprocess ready http response, can be used to do some http headers machinery,
 		/// called after all http filter are handled, just before writting response.
 		/// Also called for special answers created via create_*_response.
@@ -502,7 +525,7 @@ namespace ext::net::http
 		virtual auto process_request(processing_context * context) -> process_result;
 		/// Exception wrapper for getting result from ext::future<http_response>, on exception returns create_internal_server_error_response(sock, request, ex).
 		/// Also checks if future is cancelled or abandoned.
-		virtual auto process_ready_response(async_process_result result, socket_streambuf & sock, http_request & request) -> process_result;
+		virtual auto process_ready_response(async_process_result result, const handle_type sock, http_request & request) -> process_result;
 
 		/// Searches listener context by listener handle
 		virtual const listener_context & get_listener_context(socket_handle_type listener_handle) const;
@@ -544,24 +567,24 @@ namespace ext::net::http
 		virtual std::string format_error(std::error_code errc) const;
 
 		/// logs read buffer in hex dump format
-		virtual void log_read_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
+		virtual void log_read_buffer(const handle_type sock_handle, const char * buffer, std::size_t size) const;
 		/// logs write buffer in hex dump format
-		virtual void log_write_buffer(handle_type sock_handle, const char * buffer, std::size_t size) const;
+		virtual void log_write_buffer(const handle_type sock_handle, const char * buffer, std::size_t size) const;
 		/// parses Accept header and returns text/plain and text/html weights
 		static std::pair<double, double> parse_accept(const http_request & request);
 
 		/// Creates HTTP 400 BAD REQUEST answer
-		virtual http_response create_bad_request_response(const socket_streambuf & sock, connection_action_type conn = connection_action_type::close) const;
+		virtual http_response create_bad_request_response(const handle_type sock, connection_action_type conn = connection_action_type::close) const;
 		/// Creates HTTP 503 Service Unavailable answer
-		virtual http_response create_server_busy_response(const socket_streambuf & sock, connection_action_type conn = connection_action_type::close) const;
+		virtual http_response create_server_busy_response(const handle_type sock, connection_action_type conn = connection_action_type::close) const;
 		/// Creates HTTP 404 Not found answer
-		virtual http_response create_unknown_request_response(const socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_unknown_request_response(const handle_type sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer, body = Request processing abandoned
-		virtual http_response create_processing_abondoned_response(const socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_processing_abondoned_response(const handle_type sock, const http_request & request) const;
 		/// Creates HTTP 404 Canceled, body = Request processing cancelled
-		virtual http_response create_processing_cancelled_response(const socket_streambuf & sock, const http_request & request) const;
+		virtual http_response create_processing_cancelled_response(const handle_type sock, const http_request & request) const;
 		/// Creates HTTP 500 Internal Server Error answer
-		virtual http_response create_internal_server_error_response(const socket_streambuf & sock, const http_request & request, std::exception * ex) const;
+		virtual http_response create_internal_server_error_response(const handle_type sock, const http_request & request, std::exception * ex) const;
 		/// Creates HTTP 417 Expectation Failed answer
 		virtual http_response create_expectation_failed_response(const processing_context * context) const;
 		/// Creates HTTP 100 Continue response
@@ -608,14 +631,14 @@ namespace ext::net::http
 		auto get_keep_alive_timeout() const -> duration_type;
 
 	public: // limits
-		void set_maximum_http_headers_size(std::size_t size);
-		auto get_maximum_http_headers_size() -> std::size_t;
+		void set_maximum_http_headers_size(unsigned size);
+		auto get_maximum_http_headers_size() -> unsigned;
 		
-		void set_maximum_http_body_size(std::size_t size);
-		auto get_maximum_http_body_size() -> std::size_t;
+		void set_maximum_http_body_size(unsigned size);
+		auto get_maximum_http_body_size() -> unsigned;
 		
-		void set_maximum_discarded_http_body_size(std::size_t size);
-		auto get_maximum_discarded_http_body_size() -> std::size_t;
+		void set_maximum_discarded_http_body_size(unsigned size);
+		auto get_maximum_discarded_http_body_size() -> unsigned;
 		
 	public:
 		void set_logger(ext::log::logger * logger) { m_logger = logger; m_sock_queue.set_logger(logger); }

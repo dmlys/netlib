@@ -19,7 +19,7 @@
 #include <ext/future.hpp>
 #include <ext/iostreams/streambuf.hpp>
 #include <ext/stream_filtering/filter_types.hpp>
-#include <ext/net/socket_streambuf.hpp>
+#include <ext/net/socket_base.hpp>
 
 namespace ext::net::http
 {
@@ -246,8 +246,9 @@ namespace ext::net::http
 		virtual bool is_response_final() const noexcept = 0;
 		
 	public:
-		/// direct access to socket, intended to give access to some socket properties like: socket_addr, peer_addr 
-		virtual auto socket() const -> const ext::net::socket_streambuf & = 0;
+		/// Direct access to socket, intended to give access to some socket properties like: socket_addr, peer_addr,
+		/// lifetime of socket is controlled by http_server. 
+		virtual auto socket() const -> socket_handle_type = 0;
 		/// returns current pending request, can be empty object after invoking handler(handler can take it)
 		virtual auto request() -> http_request & = 0;
 		/// return current pending response, valid only after handler invocation, otherwise exception is thrown

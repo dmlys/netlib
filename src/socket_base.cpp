@@ -41,6 +41,12 @@ namespace ext::net
 	const int msg_nosignal = 0;
 #endif
 	
+#ifdef MSG_DONTWAIT
+	const int msg_dontwait = MSG_DONTWAIT;
+#else
+	const int msg_dontwait = 0;
+#endif
+	
 #if BOOST_OS_WINDOWS
 	const int shut_rd   = SD_RECEIVE;
 	const int shut_wr   = SD_SEND;
