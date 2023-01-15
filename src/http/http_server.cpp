@@ -116,6 +116,25 @@ namespace ext::net::http
 		m_method = nullptr;
 	}
 
+	void http_server::destruct()
+	{
+		if (m_destructed)
+			return;
+		
+		std::unique_lock lk(m_mutex);
+		if (m_started)
+			do_stop(lk);
+		else
+		{
+			// if was not started - do not log in reset method on destruction,
+			// we already stopped earlier(or did not run at all)
+			m_logger = nullptr;
+			do_reset(lk);
+		}
+		
+		m_destructed = true;
+	}
+	
 	void http_server::do_reset(std::unique_lock<std::mutex> & lk)
 	{
 		assert(lk.owns_lock());
@@ -3912,19 +3931,6 @@ namespace ext::net::http
 		}).get();
 	}
 	
-	
-
 	http_server::http_server() = default;
-	http_server::~http_server()
-	{
-		std::unique_lock lk(m_mutex);
-		if (m_started)
-			do_stop(lk);
-		else {
-			// if was not started - do not log in reset method on destruction,
-			// we already stopped earlier(or did not run at all)
-			m_logger = nullptr;
-			do_reset(lk);
-		}
-	};
+	http_server::~http_server() { destruct(); };
 }

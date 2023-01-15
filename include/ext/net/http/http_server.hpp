@@ -328,6 +328,7 @@ namespace ext::net::http
 		bool m_started = false;     // http_server is started either by start or join
 		bool m_joined  = false;     // used only by join/interrupt pair methods
 		bool m_interrupted = false; // used only by join/interrupt pair methods
+		bool m_destructed = false;  // this object destruction was already performed, see destruct method
 
 		// listeners default backlog
 		int m_default_backlog = 10;
@@ -342,6 +343,18 @@ namespace ext::net::http
 		static constexpr auto chunkprefix_size = sizeof(int) * CHAR_BIT / 4 + (CHAR_BIT % 4 ? 1 : 0); // in hex
 		static constexpr std::string_view crlf = "\r\n";
 		static const     std::error_code success_errc; // = {} success error constant
+		
+	protected:
+		/// Destroys this object, basicly a destructor implementation.
+		/// Current implementation of destructor calls do_reset, do_stop methods and those call other virtual methods.
+		/// Thats actually is a problem, cause in c++ in constructor and destructor, virtual methods dispatch is suppressed.
+		/// 
+		/// The thing is I want those methods to be virtual, and they should be called from destructor. But language wise nothing can be done.
+		/// Instead special boolean member flag is introduced - destroyed, if it's false - destructor should proceed, otherwise - object already destroyed.
+		/// This method is default destructor implementation + checking m_destroyed member.
+		/// 
+		/// Now derived class can override some method, call destruct from derived class destructor. And this class destructor will do nothing instead
+		virtual void destruct();
 		
 	protected:
 		/// Performs actual startup of http server, blocking
