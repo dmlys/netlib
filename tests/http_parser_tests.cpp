@@ -1,5 +1,6 @@
 #include <ext/net/http/http_parser.hpp>
 #include <ext/net/http/parse_header.hpp>
+#include <ext/net/http/crackers.hpp>
 #include <boost/test/unit_test.hpp>
 #include "test_files.h"
 
@@ -103,6 +104,28 @@ BOOST_AUTO_TEST_CASE(set_header_value_test)
 	header = "br;q=1, gzip";
 	set_header_value_list_item(header, "gzip", "q=1.1");
 	BOOST_CHECK_EQUAL(header, "br;q=1, gzip;q=1.1");
+}
+
+BOOST_AUTO_TEST_CASE(crackers_test)
+{
+	using namespace ext::net::http;
+	
+	std::string text = "user=joe&action=send+on+vacation";
+	
+	std::string user, action;
+	std::tie(user, action) = crack_wwwformurl_query(text, "user", "action");
+	
+	BOOST_CHECK_EQUAL(user, "joe");
+	BOOST_CHECK_EQUAL(action, "send on vacation");
+	
+	
+	text = "data=send%20to%20moon&speed=100km";
+	
+	std::string data, speed;
+	std::tie(data, speed) = crack_url_query(text, "data", "speed");
+	
+	BOOST_CHECK_EQUAL(data, "send to moon");
+	BOOST_CHECK_EQUAL(speed, "100km");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

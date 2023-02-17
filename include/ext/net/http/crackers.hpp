@@ -6,38 +6,20 @@
 #include <algorithm>
 
 #include <ext/utility.hpp>
-#include <ext/net/http/parse_header.hpp>
-#include <ext/net/mime/url_encoding.hpp>
-#include <ext/net/mime/wwwformurl-encoding.hpp>
 
 
 namespace ext::net::http
 {
-	template <std::size_t N>
-	auto crack_wwwformurl_query_impl(std::string_view text, const std::array<std::string_view, N> & names)
-	{
-		using result_type = ext::make_nth_tuple_t<std::string, N>;
-		result_type result;
-
-		auto names_first = names.begin();
-		auto names_last  = names.end();
-
-		std::string decoded_name;
-		std::string_view name, value;
-		while (parse_query(text, name, value))
-		{
-			decoded_name.clear();
-			ext::net::decode_wwwformurl(name, decoded_name);
-
-			auto it = std::find(names_first, names_last, decoded_name);
-			if (it == names_last) continue;
-
-			std::size_t index = it - names_first;
-			ext::visit(result, index, [value](auto & dest) { ext::net::decode_wwwformurl(value, dest); });
-		}
-
-		return result;
-	}
+	void crack_wwwformurl_query_impl(std::string_view text, const std::string_view * names, std::string * values, std::size_t N);
+	void crack_url_query_impl(std::string_view text, const std::string_view * names, std::string * values, std::size_t N);
+	
+	//template <std::size_t N>
+	//inline auto crack_wwwformurl_query(std::string_view text, const std::array<std::string_view, N> & names) -> std::array<std::string, N>
+	//{
+	//	std::array<std::string, N> values;
+	//	crack_wwwformurl_query_impl(text, names.data(), values.data(), N);
+	//	return values;
+	//}
 
 	/// Cracks application/x-www-form-urlencoded POST data, extracts values for given names and decodes them.
 	/// Usage example:
@@ -51,34 +33,19 @@ namespace ext::net::http
 	{
 		constexpr auto N = sizeof...(args);
 		std::array<std::string_view, N> names = { args... };
-		return crack_wwwformurl_query_impl(text, names);
+		std::array<std::string, N> values;
+		crack_wwwformurl_query_impl(text, names.data(), values.data(), N);
+		
+		return ext::as_tuple(std::move(values));
 	}
 
-	template <std::size_t N>
-	auto crack_url_query_impl(std::string_view text, const std::array<std::string_view, N> & names)
-	{
-		using result_type = ext::make_nth_tuple_t<std::string, N>;
-		result_type result;
-
-		auto names_first = names.begin();
-		auto names_last  = names.end();
-
-		std::string decoded_name;
-		std::string_view name, value;
-		while (parse_query(text, name, value))
-		{
-			decoded_name.clear();
-			ext::net::decode_wwwformurl(name, decoded_name);
-
-			auto it = std::find(names_first, names_last, decoded_name);
-			if (it == names_last) continue;
-
-			std::size_t index = it - names_first;
-			ext::visit(result, index, [value](auto & dest) { ext::net::decode_url(value, dest); });
-		}
-
-		return result;
-	}
+	//template <std::size_t N>
+	//inline auto crack_url_query(std::string_view text, const std::array<std::string_view, N> & names) -> std::array<std::string, N>
+	//{
+	//	std::array<std::string, N> values;
+	//	crack_url_query_impl(text, names.data(), values.data(), N);
+	//	return values;
+	//}
 
 	/// Cracks url query string, extracts values for given names and decodes them.
 	/// Usage example:
@@ -92,6 +59,9 @@ namespace ext::net::http
 	{
 		constexpr auto N = sizeof...(args);
 		std::array<std::string_view, N> names = { args... };
-		return crack_url_query_impl(text, names);
+		std::array<std::string, N> values;
+		crack_url_query_impl(text, names.data(), values.data(), N);
+		
+		return ext::as_tuple(std::move(values));
 	}
 }
