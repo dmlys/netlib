@@ -219,7 +219,7 @@ namespace ext::net::http
 	template <class Type> http_response httpresp_wmime(std::string_view content_type, Type && http_body);
 	
 	/************************************************************************/
-	/*                   http_server_filter_control                         */
+	/*                   http_server_control                                */
 	/************************************************************************/
 	
 	/// Interface implemented by http_server, intended to communicate by handlers, filters with http_server.
@@ -253,7 +253,7 @@ namespace ext::net::http
 		virtual auto request() -> http_request & = 0;
 		/// return current pending response, valid only after handler invocation, otherwise exception is thrown
 		virtual auto response() -> http_response & = 0;
-		/// Sets response, this is for handlers taking http_server_filter_control directly, other handlers just return response.
+		/// Sets response, this is for handlers taking http_server_control directly, other handlers just return response.
 		/// Filters and others should use override_response.
 		virtual void set_response(http_response && resp) = 0;
 		/// Overrides response, even if it was already set previously.

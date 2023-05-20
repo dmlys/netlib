@@ -227,7 +227,7 @@ namespace ext::net::http
 			bool final_response_written;   // wrote final(possibly second) response
 			bool shutdown_socket;          // socket should be shutdowned before closing(this is regular flow, counter to network exceptional/error flow)
 			
-			bool response_is_final;        // response was marked as final, see http_server_filter_control
+			bool response_is_final;        // response was marked as final, see http_server_control
 			bool response_is_null;         // response was set to null, no response should be sent, connection should be closed
 			
 			std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization

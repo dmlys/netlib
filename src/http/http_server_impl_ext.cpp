@@ -660,7 +660,7 @@ namespace ext::net::http
 	}
 	
 	/************************************************************************/
-	/*               http_server::http_server_filter_control impl           */
+	/*               http_server::http_server_control impl                  */
 	/************************************************************************/
 	auto http_server::http_server_control::acquire_filtering_context() -> filtering_context &
 	{
@@ -745,13 +745,13 @@ namespace ext::net::http
 		auto * response_ptr = std::get_if<http_response>(&m_context->response);
 		if (response_ptr) return *response_ptr;
 		
-		throw std::runtime_error("http_server::http_server_filter_control: http response not available");
+		throw std::runtime_error("http_server::http_server_control: http response not available");
 	}
 	
 	void http_server::http_server_control::set_response(http_response && resp)
 	{
 		if (not std::holds_alternative<null_response_type>(m_context->response))
-			throw std::runtime_error("http_server::http_server_filter_control: http response is already set");
+			throw std::runtime_error("http_server::http_server_control: http response is already set");
 		
 		m_context->response = std::move(resp);
 	}
