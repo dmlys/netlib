@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <climits> // for CHAR_BIT
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
