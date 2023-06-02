@@ -1350,7 +1350,7 @@ namespace ext::net
 	bsdsock_streambuf::~bsdsock_streambuf() noexcept
 	{
 		::SSL_free(m_sslhandle);
-		auto res = ::close(m_sockhandle);
+		int res = ext::net::close(m_sockhandle);
 		assert(res >= 0);
 	}
 
@@ -1378,7 +1378,7 @@ namespace ext::net
 
 	bsdsock_streambuf::bsdsock_streambuf(bsdsock_streambuf && right) noexcept
 		: base_type(std::move(right)),
-		  m_sockhandle(std::exchange(right.m_sockhandle, -1)),
+		  m_sockhandle(std::exchange(right.m_sockhandle, invalid_socket)),
 		  m_state(right.m_state.exchange(Closed, std::memory_order_relaxed)),
 		  m_timeout(right.m_timeout),
 		  m_throw_errors(right.m_throw_errors),
@@ -1401,7 +1401,7 @@ namespace ext::net
 			close();
 
 			base_type::operator =(std::move(right));
-			m_sockhandle = std::exchange(right.m_sockhandle, -1);
+			m_sockhandle = std::exchange(right.m_sockhandle, invalid_socket);
 			m_state.store(right.m_state.exchange(Closed, std::memory_order_relaxed), std::memory_order_relaxed);
 			m_timeout = right.m_timeout;
 			m_throw_errors = right.m_throw_errors;
