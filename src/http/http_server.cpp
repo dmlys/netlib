@@ -1396,8 +1396,6 @@ namespace ext::net::http
 				switch (context->async_state)
 				{
 					case 0: // prepare parsing, do some prechecks
-						parser.set_body_destination(input);
-						
 						prepare_request_http_body_filtering(context);
 						source_dctx = &context->filter_ctx->request_streaming_ctx.data_contexts.front();
 						dest_dctx   = &context->filter_ctx->request_streaming_ctx.data_contexts.back();
