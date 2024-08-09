@@ -1407,7 +1407,9 @@ namespace ext::net
 
 	winsock2_streambuf::~winsock2_streambuf() noexcept
 	{
+#ifdef EXT_ENABLE_OPENSSL
 		::SSL_free(m_sslhandle);
+#endif
 		int res = ext::net::close(m_sockhandle);
 		assert(res >= 0);
 	}
