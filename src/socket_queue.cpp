@@ -620,6 +620,7 @@ namespace ext::net
 		
 		m_listeners.clear();
 		m_socks.clear();
+		m_search_cur = m_insert_last = m_socks.begin();
 	}
 	
 	void socket_queue::add_listener(handle_type handle, user_data_type user_data)
@@ -692,6 +693,7 @@ namespace ext::net
 			result.push_back(std::move(item.sock));
 		
 		m_socks.clear();
+		m_search_cur = m_insert_last = m_socks.begin();
 		return result;
 	}
 
