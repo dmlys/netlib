@@ -135,7 +135,7 @@ namespace ext::net
 
 		listener(ext::net::handle_arg_type, socket_handle_type handle) : m_listening_socket(handle) {}
 		listener(unsigned short port, int af = af_unspec) { bind(port, af); }
-		listener(std::string ipaddr, unsigned short port, int af = af_unspec) { bind(std::move(ipaddr), port, af); }
+		listener(const std::string & ipaddr, unsigned short port, int af = af_unspec) { bind(ipaddr, port, af); }
 
 		listener(listener && l) noexcept;
 		listener & operator =(listener &&) noexcept;
