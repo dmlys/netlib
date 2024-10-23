@@ -237,7 +237,7 @@ BOOST_DATA_TEST_CASE(base64_filter_async_response_test, make(configurations), co
 	server.start();
 	server.add_filter(ext::make_intrusive<dumb_base64_filter>());
 	
-	server.add_handler("/test", request_queue.handler(), http_body_type::async);
+	server.add_handler("/test", request_queue.handler(), http_body_type::null);
 	
 	auto sock = connect_socket(addr);
 	write_get_request(sock, addr, "/test");
@@ -373,7 +373,7 @@ BOOST_DATA_TEST_CASE(complex_filter_async_response_test, make(configurations), c
 	server.add_filter(ext::make_intrusive<ext::net::http::zlib_filter>());
 	server.add_filter(ext::make_intrusive<dumb_base64_filter>());
 	
-	server.add_handler("/test", request_queue.handler(), http_body_type::async);
+	server.add_handler("/test", request_queue.handler(), http_body_type::null);
 	
 	auto sock = connect_socket(addr);
 	http_request httpreq = make_request("GET", "/test", {});

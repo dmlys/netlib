@@ -63,7 +63,7 @@ BOOST_DATA_TEST_CASE(async_test, make(configurations), configurator)
 	
 	server.start();
 	async_request_queue request_queue;
-	server.add_handler("/", request_queue.handler());
+	server.add_handler("/", request_queue.handler(), http_body_type::null);
 	
 	auto sock = connect_socket(addr);
 	write_get_request(sock, addr, "/");

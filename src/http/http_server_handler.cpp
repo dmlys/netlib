@@ -9,10 +9,15 @@ namespace ext::net::http
 	{
 		ext::ctpred::equal_to<ext::aci_char_traits> eq;
 		if (m_allowed_methods.empty())
-			return eq(method, "GET") or eq(method, "PUT") or eq(method, "POST");
+		{
+			if (m_wanted_body_type == http_body_type::null)
+				return eq(method, "GET");
+			else
+				return eq(method, "PUT") or eq(method, "POST");
+		}
 
-		for (const auto & allowd_method : m_allowed_methods)
-			if (eq(method, allowd_method)) return true;
+		for (const auto & allowed_method : m_allowed_methods)
+			if (eq(method, allowed_method)) return true;
 
 		return false;
 	}
@@ -27,9 +32,11 @@ namespace ext::net::http
 		auto first = req.url.begin() + m_url.size();
 		auto last  = req.url.end();
 
+		// trailing '/' allowed
 		while (first != last and *first == '/')
 			++first;
 
+		// there should not be and trailing path segments, but allow fragments and parameters
 		return first == last or *first == '?' or *first == '#';
 	}
 
