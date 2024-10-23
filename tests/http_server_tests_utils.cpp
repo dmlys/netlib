@@ -47,7 +47,8 @@ namespace ext::net::http::test_utils
 	
 	auto make_listener() -> ext::net::listener
 	{
-#if BOOST_OS_LINUX
+		// prefer INADDR_LOOPBACK over IPADDR_ANY
+#if 0 //BOOST_OS_LINUX
 		// According to man 7 ip:
 		// When listen(2) is called on an unbound socket,
 		// the socket is automatically bound to a random free port with the local address set to INADDR_ANY.
@@ -72,7 +73,7 @@ namespace ext::net::http::test_utils
 	
 	auto configure(http_server & server) -> std::tuple<std::string, unsigned short>
 	{
-		if (LogLevel != -1)
+		if (LogLevel < ext::log::Disabled)
 		{
 			static ext::log::ostream_logger logger(std::cout, LogLevel);
 			server.set_logger(&logger);

@@ -1560,6 +1560,8 @@ namespace ext::net
 		hints.ai_socktype = sock_type;
 		hints.ai_protocol = sock_proto;
 		
+		// If node is NULL and AI_PASSIVE is not set in hints - then the network address will be set to the loopback interface address
+		// (INADDR_LOOPBACK for IPv4 addresses, IN6ADDR_LOOPBACK_INIT for IPv6 address)
 		return getaddrinfo(nullptr, "0", &hints, err);
 	}
 
