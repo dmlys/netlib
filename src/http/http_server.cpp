@@ -141,9 +141,6 @@ namespace ext::net::http
 		assert(m_running == false);
 		LOG_DEBUG("stopping and cleaning server state");
 		
-		// Stop accepting any incoming connections
-		//for (auto listener : m_sock_queue.get_listeners())
-		//	ext::net::shutdown(listener, shut_rd);
 		
 		assert(m_delayed_count == 0);
 		for (auto it = m_delayed.begin(); it != m_delayed.end();)
@@ -228,10 +225,6 @@ namespace ext::net::http
 		});
 
 		
-		// close any socks and listeners
-		for (auto sock : m_sock_queue.take_sockets())
-			ext::net::close(sock);
-		
 		m_sock_queue.clear();
 		m_listener_contexts.clear();
 		assert(m_sock_queue.empty());
@@ -247,8 +240,7 @@ namespace ext::net::http
 		m_processing_contexts.clear();
 		m_free_contexts.clear();
 
-		// remove any handlers and listener contexts
-		m_listener_contexts.clear();
+		// remove any handlers
 		do_clear_config(lk);
 	}
 
@@ -1765,7 +1757,6 @@ namespace ext::net::http
 	{
 		try
 		{
-			http_server_control filter_control(context);
 			for (const auto * filter : context->config->prefilters)
 			{
 				if (context->response_is_null)
@@ -1779,7 +1770,7 @@ namespace ext::net::http
 				if (context->response_is_final)
 					return &http_server::handle_request_header_processing;
 				
-				filter->prefilter(filter_control);
+				filter->prefilter(context->control);
 			}
 			
 			// if already have response - use it
@@ -1894,8 +1885,7 @@ namespace ext::net::http
 			context->parser.set_body_destination(context->request_raw_buffer);
 		}
 		
-		http_server_control control(context);
-		auto want_type = context->handler->wanted_body_type(control);
+		auto want_type = context->handler->wanted_body_type(context->control);
 		switch (want_type)
 		{
 			case http_body_type::string:
@@ -2012,7 +2002,6 @@ namespace ext::net::http
 		{
 			// at this moment, context->response should only contain http_response
 			assert(std::holds_alternative<http_response>(context->response));
-			http_server_control filter_control(context);
 			for (const auto * filter : context->config->postfilters)
 			{
 				if (context->response_is_null)
@@ -2025,7 +2014,7 @@ namespace ext::net::http
 				if (context->response_is_final)
 					break;
 				
-				filter->postfilter(filter_control);
+				filter->postfilter(context->control);
 			}
 
 			return &http_server::handle_response;
@@ -3218,8 +3207,6 @@ namespace ext::net::http
 
 		if (m_config_context->dirty)
 		{
-			m_config_context->dirty = false;
-			
 			auto handler_sorter = [](const http_server_handler * ptr1, const http_server_handler * ptr2) noexcept { return ptr1->order() < ptr2->order(); };
 			auto presorter = [](const http_prefilter * ptr1, const http_prefilter * ptr2) noexcept { return ptr1->preorder() < ptr2->preorder(); };
 			auto postsorter = [](const http_postfilter * ptr1, const http_postfilter * ptr2) noexcept { return ptr1->postorder() < ptr2->postorder(); };
@@ -3227,6 +3214,8 @@ namespace ext::net::http
 			std::stable_sort(m_config_context->handlers.begin(), m_config_context->handlers.end(), handler_sorter);
 			std::stable_sort(m_config_context->prefilters.begin(), m_config_context->prefilters.end(), presorter);
 			std::stable_sort(m_config_context->postfilters.begin(), m_config_context->postfilters.end(), postsorter);
+			
+			m_config_context->dirty = false;
 		}
 		
 		context->config = m_config_context;
@@ -3403,8 +3392,7 @@ namespace ext::net::http
 		
 		try
 		{
-			http_server_control control(context);
-			return handler->process(control);
+			return handler->process(context->control);
 		}
 		catch (std::exception & ex)
 		{
@@ -3459,9 +3447,8 @@ namespace ext::net::http
 
 	auto http_server::find_handler(processing_context & context) const -> const http_server_handler *
 	{
-		http_server_control control(&context);
 		for (auto & handler : context.config->handlers)
-			if (handler->accept(control))
+			if (handler->accept(context.control))
 				return handler;
 
 		return nullptr;
@@ -3929,6 +3916,7 @@ namespace ext::net::http
 		}).get();
 	}
 	
-	http_server::http_server() = default;
+	http_server::http_server()
+	    : m_config_context(std::make_shared<config_context>()) {};
 	http_server::~http_server() { destruct(); };
 }

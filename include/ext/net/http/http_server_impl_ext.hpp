@@ -7,6 +7,164 @@
 namespace ext::net::http
 {
 	/************************************************************************/
+	/*                    http_server_control stuff                         */
+	/************************************************************************/
+	class http_server::http_server_control : public ext::net::http::http_server_control
+	{
+		processing_context * m_context;
+		
+	private:
+		filtering_context & acquire_filtering_context();
+		property_map & acquire_property_map();
+		
+	public:
+		virtual void request_filter_append(std::unique_ptr<filter> filter) override;
+		virtual void request_filter_prepend(std::unique_ptr<filter> filter) override;
+		virtual void request_filters_clear() override;
+		
+		virtual void response_filter_append(std::unique_ptr<filter> filter) override;
+		virtual void response_filter_prepend(std::unique_ptr<filter> filter) override;
+		virtual void response_filters_clear() override;
+
+	public:
+		virtual void set_response_final()      noexcept override;
+		virtual bool is_response_final() const noexcept override;
+		
+	public:
+		virtual auto socket() const -> socket_handle_type override;
+		virtual auto request() -> http_request & override;
+		virtual auto response() -> http_response & override;
+		
+		virtual void set_response(http_response && resp) override;
+		virtual void override_response(http_response && resp, bool final = true) override;
+		virtual void override_response(null_response_type) override;
+		
+	public:
+		virtual auto get_property(std::string_view name) const -> std::optional<property> override;
+		virtual void set_property(std::string_view name, property prop) override;
+		
+	public:
+		http_server_control(processing_context * context) noexcept
+		    : m_context(context) {}
+		
+		http_server_control(http_server_control && ) = delete;
+		http_server_control & operator =(http_server_control && ) = delete;
+	};
+	
+	
+	/************************************************************************/
+	/*                  http_server contexts definitions                    */
+	/************************************************************************/
+	
+	/// Groups some context parameters for processing http request.
+	/// Note that this context is bound to a socket whole lifetime,
+	/// because of SSL session object and read buffer.
+	/// 1st one holds current SSL session and can't be rebound to other socket
+	/// 2nd can hold data from next HTTP request read on last recv operation(like http pipelining extension)
+	struct http_server::processing_context
+	{
+		// not even movable, currently we do not move/copy functionality,
+		// even more because of some members - move operation requires additional code, if even possible
+		processing_context(processing_context && ) = delete;
+		processing_context & operator =(processing_context && ) = delete;
+		
+		processing_context() = default;
+		
+		
+		/// http_server control object associated with this context/request
+		http_server::http_server_control control{this};
+		
+		ext::net::socket_uhandle sock; // socket where http request came from
+		ssl_iptr ssl_ptr = nullptr;    // ssl session, created from listener ssl context
+		
+		// socket waiting
+		socket_queue::wait_type wait_type;
+		// next method after socket waiting is complete
+		regular_handle_methed next_method;
+		// current method that is executed
+		regular_handle_methed cur_method;
+		
+		// function state used by some handle_methods, value for switch
+		unsigned async_state = 0;
+		// should this connection be closed after request processed, determined by Connection header,
+		// but if there were errors while processing request - connection will be closed.
+		connection_action_type conn_action = connection_action_type::close;
+		
+		// byte counters, used in various scenarios
+		std::size_t read_count;    // number of total bytes read from socket, used to track maximum_http_body_size and others limits
+		std::size_t written_count; // number of bytes written to socket from buffer
+		// counters for input_buffer, how much was read from socket, how much was already parsed/consumed
+		unsigned input_first, input_last;
+		
+		http_server_utils::nonblocking_http_parser parser; // http parser with state
+		http_server_utils::nonblocking_http_writer writer; // http writer with state
+		
+		// buffer holding data read from socket, request will be parsed from here
+		std::vector<char> input_buffer;
+		// buffers for filtered and non filtered parsing and writting
+		std::vector<char> request_raw_buffer, request_filtered_buffer;
+		std::vector<char> response_raw_buffer, response_filtered_buffer;
+		std::string chunk_prefix; // buffer for preparing and holding chunk prefix(chunked transfer encoding)
+		
+		// contexts for filtering request/reply http_body;
+		std::unique_ptr<filtering_context> filter_ctx;
+		std::unique_ptr<property_map> prop_map;
+		
+		http_request request;                    // current http request,  valid after is was parsed
+		process_result response = null_response; // current http response, valid after handler was called
+		
+		std::shared_ptr<const config_context> config; // http server config snapshot
+		const http_server_handler * handler;          // found handler for request
+		
+		bool expect_tls;               // this connection expects tls session(socket came from listener configured with SSL)
+		bool expect_extension;         // request with Expect: 100-continue header, see RFC7231 section 5.1.1.
+		bool continue_answer;          // context holds answer 100 Continue
+		bool first_response_written;   // wrote first 100-continue
+		bool final_response_written;   // wrote final(possibly second) response
+		bool shutdown_socket;          // socket should be shutdowned before closing(this is regular flow, counter to network exceptional/error flow)
+		
+		bool response_is_final;        // response was marked as final, see http_server_control
+		bool response_is_null;         // response was set to null, no response should be sent, connection should be closed
+		
+		std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
+		std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization
+		
+		// async_http_body_source/http_body_streambuf closing closer
+		// allowed values:
+		//   0x00 - no body closer
+		//   0x01 - http_server is closing, already set body closer is taken, new should not be installed
+		//   other - some body closer
+		std::atomic_uintptr_t body_closer = 0;
+	};
+	
+	/// holds some configuration parameters sharable by processing contexts
+	struct http_server::config_context
+	{
+		/// Http filters, handlers can added when http server already started. What if we already processing some request and handler is added?
+		/// When processing starts context holds snapshot of currently registered handlers and filters - only they are used; it also handles multithreaded issues.
+		/// Whenever filters, handlers or anything config related changes -> new context as copy of current is created with dirty set to true.
+		/// Sort of copy on write
+		unsigned dirty = true;
+		
+		std::vector<const http_server_handler *> handlers;       // http handlers registered in server
+		std::vector<const http_prefilter *>      prefilters;     // http prefilters  registered in server, sorted by order
+		std::vector<const http_postfilter *>     postfilters;    // http postfilters registered in server, sorted by order
+		
+		/// Maximum total(per request) bytes read from socket while parsing HTTP request headers, -1 - unlimited.
+		/// If request headers are not parsed yet, and server read from socket more than maximum_http_headers_size, BAD request is returned
+		unsigned maximum_http_headers_size = -1;
+		/// Maximum bytes(per request) read from socket while parsing HTTP body, -1 - unlimited.
+		/// This affects only simple std::vector<char>/std::string bodies, and never affects stream/async bodies.
+		/// If server read from socket more than maximum_http_body_size, BAD request is returned
+		unsigned maximum_http_body_size = -1;
+		/// Maximum bytes read from socket while parsing discarded HTTP request, -1 - unlimited.
+		/// If there is no handler for this request, or some other error code is answered(e.g. unauthorized),
+		/// this request is considered to be discarded - in this case we still might read it's body,
+		/// but no more than maximum_discarded_http_body_size, otherwise connection is forcibly closed.
+		unsigned maximum_discarded_http_body_size = -1;
+	};
+	
+	/************************************************************************/
 	/*                        tasks stuff                                   */
 	/************************************************************************/
 	class http_server::task_base : public hook_type
@@ -412,48 +570,4 @@ namespace ext::net::http
 		async_http_body_source_impl(const async_http_body_source_impl &) = delete;
 		async_http_body_source_impl & operator =(const async_http_body_source_impl &) = delete;
 	};
-
-
-	/************************************************************************/
-	/*                    http_server_control stuff                         */
-	/************************************************************************/
-	class http_server::http_server_control : public ext::net::http::http_server_control
-	{
-		processing_context * m_context;
-		
-	private:
-		filtering_context & acquire_filtering_context();
-		property_map & acquire_property_map();
-		
-	public:
-		virtual void request_filter_append(std::unique_ptr<filter> filter) override;
-		virtual void request_filter_prepend(std::unique_ptr<filter> filter) override;
-		virtual void request_filters_clear() override;
-		
-		virtual void response_filter_append(std::unique_ptr<filter> filter) override;
-		virtual void response_filter_prepend(std::unique_ptr<filter> filter) override;
-		virtual void response_filters_clear() override;
-
-	public:
-		virtual void set_response_final()      noexcept override;
-		virtual bool is_response_final() const noexcept override;
-		
-	public:
-		virtual auto socket() const -> socket_handle_type override;
-		virtual auto request() -> http_request & override;
-		virtual auto response() -> http_response & override;
-		
-		virtual void set_response(http_response && resp) override;
-		virtual void override_response(http_response && resp, bool final = true) override;
-		virtual void override_response(null_response_type) override;
-		
-	public:
-		virtual auto get_property(std::string_view name) const -> std::optional<property> override;
-		virtual void set_property(std::string_view name, property prop) override;
-		
-	public:
-		http_server_control(processing_context * context)
-		    : m_context(context) {}
-	};
-	
 }

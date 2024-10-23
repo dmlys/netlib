@@ -263,13 +263,18 @@ namespace ext::net::http
 
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
-	
+
 	/************************************************************************/
 	/*                   http_server_control                                */
 	/************************************************************************/
-	
+
 	/// Interface implemented by http_server, intended to communicate by handlers, filters with http_server.
 	/// Provides access to request, response, allows adding filters, etc.
+	/// 
+	/// NOTE: http_server_control lite-time is bound to http_server instance.
+	///   Accessing http_server_control after or during http_server stopping/destruction is undefined, and will do nothing good.
+	///   Socket, request, response and other data returned by http_server_control have same implications.
+	///   You better copy http_request if want to do some async processing(see functions copy_mv, copy_cp and related).
 	class http_server_control
 	{
 	public:
@@ -277,10 +282,12 @@ namespace ext::net::http
 		using property = std::variant<bool, long, std::string, std::any>;
 		
 	public:
+		/// Those methods are intended for http_prefilter
 		virtual void request_filter_append(std::unique_ptr<filter> filter) = 0;
 		virtual void request_filter_prepend(std::unique_ptr<filter> filter) = 0;
 		virtual void request_filters_clear() = 0;
 		
+		/// Those methods are intended for http_postfilter
 		virtual void response_filter_append(std::unique_ptr<filter> filter) = 0;
 		virtual void response_filter_prepend(std::unique_ptr<filter> filter) = 0;
 		virtual void response_filters_clear() = 0;
@@ -293,7 +300,7 @@ namespace ext::net::http
 		
 	public:
 		/// Direct access to socket, intended to give access to some socket properties like: socket_addr, peer_addr,
-		/// lifetime of socket is controlled by http_server. 
+		/// lifetime of socket is controlled by http_server.
 		virtual auto socket() const -> socket_handle_type = 0;
 		/// returns current pending request, can be empty object after invoking handler(handler can take it)
 		virtual auto request() -> http_request & = 0;
