@@ -1524,7 +1524,7 @@ namespace ext::net::http
 			
 		finished:
 			output.resize(dest_dctx->written);
-			copy(output, context->request.body);
+			copy_into(output, context->request.body);
 			
 			context->async_state = 0, context->read_count = 0;
 			return &http_server::handle_parsed_request;

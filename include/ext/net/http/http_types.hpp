@@ -9,7 +9,6 @@
 #include <vector>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 #include <boost/mp11.hpp>
 #include <boost/range.hpp>
@@ -197,15 +196,65 @@ namespace ext::net::http
 
 		connection_action_type conn_action = connection_action_type::def;
 	};
-
-	std::optional<std::size_t> size(const http_body & body) noexcept;
-	template <class Container> void copy(const http_body & body, Container & cont);
-	template <class Container> void copy(const Container & cont, http_body & body);
-
-	void clear(http_body     & body)    noexcept;
-	void clear(http_request  & request) noexcept;
-	void clear(http_response & request) noexcept;
 	
+	/// respwmime - response with mime: helper function for creating http response with mime type
+	template <class Type> http_response httpresp_wmime(std::string_view content_type, Type && http_body);
+	
+
+	/// Returns body size, if body is stream or async - std::nullopt is returned
+	std::optional<std::size_t> size(const http_body & body) noexcept;
+
+	/// Copies everything from source to dest except http body, http body left intact.
+	void copy_meta(const http_request & src, http_request & dest);
+	void copy_meta(const http_response & src, http_response & dest);
+	/// Copies everything from source except http body, http body left intact.
+	auto copy_meta(const http_request & src) -> http_request;
+	auto copy_meta(const http_response & src) -> http_response;
+	
+	
+	/// Copies from http_body to generic char container(string, vector, etc).
+	/// Only http_body vector and string variants can be copied from, 
+	///   in other cases(stream async, lstream) - exception will be thrown.
+	template <class Container>
+	std::enable_if_t<ext::is_container_v<Container>>
+	/*void*/ copy_from(const http_body & body, Container & container);
+
+	/// Copies info http_body from generic char container(string, vector, etc).
+	/// Only http_body vector and string variants can be copied into,
+	///   in other cases(stream async, lstream) - exception will be thrown.
+	template <class Container>
+	std::enable_if_t<ext::is_container_v<Container>>
+	/*void*/ copy_into(const Container & container, http_body & body);
+
+	/// Copy methods for http requests, responses and bodies.
+	/// Http body can be heavy or can not be copied at all, but still it is desired to be able copy http requests/responses.
+	/// So we introduce special copy functions: relaxed and stronger.
+	/// There 3 type of copy methods:
+	///   copy_mv  - copies everything except body, body is always moved
+	///   copy_cp  - copies everything, body is copied if possible, otherwise moved(stream async, etc)
+	///   copy_chk - copies everything, body is copied if possible, otherwise exception is thrown(stream async, etc)
+	http_body  copy_mv(      http_body & src);
+	http_body  copy_cp(      http_body & src);
+	http_body copy_chk(const http_body & src);
+
+	http_request  copy_mv(      http_request & src);
+	http_request  copy_cp(      http_request & src);
+	http_request copy_chk(const http_request & src);
+
+	http_response  copy_mv(      http_response & src);
+	http_response  copy_cp(      http_response & src);
+	http_response copy_chk(const http_response & src);
+
+
+	/// resets/clears http body, request, response
+	void clear(http_body     & body)     noexcept;
+	void clear(http_request  & request)  noexcept;
+	void clear(http_response & response) noexcept;
+
+
+	// helpers to write http request and response into ostream.
+	// This only intended for logging and alike.
+
 	void write_http_request (std::streambuf & os, const http_request  & request,  bool with_body = true);
 	void write_http_response(std::streambuf & os, const http_response & response, bool with_body = true);
 
@@ -214,9 +263,6 @@ namespace ext::net::http
 
 	inline std::ostream & operator <<(std::ostream & os, const http_request  & request)  { write_http_request(os, request);   return os; }
 	inline std::ostream & operator <<(std::ostream & os, const http_response & response) { write_http_response(os, response); return os; }
-
-	/// respwmime - response with mime: helper function for creating http response with mime type
-	template <class Type> http_response httpresp_wmime(std::string_view content_type, Type && http_body);
 	
 	/************************************************************************/
 	/*                   http_server_control                                */
@@ -332,10 +378,12 @@ namespace ext::net::http
 	
 	
 	
+	
+	
 	/************************************************************************/
 	/*                   template functions implementation                  */
 	/************************************************************************/
-
+	
 	template <class Container>
 	struct http_body_copy_from_visitor
 	{
@@ -376,6 +424,7 @@ namespace ext::net::http
 		std::visit(http_body_copy_to_visitor(cont), body);
 	}
 	
+	
 	template <class Type>
 	http_response httpresp_wmime(std::string_view content_type, Type && http_body)
 	{
@@ -387,6 +436,66 @@ namespace ext::net::http
 		
 		return response;
 	}
+	
+	inline http_request copy_meta(const http_request & src)
+	{
+		http_request dest;
+		copy_meta(src, dest);
+		return dest;
+	}
+
+	inline http_response copy_meta(const http_response & src)
+	{
+		http_response dest;
+		copy_meta(src, dest);
+		return dest;
+	}
+	
+	namespace detail
+	{
+		template <class Container>
+		struct http_body_copy_from_visitor
+		{
+			Container * cont;
+			http_body_copy_from_visitor(Container & cont) : cont(&cont) {}
+			
+			void operator()(const std::string       & str ) const { cont->assign(str.begin(), str.end()); }
+			void operator()(const std::vector<char> & data) const { cont->assign(data.begin(), data.end()); }
+			void operator()(const std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy from http_body:std::streambuf"); }
+			void operator()(const std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy from http_body:async_http_body_source"); }
+			void operator()(const lstream & ) const { throw std::runtime_error("Can't copy from http_body:lstream"); }
+			void operator()(const null_body_type) const { cont->clear(); }
+		};
+		
+		template <class Container>
+		struct http_body_copy_into_visitor
+		{
+			const Container * cont;
+			http_body_copy_into_visitor(const Container & cont) : cont(&cont) {}
+			
+			void operator()(std::string       & str ) const { str.assign(cont->begin(), cont->end()); }
+			void operator()(std::vector<char> & data) const { data.assign(cont->begin(), cont->end()); }
+			void operator()(std::unique_ptr<std::streambuf> & ) const { throw std::runtime_error("Can't copy into http_body:std::streambuf"); }
+			void operator()(std::unique_ptr<async_http_body_source> & ) const { throw std::runtime_error("Can't copy into http_body:async_http_body_source"); }
+			void operator()(const lstream & ) const { throw std::runtime_error("Can't copy into http_body:lstream"); }
+			void operator()(null_body_type) const { throw std::runtime_error("Can't copy into http_body/null_body_type"); }
+		};
+	}
+	
+	template <class Container>
+	std::enable_if_t<ext::is_container_v<Container>>
+	/*void*/ copy_from(const http_body & body, Container & container)
+	{
+		return std::visit(detail::http_body_copy_from_visitor(container), body);
+	}
+	
+	template <class Container>
+	std::enable_if_t<ext::is_container_v<Container>>
+	/*void*/ copy_into(const Container & container, http_body & body)
+	{
+		return std::visit(detail::http_body_copy_into_visitor(container), body);
+	}
+	
 	
 	template <class HeaderRange>
 	auto get_header_value(const HeaderRange & headers, std::string_view name) noexcept -> std::string_view
