@@ -1,11 +1,12 @@
+#include <string>
+#include <string_view>
 #include <stdexcept>
 #include <boost/regex.hpp>
 
 #include <ext/net/parse_url.hpp>
 #include <ext/net/mime/url_encoding.hpp>
 
-namespace ext {
-namespace net
+namespace ext::net
 {
 	namespace
 	{
@@ -30,31 +31,40 @@ namespace net
 		};
 	}
 
-	parsed_url parse_url(const std::string & url)
+	parsed_url parse_url(std::string_view url)
 	{
 		parsed_url result;
-		if (parse_url(url, result)) return result;
+		if (parse_url(url, result))
+			return result;
 
 		throw std::runtime_error("parse_uri failure");
 	}
 
 
-	bool parse_url(const std::string & url, parsed_url & res)
+	bool parse_url(std::string_view url, parsed_url & res)
 	{
-		boost::smatch match;
-		bool success = boost::regex_match(url, match, url_regex);
-		if (not success) return false;
+		boost::cmatch match;
+		
+		auto * first = url.data();
+		auto * last  = first + url.size();
+		bool success = boost::regex_match(first, last, match, url_regex);
+		if (not success)
+			return false;
 
-		res.schema = match[1];
-		res.user   = match[2];
-		res.pass   = match[3];
-		res.host   = match[4];
-		res.port   = match[5];
+		#define assign_match(n) .assign(match[n].begin(), match[n].end())
+		
+		res.schema  assign_match(1);
+		res.user    assign_match(2);
+		res.pass    assign_match(3);
+		res.host    assign_match(4);
+		res.port    assign_match(5);
 
-		res.path   = match[6];
-		res.query  = match[7];
-		res.frag   = match[8];
+		res.path    assign_match(6);
+		res.query   assign_match(7);
+		res.frag    assign_match(8);
 
+		#undef assign_match
+		
 		return true;
 	}
-}}
+}

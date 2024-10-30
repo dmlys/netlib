@@ -1,8 +1,8 @@
 #pragma once
 #include <string>
+#include <string_view>
 
-namespace ext {
-namespace net
+namespace ext::net
 {
 	struct parsed_url
 	{
@@ -23,6 +23,6 @@ namespace net
 	/// * //httpbin.org:83/path/text.log
 	/// * /path/text.log
 	/// * path/text.log
-	parsed_url parse_url(const std::string & url);
-	bool parse_url(const std::string & url, parsed_url & res);
-}}
+	parsed_url parse_url(std::string_view url);
+	bool parse_url(std::string_view url, parsed_url & res);
+}
