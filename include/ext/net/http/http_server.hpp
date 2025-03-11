@@ -311,7 +311,9 @@ namespace ext::net::http
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
 		///  * if some error occurs - logs it and returns handle_finish
-		virtual auto peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
+		///
+		/// NOTE: this method always operates on socket itself(recv with MSG_PEEK). It never calls SSL_peek.
+		virtual auto sock_peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type;
 		/// non blocking recv method:
 		///  * if successfully reads something - returns nullptr
 		///  * if read would block - returns wait_connection operation,
@@ -340,9 +342,10 @@ namespace ext::net::http
 
 	protected:
 		// http_request processing parts
-		virtual auto handle_start(processing_context * context) -> handle_method_type;
-		virtual auto handle_end_processing(processing_context * context) -> handle_method_type;
-		virtual void handle_finish(processing_context * context);
+		virtual auto handle_start_request_processing(processing_context * context) -> handle_method_type;
+		virtual auto handle_end_request_processing(processing_context * context) -> handle_method_type;
+		virtual auto handle_eof_socket_condition(processing_context * context) -> handle_method_type;
+		virtual void handle_finish_connection(processing_context * context);
 		
 		virtual auto handle_ssl_configuration(processing_context * context) -> handle_method_type;
 		virtual auto handle_ssl_start_handshake(processing_context * context) -> handle_method_type;

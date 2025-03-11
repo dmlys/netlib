@@ -550,7 +550,7 @@ namespace ext::net::http
 	void http_server::run_socket(processing_context * context)
 	{
 		auto next_method = std::exchange(context->next_method, nullptr);
-		if (not next_method) next_method = &http_server::handle_start;
+		if (not next_method) next_method = &http_server::handle_start_request_processing;
 
 		if (not m_processing_executor)
 			executor_handle_runner(next_method, std::move(context));
@@ -567,7 +567,7 @@ namespace ext::net::http
 	{
 		try
 		{
-            again: switch (next_method.type())
+			again: switch (next_method.type())
 			{
 				default: EXT_UNREACHABLE();
 
@@ -589,7 +589,7 @@ namespace ext::net::http
 					{
 						auto * old = context->async_task_state.exchange((ptr.addref(), ptr.get()), std::memory_order_relaxed);
 						// actually old should always be null, unless we got some exception from line below(calling next_method),
-						// and nobody cleared async_task_state in context. RAII unsures that not happens
+						// and nobody cleared async_task_state in context. RAII ensures that not happens
 						assert(old == nullptr); EXT_UNUSED(old);
 						//if (old) old->release();
 						
@@ -617,13 +617,13 @@ namespace ext::net::http
 		catch (std::exception & ex)
 		{
 			context->conn_action = connection_action_type::close;
-			next_method = &http_server::handle_finish;
+			next_method = &http_server::handle_finish_connection;
 			LOG_ERROR("exception while processing socket = {}: class - {}; what - {}", context->sock.handle(), boost::core::demangle(typeid(ex).name()), ex.what());
 		}
 		catch (...)
 		{
 			context->conn_action = connection_action_type::close;
-			next_method = &http_server::handle_finish;
+			next_method = &http_server::handle_finish_connection;
 			LOG_ERROR("exception while processing socket = {}: unknown exception(...)", context->sock.handle());
 		}
 
@@ -663,45 +663,22 @@ namespace ext::net::http
 		return ch == 0x16;
 	}
 
-	auto http_server::peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type
+	auto http_server::sock_peek(processing_context * context, char * data, int len, int & read) const -> handle_method_type
 	{
 		auto sock = context->sock.handle();
 		std::error_code errc;
-	#ifdef EXT_ENABLE_OPENSSL
-		auto * ssl = context->ssl_ptr.get();
-	#endif
 
 	again:
-	#ifdef EXT_ENABLE_OPENSSL
-		if (ssl)
 		{
-			SOCK_LOG_TRACE("calling SSL_read");
-			read = ::SSL_peek(ssl, data, len);
-			if (read > 0) return nullptr;
-			errc = socket_ssl_rw_error(read, ssl);
-		}
-		else
-	#endif
-		{
-			SOCK_LOG_TRACE("calling recv");
+			SOCK_LOG_TRACE("calling recv(MSG_PEEK)");
 			read = ::recv(sock, data, len, MSG_PEEK);
 			if (read > 0) return nullptr;
 			errc = socket_rw_error(read, last_socket_error());
 		}
 
-		if (errc == std::errc::interrupted) goto again;
-	#ifdef EXT_ENABLE_OPENSSL
-		if (errc == openssl::ssl_errc::want_read)
-		{
-			SOCK_LOG_DEBUG("SSL_read: got WANT_READ, scheduling socket waiting");
-			return async_method(socket_queue::readable, context->cur_method);
-		}
-		if (errc == openssl::ssl_errc::want_write)
-		{
-			SOCK_LOG_DEBUG("SSL_read: got WANT_WRITE, scheduling socket waiting");
-			return async_method(socket_queue::writable, context->cur_method);
-		}
-	#endif
+		if (errc == std::errc::interrupted)
+			goto again;
+
 		if (errc == sock_errc::would_block)
 		{
 			SOCK_LOG_DEBUG("recv: got would_block, scheduling socket waiting");
@@ -710,10 +687,7 @@ namespace ext::net::http
 
 		if (errc != sock_errc::eof)
 		{
-			SOCK_LOG_WARN("got system error while processing request(read from socket): {}", format_error(errc));
-	#ifdef EXT_ENABLE_OPENSSL
-			openssl::openssl_clear_errors();
-	#endif
+			SOCK_LOG_WARN("got system error while processing request(peek from socket): {}", format_error(errc));
 			context->conn_action = connection_action_type::close;
 			return &http_server::handle_cleanup_and_finish;
 		}
@@ -726,14 +700,14 @@ namespace ext::net::http
 	{
 		auto sock = context->sock.handle();
 		std::error_code errc;
-	#ifdef EXT_ENABLE_OPENSSL
-		auto * ssl = context->ssl_ptr.get();
-	#endif
 
 	again:
 	#ifdef EXT_ENABLE_OPENSSL
-		if (ssl)
+		if (context->have_tls_session)
 		{
+			auto * ssl = context->ssl_ptr.get();
+			assert(ssl);
+			
 			SOCK_LOG_TRACE("calling SSL_read");
 			read = ::SSL_read(ssl, data, len);
 			if (read > 0) return nullptr;
@@ -785,14 +759,14 @@ namespace ext::net::http
 	{
 		auto sock = context->sock.handle();
 		std::error_code errc;
-	#ifdef EXT_ENABLE_OPENSSL
-		auto * ssl = context->ssl_ptr.get();
-	#endif
 
 	again:
 	#ifdef EXT_ENABLE_OPENSSL
-		if (ssl)
+		if (context->have_tls_session)
 		{
+			auto * ssl = context->ssl_ptr.get();
+			assert(ssl);
+			
 			SOCK_LOG_TRACE("calling SSL_write");
 			written = ::SSL_write(ssl, data, len);
 			if (written >= 0) return nullptr;
@@ -926,34 +900,36 @@ namespace ext::net::http
 		
 		return std::clamp(n, min_bufsize, max_bufsize);
 	}
-
-	auto http_server::handle_start(processing_context * context) -> handle_method_type
+	
+	auto http_server::handle_start_request_processing(processing_context * context) -> handle_method_type
 	{
-		// we should check for EOF, it's not a error at this point. We should just close this socket in this case.
-		// sock.in_avail() will use ioctl(..., FIONREAD, &avail) or SSL_pending.
+		// we should check for EOF, it's not a error at this point.
+		// We should just close this socket in this case.
+		
+		// Do we have something in buffer? 
+		// This can happen if client sends 2 http requests one immediately after another, not waiting for response - HTTP pipelining
 		if (context->input_first != context->input_last)
 			goto success;
 		
 		// it's possible that select/poll notifies socket is readable/writable, but in fact it's not.
-		// We should check for error/would_block if socket does not have pending characters
 		char ch; int len;
-		if (auto next = peek(context, &ch, 1, len))
+		if (auto next = sock_peek(context, &ch, 1, len))
 			return next;
 
 		if (len > 0) goto success;
 
 		// no error and no data -> EOF -> no request, just close it quietly
-		return &http_server::handle_end_processing;
+		return &http_server::handle_eof_socket_condition;
 
 	success:
-		if (context->ssl_ptr and context->expect_tls)
+		if (context->ssl_ptr and not context->have_tls_session)
 			return &http_server::handle_ssl_configuration;
-
+		
 		SOCK_LOG_DEBUG("starting processing of a new http request");
 		return &http_server::handle_request_headers_parsing;
 	}
 	
-	auto http_server::handle_end_processing(processing_context * context) -> handle_method_type
+	auto http_server::handle_end_request_processing(processing_context * context) -> handle_method_type
 	{
 		if (context->conn_action == connection_action_type::keep_alive)
 		{
@@ -962,16 +938,28 @@ namespace ext::net::http
 		}
 		
 #ifdef EXT_ENABLE_OPENSSL
-		if (context->ssl_ptr)
+		// shutdown SSL session unless we received EOF -> nobody will answer anyway 
+		if (context->have_tls_session and not context->socket_have_eof)
 			return &http_server::handle_ssl_shutdown;
 #endif
 		
-		// can't close socket here,
-		// see close_connection: prints some info, and erases from some maps by socket handle
+		// we properly send response -> shutdown socket politely (see shutdown_connection)
+		context->shutdown_socket = true;
 		return &http_server::handle_cleanup_and_finish;
 	}
 	
-	void http_server::handle_finish(processing_context * context)
+	auto http_server::handle_eof_socket_condition(processing_context * context) -> handle_method_type
+	{
+		assert(context->conn_action == connection_action_type::close);
+		
+		SOCK_LOG_DEBUG("EOF detected -> closing connection");
+		
+		context->socket_have_eof = true;
+		context->conn_action = connection_action_type::close;
+		return &http_server::handle_end_request_processing;
+	}
+	
+	void http_server::handle_finish_connection(processing_context * context)
 	{
 		assert(std::this_thread::get_id() == m_threadid);
 		assert(context->conn_action != connection_action_type::def);
@@ -996,7 +984,7 @@ namespace ext::net::http
 
 		if (pending_ssl_hanshake(sock))
 		{
-			if (context->expect_tls)
+			if (context->ssl_ptr)
 			{
 				return &http_server::handle_ssl_start_handshake;
 			}
@@ -1009,7 +997,7 @@ namespace ext::net::http
 		}
 		else
 		{
-			if (context->expect_tls)
+			if (context->ssl_ptr)
 			{
 				SOCK_LOG_WARN("peer does not requested SSL session, but server is configured to serve SSL on that listener, closing connection");
 				context->conn_action = connection_action_type::close;
@@ -1017,7 +1005,7 @@ namespace ext::net::http
 			}
 			else
 			{
-				return &http_server::handle_request_headers_parsing;
+				return &http_server::handle_start_request_processing;
 			}
 		}
 	#else
@@ -1107,8 +1095,8 @@ namespace ext::net::http
 		auto & ssl_ptr = context->ssl_ptr;
 		assert(ssl_ptr);
 
-		context->expect_tls = false;
-		return &http_server::handle_start;
+		context->have_tls_session = true;
+		return &http_server::handle_start_request_processing;
 	#else
 		assert(false);
 		std::terminate();
@@ -1121,6 +1109,7 @@ namespace ext::net::http
 		// see description of thw phase SSL_shutdown in description of SSL_shutdown function
 		// https://www.openssl.org/docs/manmaster/ssl/SSL_shutdown.html
 		
+		assert(context->have_tls_session);
 		auto * ssl  = context->ssl_ptr.get();
 		assert(ssl);
 		
@@ -1222,6 +1211,7 @@ namespace ext::net::http
 	error:
 		SOCK_LOG_WARN("SSL_shutdown failure: {}", format_error(errc));
 		context->async_state = 0;
+		context->have_tls_session = false;
 		context->ssl_ptr.reset();
 		openssl::openssl_clear_errors();
 		context->conn_action = connection_action_type::close;
@@ -1229,8 +1219,9 @@ namespace ext::net::http
 		
 	success:
 		context->async_state = 0;
+		context->have_tls_session = false;
 		context->ssl_ptr.reset();
-		return &http_server::handle_end_processing;
+		return &http_server::handle_end_request_processing;
 		
 	#else
 		assert(false);
@@ -1281,14 +1272,14 @@ namespace ext::net::http
 				context->input_first += read;
 
 				// It's eof actually, normally it should not happen.
-				// Parser should throw exception when sees premature eof, and just eof at start is handled by handle_start.
+				// Parser should throw exception when sees premature eof, and just eof at start is handled by handle_start_request_processing.
 				// But if there are new line characters(\r or \n, but not any other) then parser would just skip them, like nothing happened.
 				// If after that eof came - parser would not throw on parse with len == 0 call.
 				// And we actually would got here infinite loop, so we better handle it
 				if (len == 0)
 				{
 					SOCK_LOG_DEBUG("got EOF after some empty lines");
-					return &http_server::handle_end_processing;
+					return &http_server::handle_eof_socket_condition;
 				}
 				
 			} while (not parser.headers_parsed());
@@ -2213,12 +2204,13 @@ namespace ext::net::http
 				
 			} while (context->written_count < size);
 
-			context->written_count = 0;
+			context->async_state = 0, context->written_count = 0;
 			return &http_server::handle_response_written;
 		}
 		catch (std::runtime_error & ex)
 		{
 			SOCK_LOG_WARN("got writting error while writting normal response body: {}", ex.what());
+			context->async_state = 0, context->written_count = 0;
 			context->conn_action = connection_action_type::close;
 			return &http_server::handle_cleanup_and_finish;
 		}
@@ -3100,7 +3092,7 @@ namespace ext::net::http
 		context->final_response_written = true;
 		context->response = null_response;
 		
-		return &http_server::handle_end_processing;
+		return &http_server::handle_end_request_processing;
 	}
 	
 	auto http_server::handle_cleanup_and_finish(processing_context * context) -> handle_method_type
@@ -3127,8 +3119,7 @@ namespace ext::net::http
 			closef.wait();
 		}
 		
-		context->shutdown_socket = true;
-		return &http_server::handle_finish;
+		return &http_server::handle_finish_connection;
 	}
 
 	auto http_server::allocate_context() -> processing_context *
@@ -3192,15 +3183,13 @@ namespace ext::net::http
 		context->input_first = context->input_last = 0;
 		context->input_buffer.resize(std::max(context->input_buffer.capacity(), recvbuf_size(context->sock.get())));
 		
-		context->expect_tls = false;
 		context->expect_extension = context->continue_answer = false;
 		context->first_response_written = context->final_response_written = false;
-		context->shutdown_socket = false;
 		context->response_is_final = false;
 		context->response_is_null = false;
 
 		context->parser.reset(&context->request);
-		context->writer.reset(nullptr);		
+		context->writer.reset(nullptr);
 		
 		context->async_state = 0;
 		context->response = null_response;
@@ -3220,16 +3209,19 @@ namespace ext::net::http
 		
 		context->config = m_config_context;
 
-		#ifdef EXT_ENABLE_OPENSSL
 		bool newconn = m_sock_queue.lasl() != invalid_socket;
 		if (newconn)
 		{
+			context->shutdown_socket = false;
+			context->socket_have_eof = false;
+			context->have_tls_session = false;
+			
+		#ifdef EXT_ENABLE_OPENSSL
 			auto lhandle = m_sock_queue.lasl();
 			
 			const auto & listener_context = get_listener_context(lhandle);
 			if (listener_context.ssl_ctx)
 			{
-				context->expect_tls = true;
 				auto * ssl = ::SSL_new(listener_context.ssl_ctx.get());
 				context->ssl_ptr.reset(ssl, ext::noaddref);
 
@@ -3240,8 +3232,9 @@ namespace ext::net::http
 					openssl::openssl_clear_errors();
 				}
 			}
-		}
 		#endif
+		}
+		
 	}
 	
 	void http_server::cleanup_context(processing_context * context)
@@ -3256,7 +3249,7 @@ namespace ext::net::http
 		context->config = nullptr;
 		context->filter_ctx.reset();
 		context->prop_map.reset();
-				
+		
 		context->input_buffer.clear();
 		context->chunk_prefix.clear();
 		context->request_raw_buffer.clear();
@@ -3285,7 +3278,7 @@ namespace ext::net::http
 		bool socket_ready = context->input_first < context->input_last
 		#if EXT_ENABLE_OPENSSL
 		    // SSL has it's own internal buffer, that can have pending data
-		    or (context->ssl_ptr and ::SSL_pending(context->ssl_ptr.get()) > 0)
+		    or (context->have_tls_session and ::SSL_pending(context->ssl_ptr.get()) > 0)
 		#endif
 			;
 		
@@ -3306,7 +3299,12 @@ namespace ext::net::http
 			auto sock = context->sock.get();
 			int res = ::shutdown(sock, shut_rdwr);
 			if (res < 0)
-				LOG_WARN("shutdown connection(sock={}) failure; error is {}", sock, format_error(last_socket_error_code()));	
+			{
+				auto sockerr = last_socket_error_code();
+				if (sockerr != std::errc::not_connected)
+					LOG_WARN("shutdown connection(sock={}) failure; error is {}", sock, format_error(sockerr));
+			}
+				
 		}
 	}
 	

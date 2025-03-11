@@ -243,17 +243,16 @@ namespace ext::net::http
 		auto * m_logger = server->m_logger;
 		
 		auto sock = context->sock.handle();
-	#ifdef EXT_ENABLE_OPENSSL
-		auto * ssl = context->ssl_ptr.get();
-	#endif
-		
 		auto until = time_point::clock::now() + server->m_socket_timeout;
 		SOCK_LOG_TRACE("http_body_streambuf_impl::underflow: reading from socket");
 		
 	read_again:
 	#ifdef EXT_ENABLE_OPENSSL
-		if (ssl)
+		if (context->have_tls_session)
 		{
+			auto * ssl = context->ssl_ptr.get();
+			assert(ssl);
+			
 			SOCK_LOG_TRACE("calling SSL_read");
 			read = ::SSL_read(ssl, data, len);
 			if (read > 0) return true;

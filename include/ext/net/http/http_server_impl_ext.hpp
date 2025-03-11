@@ -116,15 +116,17 @@ namespace ext::net::http
 		std::shared_ptr<const config_context> config; // http server config snapshot
 		const http_server_handler * handler;          // found handler for request
 		
-		bool expect_tls;               // this connection expects tls session(socket came from listener configured with SSL)
+		bool have_tls_session;         // this connection have tls session
 		bool expect_extension;         // request with Expect: 100-continue header, see RFC7231 section 5.1.1.
 		bool continue_answer;          // context holds answer 100 Continue
 		bool first_response_written;   // wrote first 100-continue
 		bool final_response_written;   // wrote final(possibly second) response
-		bool shutdown_socket;          // socket should be shutdowned before closing(this is regular flow, counter to network exceptional/error flow)
 		
 		bool response_is_final;        // response was marked as final, see http_server_control
 		bool response_is_null;         // response was set to null, no response should be sent, connection should be closed
+		
+		bool shutdown_socket;          // socket should be shutdowned before closing(this is regular flow, counter to network exceptional/error flow)
+		bool socket_have_eof;          // socket have no more data - eof, it was probably shutdowned(or closed) by peer
 		
 		std::atomic<ext::shared_state_basic *> executor_state = nullptr;      // holds current pending processing execution task state, used for internal synchronization
 		std::atomic<ext::shared_state_basic *> async_task_state = nullptr;    // holds current pending async operation(from handlers), used for internal synchronization
