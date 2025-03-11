@@ -3303,8 +3303,12 @@ namespace ext::net::http
 		// If some error/exception occured and we got there earlier - just close socket.
 		if (context->shutdown_socket)
 		{
+			// NOTE: it's important to use SD_SEND and not SD_BOTH.
+			//       At least on windows if SD_BOTH is used 
+			//       peer can recieve WSAECONNRESET instead of all bytes what we send to it.
+			//       With SD_SEND no such behaviour observed.
 			auto sock = context->sock.get();
-			int res = ::shutdown(sock, shut_rdwr);
+			int res = ::shutdown(sock, shut_wr);
 			if (res < 0)
 			{
 				auto sockerr = last_socket_error_code();
