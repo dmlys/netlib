@@ -2028,10 +2028,17 @@ namespace ext::net::http
 	{
 		check_response(context);
 		
+		auto & response = std::get<http_response>(context->response);
+		
+		if (response.conn_action == connection_action_type::def)
+			response.conn_action = context->conn_action;
+		
+		// response connection action is final one
+		context->conn_action = response.conn_action;
+		
 		if (not context->continue_answer)
 			postprocess_response(context);
 		
-		auto & response = std::get<http_response>(context->response);
 		log_response(response);
 		context->writer.reset(&response);
 
@@ -3350,9 +3357,6 @@ namespace ext::net::http
 	{
 		assert(std::holds_alternative<http_response>(context->response));
 		auto & resp = std::get<http_response>(context->response);
-		
-		if (resp.conn_action == connection_action_type::def)
-			resp.conn_action = context->conn_action;
 		
 		if (resp.conn_action == connection_action_type::close)
 			set_header(resp.headers, "Connection", "close");
