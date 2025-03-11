@@ -43,7 +43,7 @@ namespace ext::net
 		///    hint.ai_family = af;
 		///    hint.ai_protocol = IPPROTO_TCP;
 		///    hint.ai_socktype = SOCK_STREAM;
-		/// then socket from created and bound from/to resolved address.
+		/// then socket created and bound to resolved address.
 		/// Also setsockopt with SO_REUSEADDR is called.
 		/// Throws std::system_error in case or errors
 		static void bind(socket_handle_type & handle, const char * ipaddr, unsigned short port, int af = af_unspec);
