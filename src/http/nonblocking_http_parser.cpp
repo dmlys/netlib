@@ -118,28 +118,28 @@ namespace ext::net::http::http_server_utils
 		return *static_cast<nonblocking_http_parser *>(parser->data);
 	}
 
-	inline ::http_parser & nonblocking_http_parser::get_parser() noexcept
+	inline ::http_parser * nonblocking_http_parser::get_parser() noexcept
 	{
 		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
 			"::http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<::http_parser *>(&m_parser_object);
+		return reinterpret_cast<::http_parser *>(&m_parser_object);
 	}
 
-	inline const ::http_parser & nonblocking_http_parser::get_parser() const noexcept
+	inline const ::http_parser * nonblocking_http_parser::get_parser() const noexcept
 	{
 		static_assert(sizeof(m_parser_object) == sizeof(::http_parser),
 			"::http_parser size is different than impl buffer");
 
-		return *reinterpret_cast<const ::http_parser *>(&m_parser_object);
+		return reinterpret_cast<const ::http_parser *>(&m_parser_object);
 	}
 
-	inline const ::http_parser_settings & nonblocking_http_parser::get_settings() const noexcept
+	inline const ::http_parser_settings * nonblocking_http_parser::get_settings() const noexcept
 	{
 		static_assert(sizeof(*m_settings_object) == sizeof(::http_parser_settings),
 			"::http_parser_settings size is different than impl buffer");
 
-		return *reinterpret_cast<const ::http_parser_settings *>(m_settings_object);
+		return reinterpret_cast<const ::http_parser_settings *>(m_settings_object);
 	}
 
 	//header_map & http_server_request_parser::get_headers() const noexcept
@@ -170,7 +170,7 @@ namespace ext::net::http::http_server_utils
 
 	void nonblocking_http_parser::init_parser_internals() noexcept
 	{
-		auto * parser = &get_parser();
+		auto * parser = get_parser();
 		parser->data = this;
 		m_settings_object = &settings_object_headers;
 		http_parser_init(parser, ::http_parser_type::HTTP_REQUEST);
@@ -360,8 +360,8 @@ namespace ext::net::http::http_server_utils
 
 		do
 		{
-			auto * parser   = &get_parser();
-			auto * settings = &get_settings();
+			auto * parser = get_parser();
+			auto * settings = get_settings();
 
 			consumed = http_parser_execute(parser, settings, data, len);
 			auto err = HTTP_PARSER_ERRNO(parser);
@@ -381,22 +381,22 @@ namespace ext::net::http::http_server_utils
 
 	bool nonblocking_http_parser::should_keep_alive() const noexcept
 	{
-		return ::http_should_keep_alive(&get_parser()) == 1;
+		return ::http_should_keep_alive(get_parser()) == 1;
 	}
 
 	bool nonblocking_http_parser::should_close() const noexcept
 	{
-		return ::http_should_keep_alive(&get_parser()) == 0;
+		return ::http_should_keep_alive(get_parser()) == 0;
 	}
 
 	int nonblocking_http_parser::http_version_major() const noexcept
 	{
-		return get_parser().http_major;
+		return get_parser()->http_major;
 	}
 
 	int nonblocking_http_parser::http_version_minor() const noexcept
 	{
-		return get_parser().http_minor;
+		return get_parser()->http_minor;
 	}
 
 	int nonblocking_http_parser::http_version() const noexcept
@@ -406,12 +406,12 @@ namespace ext::net::http::http_server_utils
 
 	int nonblocking_http_parser::http_code() const noexcept
 	{
-		return get_parser().status_code;
+		return get_parser()->status_code;
 	}
 
 	std::string nonblocking_http_parser::http_method() const
 	{
-		return ::http_method_str(static_cast<::http_method>(get_parser().method));
+		return ::http_method_str(static_cast<::http_method>(get_parser()->method));
 	}
 
 	void nonblocking_http_parser::reset(http_request * request)
@@ -476,7 +476,7 @@ namespace ext::net::http::http_server_utils
 
 		std::memcpy(&m_parser_object, &other.m_parser_object, sizeof(m_parser_object));
 		m_settings_object = other.m_settings_object;
-		get_parser().data = this;
+		get_parser()->data = this;
 	}
 
 	nonblocking_http_parser & nonblocking_http_parser::operator =(nonblocking_http_parser && other)

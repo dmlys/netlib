@@ -96,9 +96,9 @@ namespace ext::net::http
 	private:
 		static blocking_http_parser & get_this(::http_parser * parser) noexcept;
 
-		      ::http_parser & get_parser()       noexcept;
-		const ::http_parser & get_parser() const noexcept;
-		const ::http_parser_settings & get_settings() const noexcept;
+		      ::http_parser * get_parser()       noexcept;
+		const ::http_parser * get_parser() const noexcept;
+		const ::http_parser_settings * get_settings() const noexcept;
 
 		// ::http_parser callbacks
 		static int on_status(::http_parser * parser, const char * data, size_t len);
@@ -169,7 +169,7 @@ namespace ext::net::http
 		std::string http_method() const;
 
 		/// can be useful for error and some other info extracting
-		const ::http_parser & parser() const { return get_parser(); }
+		const ::http_parser * parser() const noexcept { return get_parser(); }
 
 	public:
 		blocking_http_parser() : blocking_http_parser(request | response) {}

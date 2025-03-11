@@ -80,9 +80,9 @@ namespace ext::net::http::http_server_utils
 	private:
 		static nonblocking_http_parser & get_this(::http_parser * parser) noexcept;
 
-		      ::http_parser & get_parser()       noexcept;
-		const ::http_parser & get_parser() const noexcept;
-		const ::http_parser_settings & get_settings() const noexcept;
+		      ::http_parser * get_parser()       noexcept;
+		const ::http_parser * get_parser() const noexcept;
+		const ::http_parser_settings * get_settings() const noexcept;
 
 		//header_map & get_headers() const noexcept;
 		//std::string & get_body() const noexcept;
@@ -145,7 +145,7 @@ namespace ext::net::http::http_server_utils
 		std::string http_method() const;
 
 		/// can be useful for error and some other info extracting
-		const ::http_parser & parser() const { return get_parser(); }
+		const ::http_parser * parser() const { return get_parser(); }
 
 	public:
 		nonblocking_http_parser() { m_request = nullptr; }
