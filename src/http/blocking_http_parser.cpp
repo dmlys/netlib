@@ -9,6 +9,7 @@
 #include <ext/config.hpp>
 #include <ext/range.hpp>
 #include <ext/iostreams/streambuf.hpp>
+#include <ext/net/socket_streambuf.hpp>
 #include <ext/net/http/blocking_http_parser.hpp>
 
 #include "http_parser.h"
@@ -68,10 +69,24 @@ namespace ext::net::http
 	const unsigned blocking_http_parser::request  = HTTP_REQUEST;
 	const unsigned blocking_http_parser::response = HTTP_RESPONSE;
 
+	inline static void check_stream(std::streambuf & sb)
+	{
+		if (auto * ssb = dynamic_cast<socket_streambuf *>(&sb))
+		{
+			if (ssb->last_error())
+				ssb->throw_last_error();
+		}
+	}
+	
 	inline static bool peek(std::streambuf & sb)
 	{
 		typedef std::streambuf::traits_type traits_type;
-		return not traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
+		bool eof = traits_type::eq_int_type(traits_type::eof(), sb.sgetc());
+		
+		if (eof)
+			check_stream(sb);
+		
+		return not eof;
 	}
 
 	inline blocking_http_parser & blocking_http_parser::get_this(::http_parser * parser) noexcept

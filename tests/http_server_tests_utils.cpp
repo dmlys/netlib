@@ -103,7 +103,6 @@ namespace ext::net::http::test_utils
 		ext::net::socket_stream sock;
 		sock.timeout(std::chrono::steady_clock::duration::max());
 		sock.connect(host, port);
-		sock.rdbuf()->throw_errors(true);
 		
 		return sock;
 	}
